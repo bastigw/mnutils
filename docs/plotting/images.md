@@ -23,9 +23,12 @@ you.
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
-import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib_inline.backend_inline
 
-matplotlib.use("Agg")  # headless: this page never opens a window
+# Crisp retina output + sane default DPI for the rendered docs
+matplotlib_inline.backend_inline.set_matplotlib_formats("retina")
+plt.rcParams["figure.dpi"] = 150
 
 from loguru import logger
 
@@ -52,17 +55,17 @@ from mnutils.plotting.images import display_images
 ```{code-cell} ipython3
 single = np.random.randint(-10, 20, size=(20, 20))
 fig, ax = display_images(single)
-plt.close(fig)
+plt.show()
 print("2D:", ax.shape)
 
 volume = np.random.randint(-10, 20, size=(20, 20, 6))
 fig, ax = display_images(volume)
-plt.close(fig)
+plt.show()
 print("3D (one volume, middle slice shown):", ax.shape)
 
 grid = np.random.randint(-100, 20, size=(20, 20, 3, 7))
 fig, ax = display_images(grid)
-plt.close(fig)
+plt.show()
 print("4D (grid of 7):", ax.shape)
 ```
 
@@ -86,12 +89,12 @@ a grid); a list of *volumes* (each already 3D) becomes 4D (a grid, one per volum
 ```{code-cell} ipython3
 list_of_images = [np.full((10, 10), i, dtype=float) for i in range(4)]
 fig, ax = display_images(list_of_images)
-plt.close(fig)
+plt.show()
 print("list of 2D arrays:", ax.shape)
 
 list_of_volumes = [np.full((10, 10, 3), i, dtype=float) for i in range(4)]
 fig, ax = display_images(list_of_volumes)
-plt.close(fig)
+plt.show()
 print("list of volumes:", ax.shape)
 ```
 
@@ -125,7 +128,7 @@ mostly_zero = np.zeros((20, 20))
 mostly_zero[8:12, 8:12] = np.random.rand(4, 4) * 100
 
 fig, ax = display_images(mostly_zero, zeros_as_nan=True, colorbar=True)
-plt.close(fig)
+plt.show()
 ```
 
 :::{seealso}

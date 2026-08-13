@@ -28,12 +28,12 @@ synthetic, seeded, no scanner file needed.
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
-import matplotlib
+import matplotlib.pyplot as plt
 import matplotlib_inline.backend_inline
 
-matplotlib.use("Agg")  # headless: this page never opens a window
+# Crisp retina output + sane default DPI for the rendered docs
 matplotlib_inline.backend_inline.set_matplotlib_formats("retina")
-matplotlib.pyplot.rcParams["figure.dpi"] = 150
+plt.rcParams["figure.dpi"] = 150
 
 from loguru import logger
 
@@ -77,7 +77,7 @@ fids = xr.concat(
     dim="average",
 )
 fid = fids.isel(average=0)
-fid.dims, fid.coords
+fid
 ```
 
 `simulate_fid` always returns a `time`-dimensioned `DataArray` — the same shape
@@ -92,7 +92,7 @@ and `plot_fid` converts it to ms for display.
 
 ```{code-cell} ipython3
 fig, ax = plot_fid(data=fid)
-plt.close(fig)
+plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -115,12 +115,12 @@ assert ax.get_xlabel() == "Time [ms]"
 
 ```{code-cell} ipython3
 spectrum = fid.xmr.to_spectrum().xmr.autophase().xmr.to_ppm()
-spectrum.dims
+spectrum
 ```
 
 ```{code-cell} ipython3
 fig, ax = plot_spectra(data=spectrum)
-plt.close(fig)
+plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -149,7 +149,7 @@ default `"FID N"`/`"Spectrum N"` naming:
 labels = [f"Repetition {i + 1}" for i in range(fids.sizes["average"])]
 
 fig, ax_fid = plot_fid(data=fids, labels=labels)
-plt.close(fig)
+plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -164,7 +164,7 @@ assert [line.get_label() for line in ax_fid.lines[::2]] == [f"{label} (Real)" fo
 spectra = fids.xmr.to_spectrum().xmr.autophase().xmr.to_ppm()
 
 fig, ax_spectra = plot_spectra(data=spectra, labels=labels)
-plt.close(fig)
+plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -192,7 +192,7 @@ fig, ax = plot_spectra(
     ppm=spectrum.coords["chemical_shift"].values,
     spectra=spectrum.values.real,
 )
-plt.close(fig)
+plt.show()
 ```
 
 :::{warning}
