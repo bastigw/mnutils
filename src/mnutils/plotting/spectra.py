@@ -2,18 +2,15 @@ from typing import Literal
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import nmrglue as ng
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import seaborn as sns
-from IPython.display import display
-from ipywidgets import FloatSlider, HBox, IntSlider, VBox, interactive
+import xarray as xr
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-
-from .. import utils
+from xmris import DIMS
 
 DEFAULT_SPECTRA_AX_PARAMS = {
     "xlim": (8.1, -2.1),
@@ -53,172 +50,167 @@ def set_default_spectra_ax_params(ax: Axes, **kwargs) -> None:
     ax.set(**spectra_params)
 
 
+def _resolve_spectra_input(
+    data: xr.DataArray | None,
+    ppm: npt.NDArray[np.floating] | None,
+    spectra: npt.NDArray[np.floating] | None,
+    labels: list[str] | None,
+) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], list[str] | None]:
+    """Resolve ppm/spectra arrays and labels from a DataArray or manual fallback args."""
+    if data is not None and DIMS.chemical_shift in data.dims:
+        ppm = data.coords[DIMS.chemical_shift].values
+        spectra = data.values
+        if labels is None:
+            other_dims = [d for d in data.dims if d != DIMS.chemical_shift]
+            if other_dims:
+                labels = [str(v) for v in data.coords[other_dims[0]].values]
+        return ppm, spectra, labels
+
+    if ppm is None or spectra is None:
+        raise ValueError(
+            "Provide either `data` (an xr.DataArray with a "
+            f"'{DIMS.chemical_shift}' dim) or both `ppm` and `spectra`."
+        )
+    return ppm, spectra, labels
+
+
 def plot_spectra(
-    ppm: npt.NDArray,
-    spectra: npt.NDArray,
-    labels: list[str] | None = None,
-    **kwargs,
-) -> tuple[Figure, Axes]:
-    if labels is None:
-        labels = []
-    fig = plt.figure(figsize=(7, 4))
-    ax = plt.gca()
-    plot_spectra_on_ax(ax, ppm, spectra, labels, **kwargs)
-    return fig, ax
-
-
-def plot_spectra_on_ax(
-    ax: Axes,
-    ppm: npt.NDArray[np.floating],
-    spectra: npt.NDArray[np.complexfloating | np.floating],
+    data: xr.DataArray | None = None,
+    ppm: npt.NDArray[np.floating] | None = None,
+    spectra: npt.NDArray[np.floating] | None = None,
+    ax: Axes | None = None,
     labels: list[str] | None = None,
     line_kwargs: dict | list[dict] | None = None,
-    autophase: bool = False,
-    p0: float | None = None,
-    p1: float | None = None,
     **kwargs,
-) -> list[Line2D]:
-    if labels is None:
-        labels = []
+) -> tuple[Figure, Axes] | list[Line2D]:
+    """Plot one or more spectra against a chemical-shift (ppm) axis.
 
-    # Initialize a list to store the plotted lines
-    lines = []
+    Pass already-phased data — either `data` (an `xr.DataArray` with a
+    `chemical_shift` dim/coord, e.g. from `MRSSeries.phase_avg_spec` or
+    `.xmr.phase()`/`.xmr.autophase()`) or, as a manual fallback, both `ppm`
+    and `spectra` as plain arrays. This function does no phasing itself.
+    """
+    resolved_ppm, resolved_spectra, resolved_labels = _resolve_spectra_input(
+        data, ppm, spectra, labels
+    )
+    if resolved_labels is None:
+        resolved_labels = []
 
-    # To make sure we are working with a copy of the spectra
-    spectra = np.copy(spectra)
-    if spectra.ndim == 1:
-        spectra = spectra[np.newaxis, :]  # Convert to 2D for consistency
+    created_fig = None
+    if ax is None:
+        created_fig, ax = plt.subplots(figsize=(7, 4))
 
-    # Apply autophase correction or manual phasing with p0 and p1 for complex data
-    if np.issubdtype(spectra.dtype, np.complexfloating):
-        phased_spectra = utils.spectra.phase_nmr_data(
-            spectra,  # type: ignore
-            zero_order=p0,
-            first_order=p1,
-            autophase=autophase,
-        )
-    else:
-        phased_spectra = spectra.astype(np.float64)
+    spectra_arr = np.asarray(resolved_spectra)
+    if spectra_arr.ndim == 1:
+        spectra_arr = spectra_arr[np.newaxis, :]  # Convert to 2D for consistency
+    if np.iscomplexobj(spectra_arr):
+        spectra_arr = spectra_arr.real
+    spectra_arr = spectra_arr.astype(np.float64)
 
     if isinstance(line_kwargs, list):
-        if len(line_kwargs) != (phased_spectra.shape[0]):
-            raise ValueError(
-                "Length of line_kwargs list must match number of phased_spectra."
-            )
+        if len(line_kwargs) != spectra_arr.shape[0]:
+            raise ValueError("Length of line_kwargs list must match number of spectra.")
     elif isinstance(line_kwargs, dict):
-        line_kwargs = [line_kwargs] * (phased_spectra.shape[0])
+        line_kwargs = [line_kwargs] * spectra_arr.shape[0]
 
-    for spec_idx in range(phased_spectra.shape[0]):
-        if line_kwargs is None:
-            kwargs_to_use = {}
-        else:
-            kwargs_to_use = line_kwargs[spec_idx]
+    lines = []
+    for spec_idx in range(spectra_arr.shape[0]):
+        kwargs_to_use = {} if line_kwargs is None else line_kwargs[spec_idx]
         label = (
-            labels[spec_idx] if spec_idx < len(labels) else f"Spectrum {spec_idx + 1}"
+            resolved_labels[spec_idx]
+            if spec_idx < len(resolved_labels)
+            else f"Spectrum {spec_idx + 1}"
         )
         (line,) = ax.plot(
-            ppm,
-            phased_spectra[spec_idx],
+            resolved_ppm,
+            spectra_arr[spec_idx],
             label=label,
             **kwargs_to_use,
         )
         lines.append(line)
 
-    # Combine default spectra params with any provided kwargs
     set_default_ticks(ax)
     set_default_spectra_ax_params(ax, **kwargs)
 
-    if phased_spectra.shape[0] > 1 or labels:
+    if spectra_arr.shape[0] > 1 or resolved_labels:
         ax.legend()
 
-    # Return the list of plotted lines
+    if created_fig is not None:
+        return created_fig, ax
     return lines
 
 
+def _resolve_fid_input(
+    data: xr.DataArray | None,
+    time: npt.NDArray[np.floating] | None,
+    fids: npt.NDArray[np.complexfloating | np.floating] | None,
+) -> tuple[
+    npt.NDArray[np.floating], npt.NDArray[np.complexfloating | np.floating], str
+]:
+    """Resolve a time axis (in ms) and fid values from a DataArray or manual fallback args."""
+    if data is not None and DIMS.time in data.dims:
+        time_axis = data.coords[DIMS.time].values * 1e3  # s -> ms
+        return time_axis, data.values, "Time [ms]"
+
+    if time is None or fids is None:
+        raise ValueError(
+            f"Provide either `data` (an xr.DataArray with a '{DIMS.time}' dim) "
+            "or both `time` and `fids`."
+        )
+    return time, fids, "Time [ms]"
+
+
 def plot_fid(
-    fids: npt.NDArray[np.complexfloating | np.floating],
-    header: dict | None = None,
-    dwelltime: float | None = None,  # In seconds
-    deadtime: float | None = None,  # In seconds
-    labels: list[str] | None = None,
-    **kwargs,
-) -> tuple[Figure, Axes]:
-    if labels is None:
-        labels = []
-
-    fig = plt.figure(figsize=(7, 6))
-    ax = plt.gca()
-    return fig, plot_fid_on_ax(
-        ax,
-        fids,
-        header=header,
-        dwelltime=dwelltime,
-        deadtime=deadtime,
-        labels=labels,
-        **kwargs,
-    )
-
-
-def plot_fid_on_ax(
-    ax: Axes,
-    fids: npt.NDArray[np.complexfloating | np.floating],
-    header: dict | None = None,
-    dwelltime: float | None = None,  # In seconds
-    deadtime: float | None = None,  # In seconds
+    data: xr.DataArray | None = None,
+    time: npt.NDArray[np.floating] | None = None,
+    fids: npt.NDArray[np.complexfloating | np.floating] | None = None,
+    ax: Axes | None = None,
     labels: list[str] | None = None,
     show_real: bool = True,
     show_imag: bool = True,
     **kwargs,
-) -> Axes:
+) -> tuple[Figure, Axes] | Axes:
+    """Plot one or more FIDs against a time axis.
+
+    Pass either `data` (an `xr.DataArray` with a `time` dim/coord, e.g.
+    `RawMRISeries.fids`) or, as a manual fallback, both `time` (in ms) and
+    `fids` as plain arrays. This function does no processing itself — build
+    the time axis you want to see on the DataArray/array before calling.
+    """
     if labels is None:
         labels = []
 
-    # Make sure we are working with a copy of the fids
-    fids = np.copy(fids)
+    xaxis, fid_values, xaxis_label = _resolve_fid_input(data, time, fids)
+    fid_values = np.asarray(np.copy(fid_values))
+    if fid_values.ndim == 1:
+        fid_values = fid_values[np.newaxis, :]  # Convert to 2D for consistency
 
-    npts = fids.shape[-1]
-    xaxis = np.arange(npts)
-    xaxis_label = "Points"
-    # If header in kwargs, extract dwell time and create time axis in seconds
-    if header is not None:
-        try:
-            dwelltime = 1.0 / header["rdb_hdr"]["spectral_width"]
-            deadtime = header["rdb_hdr"]["te"] * 1e-6  # Convert from us to s
-            xaxis = (np.arange(0, npts) * dwelltime + deadtime) * 1e3  # in ms
-            xaxis_label = "Time [ms]"
-        except KeyError:
-            xaxis = np.arange(npts)
-    elif dwelltime is not None and deadtime is not None:
-        xaxis = (np.arange(0, npts) * dwelltime + deadtime) * 1e3  # in ms
-        xaxis_label = "Time [ms]"
+    created_fig = None
+    if ax is None:
+        created_fig, ax = plt.subplots(figsize=(7, 6))
 
-    # Handle case where fids is 1D
-    if fids.ndim == 1:
-        fids = fids[np.newaxis, :]  # Convert to 2D for consistency
-
-    for i in range(fids.shape[0]):
+    for i in range(fid_values.shape[0]):
         label_real = f"{labels[i]} (Real)" if i < len(labels) else f"FID {i + 1} (Real)"
         label_imag = f"{labels[i]} (Imag)" if i < len(labels) else f"FID {i + 1} (Imag)"
         if show_real:
-            ax.plot(xaxis, np.real(fids[i, :]), label=label_real)
-        # Only show imaginary part if it has one
-        if show_imag and np.iscomplexobj(fids):
-            ax.plot(xaxis, np.imag(fids[i, :]), label=label_imag, linestyle="--")
+            ax.plot(xaxis, np.real(fid_values[i, :]), label=label_real)
+        if show_imag and np.iscomplexobj(fid_values):
+            ax.plot(xaxis, np.imag(fid_values[i, :]), label=label_imag, linestyle="--")
 
     ax.legend()
     ax.set(**kwargs)
 
-    # Set default FID axis parameters
     ax.set_xlabel(xaxis_label)
     ax.set_ylabel("FID signal [a.u.]")
 
-    # Set default ticks
     set_default_ticks(ax)
 
     sns.set_style("ticks")
     sns.set_palette("colorblind")
     sns.despine()
 
+    if created_fig is not None:
+        return created_fig, ax
     return ax
 
 
@@ -280,115 +272,6 @@ def annotate_metabolites(ax: Axes | None = None, freqs: dict | None = None) -> A
             fontweight="bold",
         )
     return ax
-
-
-def create_interactive_phase_correction(
-    ppm_axis: npt.NDArray[np.float64],
-    spectrum: npt.NDArray[np.complex64],
-    do_initial_autophase: bool = True,
-    plot_magnitude_spectrum: bool = True,
-    **kwargs,
-) -> tuple[FloatSlider | IntSlider, FloatSlider | IntSlider]:
-    # Create the figure and axis once
-    fig, ax = plt.subplots(figsize=(10, 7))
-    (line,) = ax.plot([], [], label="Phased Data")  # Initialize an empty line
-    if plot_magnitude_spectrum:
-        ax.plot(
-            ppm_axis,
-            np.abs(spectrum),
-            label="Magnitude Spectrum",
-            color="gray",
-            alpha=0.5,
-        )
-
-    default_phase_correction_0 = 0.0
-    default_phase_correction_1 = 0.0
-    if do_initial_autophase:
-        _, opt = ng.proc_autophase.autops(
-            spectrum,
-            p0=default_phase_correction_0,
-            p1=default_phase_correction_1,
-            fn="acme",
-            disp=0,
-            return_phases=True,
-        )
-        # Estimate initial phase correction values
-        default_phase_correction_0 = opt[0]
-        default_phase_correction_1 = opt[1]
-
-    # Get index of ppm axis closest to 4.68 ppm for pivot default
-    pivot_default = np.argmin(np.abs(ppm_axis - 4.68))
-    pivotLine = ax.axvline(
-        ppm_axis[pivot_default], color="r", alpha=0.5
-    )  # Add a vertical line for pivot
-    set_default_ticks(ax)
-    set_default_spectra_ax_params(ax, **kwargs)
-    ax.legend()
-
-    def phasecorr(phase_correction_0, phase_correction_1, pivot, xlim_start, xlim_end):
-        # Calculate the phased data
-        phased_data = ng.proc_base.ps(spectrum, phase_correction_0, phase_correction_1)
-
-        # Update the line data
-        line.set_data(ppm_axis, np.real(phased_data))
-        pivotLine.set_xdata(
-            [ppm_axis[pivot], ppm_axis[pivot]]
-        )  # Update pivot line position
-        ax.set_xlim(xlim_start, xlim_end)
-        ax.relim()
-        ax.autoscale_view()
-        fig.canvas.draw_idle()
-
-        # Calculate and print phase correction values
-        # Update the title with phase correction values
-        ax.set_title(
-            f"Phase Correction: p0 = {phase_correction_0:.2f}, p1 = {phase_correction_1:.2f}"
-        )
-
-    widgets = interactive(
-        phasecorr,
-        phase_correction_0=FloatSlider(
-            value=default_phase_correction_0,
-            min=-180,
-            max=180,
-            step=0.1,
-            description="Phase 0 (deg):",
-        ),
-        phase_correction_1=FloatSlider(
-            value=default_phase_correction_1,
-            min=-180,
-            max=180,
-            step=0.1,
-            description="Phase 1 (deg):",
-        ),
-        pivot=IntSlider(
-            value=pivot_default,
-            min=0,
-            max=spectrum.size,
-            step=1,
-            description="Pivot Index:",
-        ),
-        xlim_start=FloatSlider(
-            value=10,
-            min=ppm_axis.min(),
-            max=ppm_axis.max(),
-            step=0.5,
-            description="X-axis start (ppm):",
-        ),
-        xlim_end=FloatSlider(
-            value=-2,
-            min=ppm_axis.min(),
-            max=ppm_axis.max(),
-            step=0.5,
-            description="X-axis end (ppm):",
-        ),
-    )
-
-    phaseVBox = VBox(widgets.children[:3])
-    controls = HBox([phaseVBox, widgets.children[3], widgets.children[4]])
-    display(controls)
-
-    return widgets.children[:2]
 
 
 def plot_spectra_over_time(

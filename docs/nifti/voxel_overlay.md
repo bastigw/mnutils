@@ -246,7 +246,9 @@ x_offset, y_offset = x_slice.start, y_slice.start
 
 fig, ax = plt.subplots(figsize=(4, 4))
 overlay_image_data_on_T1_on_ax(
-    ax, t1_full[y_slice, x_slice, demo_voxel[2]], mrsi_full[y_slice, x_slice, demo_voxel[2]]
+    t1_full[y_slice, x_slice, demo_voxel[2]],
+    mrsi_full[y_slice, x_slice, demo_voxel[2]],
+    ax=ax,
 )
 (patch,) = draw_voxel_overlays_on_ax(ax, demo_voxel, mrsi_to_display_affine=mrsi_to_display)
 # Shift the box from full-image coordinates into the cropped axes' coordinates.

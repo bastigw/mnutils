@@ -7,7 +7,7 @@ from typing import Iterator
 
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
+import xarray as xr
 from loguru import logger
 
 from . import GESeries, plotting
@@ -431,31 +431,32 @@ class DMIinjExam(DMIExam):
     ) -> None:
         plot_kwargs = plot_params if plot_params is not None else {}
         phase_kwargs = phase_params if phase_params is not None else {}
-        data = {}
-        labels = []
 
-        index = self.all_MRS[0].phase_avg_spec(**phase_kwargs)[1]
         inj_start = self.washin.scan_datetime
         inj_start_str = inj_start.strftime("%H:%M")
-
         title = f"Phased spectra over time\n(Injection at {inj_start_str})"
+
+        labels = []
+        phased_spectra = []
         for mrs_obj in self.all_MRS:
-            # Get phased spectrum
-            phased_spec, _ = mrs_obj.phase_avg_spec(**phase_kwargs)
-            data[mrs_obj.SERIES_ID] = phased_spec
+            # phase_avg_spec returns a single chemical_shift-indexed DataArray
+            phased_spec = mrs_obj.phase_avg_spec(**phase_kwargs)
+            phased_spectra.append(
+                phased_spec.assign_coords(Spectra_ID=mrs_obj.SERIES_ID)
+            )
             # Set labels
             scan_time_str = mrs_obj.scan_time.strftime("%H:%M")
             time_delta_min = (mrs_obj.scan_datetime - inj_start).total_seconds() / 60
-            label = f"{scan_time_str}\n({time_delta_min:.0f} min)"
-            labels.append(label)
+            labels.append(f"{scan_time_str}\n({time_delta_min:.0f} min)")
 
-        spectra_means = pd.DataFrame(data, index=index)
-        melted_spectra_df = pd.melt(
-            spectra_means.reset_index(names=["ppm"]),
-            id_vars=["ppm"],  # The 'x-axis' variable (your index)
-            var_name="Spectra_ID",  # The new column for the old column names (A, B, C...)
-            value_name="Intensity",  # The new column for the cell values (the spectra magnitude)
-        ).sort_values("Spectra_ID", ascending=True)
+        combined = xr.concat(phased_spectra, dim="Spectra_ID")
+        melted_spectra_df = (
+            combined.rename("Intensity")
+            .to_dataframe()
+            .reset_index()
+            .rename(columns={"chemical_shift": "ppm"})
+            .sort_values("Spectra_ID", ascending=True)
+        )
 
         plotting.spectra.plot_spectra_over_time(
             melted_spectra_df, labels, title=title, **plot_kwargs

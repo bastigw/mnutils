@@ -5,6 +5,7 @@ from typing import Any, TypedDict, Unpack
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
+import xarray as xr
 from ipywidgets import interact, widgets
 from loguru import logger
 from matplotlib import patches
@@ -13,6 +14,7 @@ from matplotlib.contour import QuadContourSet
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
 from nibabel import affines, spatialimages
+from xmris import DIMS
 
 from .. import GESeries, utils
 from . import spectra
@@ -385,8 +387,8 @@ def overlay_image_data_on_T1(
     axes_idx = 0
     if not only_overlay:
         ims, _ = overlay_image_data_on_T1_on_ax(
-            axes[axes_idx],
             t1_images[:, :, slice_idx],
+            ax=axes[axes_idx],
             cmap="gray",
             **kwargs,
         )
@@ -398,8 +400,8 @@ def overlay_image_data_on_T1(
 
         axes_idx += 1
         ims, _ = overlay_image_data_on_T1_on_ax(
-            axes[axes_idx],
             data_images[:, :, slice_idx],
+            ax=axes[axes_idx],
             **kwargs,
         )
         im2 = ims[0]
@@ -420,13 +422,13 @@ def overlay_image_data_on_T1(
         contour_kwargs.update(mask_kwargs)
 
     ims, contour = overlay_image_data_on_T1_on_ax(
-        axes[axes_idx],
         t1_images[:, :, slice_idx],
         data_images[:, :, slice_idx],
         mask=mask[:, :, slice_idx] if mask is not None else None,
         mask_contour=mask_contour_global[:, :, slice_idx]
         if mask_contour_global is not None
         else None,
+        ax=axes[axes_idx],
         mask_kwargs=mask_kwargs,
         **kwargs,
     )
@@ -464,16 +466,29 @@ def overlay_image_data_on_T1(
 
 
 def overlay_image_data_on_T1_on_ax(
-    axes: Axes,
     base_image: npt.NDArray,
     overlay_image: npt.NDArray | None = None,
     mask: npt.NDArray[np.bool_] | None = None,
     mask_contour: npt.NDArray[np.bool_] | bool | None = None,
+    ax: Axes | None = None,
     cmap: str = DEFAULT_PARAMS["cmap"],
     alpha: float = 0.5,
     mask_kwargs: dict[str, Any] | None = None,
+    figsize: tuple[int, int] = (4, 4),
     **kwargs,
-) -> tuple[list[AxesImage], QuadContourSet | None]:
+) -> (
+    tuple[list[AxesImage], QuadContourSet | None]
+    | tuple[Figure, Axes, list[AxesImage], QuadContourSet | None]
+):
+    """Draw a single 2D anatomical image, optionally with a data overlay/mask.
+
+    If `ax` is omitted, creates its own figure and axes and returns them
+    alongside the plotted images/contours.
+    """
+    created_fig = None
+    if ax is None:
+        created_fig, ax = plt.subplots(figsize=figsize)
+
     # Copy default image params and update with any provided kwargs
     remove_keys = ["vmin", "vmax", "v_percentile"]
     # Adjust aspect ratio based on image shape
@@ -497,14 +512,16 @@ def overlay_image_data_on_T1_on_ax(
     anat_vmin, anat_vmax = fast_bounds(base_image, p_lower=1.0, p_upper=99.0)
 
     im.append(
-        axes.imshow(
+        ax.imshow(
             base_image, origin="upper", cmap=cmap_base, vmin=anat_vmin, vmax=anat_vmax
         )
     )
 
     # See if vmin and vmax are provided in kwargs and apply to data image
     if overlay_image is None:
-        axes.set(**image_params)
+        ax.set(**image_params)
+        if created_fig is not None:
+            return created_fig, ax, im, None
         return im, None
 
     v_percentile = kwargs.pop("v_percentile", 1.0)
@@ -536,7 +553,7 @@ def overlay_image_data_on_T1_on_ax(
         )
 
     im.append(
-        axes.imshow(
+        ax.imshow(
             overlay_image,
             origin="upper",
             cmap=cmap,
@@ -557,11 +574,13 @@ def overlay_image_data_on_T1_on_ax(
         if mask_kwargs is not None:
             contour_kwargs.update(mask_kwargs)
         logger.debug(f"Applying mask contour with parameters: {contour_kwargs}")
-        contours = axes.contour(mask_contour, **contour_kwargs)
+        contours = ax.contour(mask_contour, **contour_kwargs)
     else:
         contours = None
 
-    axes.set(**image_params)
+    ax.set(**image_params)
+    if created_fig is not None:
+        return created_fig, ax, im, contours
     return im, contours
 
 
@@ -654,8 +673,13 @@ def inspect_MRSI_spectra(
     else:
         label = "Real Spectrum"
 
-    spectra_line = spectra.plot_spectra_on_ax(
-        axs[1], MRSI.ppm.values, np.ones_like(MRSI.ppm), labels=[label]
+    placeholder_spectrum = xr.DataArray(
+        np.ones_like(MRSI.ppm.values),
+        dims=[DIMS.chemical_shift],
+        coords={DIMS.chemical_shift: MRSI.ppm.values},
+    )
+    spectra_line = spectra.plot_spectra(
+        ax=axs[1], data=placeholder_spectrum, labels=[label]
     )
 
     def update_voxel_marker(mrsi_voxel_position: VoxelCoord):
@@ -871,61 +895,18 @@ def overlay_voxel_on_T1(
     t1: GESeries.MRISeries,
     MRSI: GESeries.MRSISeries,
     voxel_coords: VoxelCoordsInput,
+    ax: Axes | None = None,
     figsize: tuple[int, int] = (6, 6),
     **kwargs: Unpack[VoxelOverlayParams],
-):
-    """Overlay one or more voxels on a T1-weighted MRI image, in a new figure.
-
-    Creates a matplotlib figure and axis, and overlays the specified voxel
-    coordinates on the given T1-weighted image via `overlay_voxel_on_T1_on_ax`.
-
-    Parameters
-    ----------
-    t1 : GESeries.MRISeries
-        The T1-weighted MRI series to use as the background image.
-    MRSI : GESeries.MRSISeries
-        The MRSI series containing the voxel data.
-    voxel_coords : tuple[int, int, int] or ndarray or list[tuple[int, int, int]]
-        The coordinates of the voxel(s) to overlay. If a list is given, all
-        voxels must share the same z-coordinate.
-    figsize : tuple[int, int], optional
-        The size of the figure in inches. Defaults to (6, 6).
-    **kwargs
-        Additional keyword arguments passed to `overlay_voxel_on_T1_on_ax`.
-
-    Returns
-    -------
-    tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]
-        The created figure and axis with the overlay.
-    """
-    fig, ax = plt.subplots(figsize=figsize)
-    overlay_voxel_on_T1_on_ax(
-        ax=ax,
-        t1=t1,
-        MRSI=MRSI,
-        voxel_coords=voxel_coords,
-        **kwargs,
-    )
-    return fig, ax
-
-
-def overlay_voxel_on_T1_on_ax(
-    ax: Axes,
-    t1: GESeries.MRISeries,
-    MRSI: GESeries.MRSISeries,
-    voxel_coords: VoxelCoordsInput,
-    **kwargs: Unpack[VoxelOverlayParams],
-):
+) -> tuple[Figure, Axes] | Axes:
     """Overlay one or more voxels (and optionally MRSI data) on a T1 slice.
 
-    Displays a slice of a T1-weighted MRI image on the given axis, overlays
-    voxel(s) at the specified coordinates, and optionally overlays MRSI data
-    resampled into T1 space.
+    Displays a slice of a T1-weighted MRI image, overlays voxel(s) at the
+    specified coordinates, and optionally overlays MRSI data resampled into
+    T1 space. If `ax` is omitted, creates its own figure and axes.
 
     Parameters
     ----------
-    ax : matplotlib.axes.Axes
-        The axis on which to plot the image and overlays.
     t1 : GESeries.MRISeries
         The T1-weighted MRI series containing the anatomical image data.
     MRSI : GESeries.MRSISeries
@@ -933,6 +914,12 @@ def overlay_voxel_on_T1_on_ax(
     voxel_coords : tuple[int, int, int] or ndarray or list[tuple[int, int, int]]
         The coordinates of the voxel(s) in MRSI space. If a list is given,
         all voxels must share the same z-coordinate.
+    ax : matplotlib.axes.Axes, optional
+        The axis on which to plot the image and overlays. If `None`, a new
+        figure and axis are created.
+    figsize : tuple[int, int], optional
+        The size of the figure in inches, used only when `ax` is `None`.
+        Defaults to (6, 6).
     **kwargs : Unpack[VoxelOverlayParams]
         show_overlay : bool, optional
             Whether to overlay the MRSI data on the T1 image. Defaults to True.
@@ -953,8 +940,9 @@ def overlay_voxel_on_T1_on_ax(
 
     Returns
     -------
-    matplotlib.axes.Axes
-        The axis with the plotted image and overlays.
+    tuple[matplotlib.figure.Figure, matplotlib.axes.Axes] or matplotlib.axes.Axes
+        The created `(fig, ax)` if `ax` was `None`, otherwise the axis with
+        the plotted image and overlays.
 
     Notes
     -----
@@ -963,6 +951,10 @@ def overlay_voxel_on_T1_on_ax(
     voxel rectangle(s) are drawn at the specified coordinates, adjusted to
     align with the anatomical space.
     """
+    created_fig = None
+    if ax is None:
+        created_fig, ax = plt.subplots(figsize=figsize)
+
     # Get elements from kwargs with defaults
     show_overlay: bool = kwargs.get("show_overlay", True)
     voxel_kwargs: VoxelStylesInput = kwargs.get("voxel_kwargs", None)
@@ -1047,4 +1039,7 @@ def overlay_voxel_on_T1_on_ax(
         ax.set_title(title or f"Anatomical Slice {slice_idx}")
 
     ax.axis("off")
+
+    if created_fig is not None:
+        return created_fig, ax
     return ax
