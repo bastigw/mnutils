@@ -1,0 +1,297 @@
+#!/usr/bin/env python3
+"""Check hand-authored MNUtils docs against the house rules.
+
+Run from the repo root::
+
+    uv run python .claude/skills/docs-page/check_docs.py [PATH ...]
+
+With no PATH it checks every hand-authored page: ``docs/**/*.md`` minus the
+generated (``api/``) and built (``_build/``) trees.
+
+Errors exit 1 -- each one renders wrong or produces a dead link, and
+``myst build`` is silent about all of them. Warnings exit 0: real drift, but
+too judgment-dependent to gate on.
+
+Stdlib only, and deliberately fence-aware: a bare ``#`` comment at column 0
+inside a ``code-cell`` looks exactly like a Markdown header to a naive grep,
+which is how the first pass of the xmris audit this was ported from
+overcounted headers three-fold.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+# --- genre ------------------------------------------------------------------
+# Location is genre: the top directory under docs/ names it. That directory is
+# also the sidebar chapter and the URL prefix, so the mapping is spelled out
+# rather than inferred -- a new chapter has to declare which genre its pages
+# are held to. Writing a diary entry belongs to the `dev-diary` skill, but the
+# structural rules bind it like any other page -- an entry missing from the
+# TOC never renders. Only api/ escapes: it is generated and gitignored, so
+# there is nothing to hand-fix.
+GENRES = {
+    "basics": "tutorial",
+    "data-model": "tutorial",
+    "plotting": "tutorial",
+    "fitting": "tutorial",
+    "nifti": "tutorial",
+    "matlab": "tutorial",
+    "concepts": "explainer",
+    "contribute": "guide",
+    "diary": "diary",
+}
+SKIP_DIRS = ("_build", "api")
+
+KERNEL_DISPLAY_NAME = "Python 3 (mnutils)"
+
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+HEADER_RE = re.compile(r"^(#{1,6})\s+\S")
+TARGET_RE = re.compile(r"^\(.+\)=$")
+IPYNB_LINK_RE = re.compile(r"\]\([^)]*\.ipynb[^)]*\)")
+INLINE_COMMENT_RE = re.compile(r"<!--.*?-->")  # applied per line, so no DOTALL
+
+
+class Page:
+    """A doc page split into fenced and unfenced regions, once."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lines = path.read_text().split("\n")
+        # Match the genre dir as a path *segment*, not a string prefix: keeps
+        # `notebooks_old/` from reading as `notebooks/` and survives Windows
+        # separators. Same idiom as the SKIP_DIRS filter in collect().
+        self.genre = next((g for seg, g in GENRES.items() if seg in path.parts), "other")
+        self.frontmatter = self._frontmatter()
+        self.headers: list[tuple[int, int, str]] = []  # (lineno, depth, text)
+        self.cells: list[tuple[int, str, str]] = []  # (lineno, info, body)
+        self.prose: list[tuple[int, str]] = []  # (lineno, line) outside every fence
+        self._scan()
+
+    def _frontmatter(self) -> str:
+        if not self.lines or self.lines[0].strip() != "---":
+            return ""
+        for i, line in enumerate(self.lines[1:], start=1):
+            if line.strip() == "---":
+                return "\n".join(self.lines[1:i])
+        return ""
+
+    @property
+    def _body_start(self) -> int:
+        """Index of the first line past the closing frontmatter ``---``."""
+        return self.frontmatter.count("\n") + 3 if self.frontmatter else 0
+
+    @staticmethod
+    def _uncomment(line: str, incomment: bool) -> tuple[str, bool]:
+        """Return the part of the line that renders, carrying block state.
+
+        Inline comments close on their own line; block comments span lines, so
+        the state has to be carried. Applied once here rather than per check,
+        so every rule sees the same page the reader does.
+        """
+        line = INLINE_COMMENT_RE.sub("", line)
+        if incomment:
+            if "-->" not in line:
+                return "", True
+            line, incomment = line.split("-->", 1)[1], False
+        if "<!--" in line:
+            return line.split("<!--", 1)[0], True
+        return line, False
+
+    def _scan(self) -> None:
+        fence: str | None = None
+        info = ""
+        body: list[str] = []
+        cell_start = 0
+        incomment = False
+        for i in range(self._body_start, len(self.lines)):
+            line = self.lines[i]
+            m = FENCE_RE.match(line)
+            if m:
+                tok = m.group(1)[:3]
+                if fence is None:
+                    fence, info, body, cell_start = tok, line.strip().lstrip("`~"), [], i
+                elif line.strip().startswith(fence):
+                    self.cells.append((cell_start, info, "\n".join(body)))
+                    fence = None
+                continue
+            if fence is not None:
+                body.append(line)
+                continue
+            # Commented-out prose is dead weight, not a broken page: a header
+            # or a link inside `<!-- -->` renders nothing, so neither is an
+            # error. Fences are already excluded above, which is why the
+            # state machine lives here -- a `<!--` inside a code cell must
+            # not flip it.
+            visible, incomment = self._uncomment(line, incomment)
+            self.prose.append((i, visible))
+            hm = HEADER_RE.match(visible)
+            if hm:
+                self.headers.append((i, len(hm.group(1)), visible.lstrip("#").strip()))
+
+    def first_content_line(self) -> int | None:
+        """Index of the first non-blank, non-frontmatter line."""
+        for i in range(self._body_start, len(self.lines)):
+            if self.lines[i].strip():
+                return i
+        return None
+
+    def target_line(self, lineno: int) -> int | None:
+        """Index of the explicit ``(target)=`` attached to this header, if any.
+
+        MyST binds a target to the *next block*, so blank lines between the
+        two are legal -- scan back past them rather than checking one line.
+        """
+        i = lineno - 1
+        while i >= 0 and not self.lines[i].strip():
+            i -= 1
+        return i if i >= 0 and TARGET_RE.match(self.lines[i].strip()) else None
+
+
+def toc_files(root: Path) -> set[str]:
+    """Collect every ``file:`` path listed in the hand-maintained myst.yml TOC."""
+    myst = root / "docs" / "myst.yml"
+    if not myst.exists():
+        return set()
+    entries = re.finditer(r"^\s*-?\s*file:\s*(\S+)", myst.read_text(), re.M)
+    return {m.group(1).strip() for m in entries}
+
+
+def check(page: Page, toc: set[str]) -> tuple[list[str], list[str]]:
+    """Check one page, returning its (errors, warnings)."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    rel = str(page.path)
+    name = page.path.name
+    testonly = name.startswith("testonly_")
+
+    def err(line: int, msg: str) -> None:
+        errors.append(f"{rel}:{line + 1}: {msg}")
+
+    def warn(line: int, msg: str) -> None:
+        warnings.append(f"{rel}:{line + 1}: {msg}")
+
+    # --- H1: exactly one, and it must be the first content node -------------
+    # mystmd lifts the first heading into frontmatter.title, but only
+    # *removes* it from the body when it leads the page. Anything before it
+    # (even a hidden remove-cell) and the title renders twice.
+    h1s = [h for h in page.headers if h[1] == 1]
+    first = page.first_content_line()
+    if not h1s:
+        errors.append(f"{rel}:1: no H1 -- the page title is lifted from an H2 and rendered twice")
+    else:
+        for lineno, _, text in h1s[1:]:
+            err(lineno, f"second H1 {text!r} -- exactly one per page")
+        lineno = h1s[0][0]
+        tgt = page.target_line(lineno)
+        expected = tgt if tgt is not None else lineno
+        if first is not None and expected != first:
+            err(lineno, "content precedes the H1 -- the title will render twice")
+
+    # --- explicit MyST targets -----------------------------------------------
+    # Auto-generated slugs are numbered by document position (id-1-, id-2-),
+    # so inserting one section silently renumbers every anchor below it.
+    for lineno, _, text in page.headers:
+        if page.target_line(lineno) is None:
+            err(lineno, f"header {text!r} has no explicit (target)= above it")
+
+    # --- dead .ipynb links --------------------------------------------------
+    # myst.yml excludes notebook files, so these resolve to null -- and the
+    # build emits no warning. page.prose is what _scan saw outside every
+    # fence, already stripped of anything a comment hides.
+    for i, line in page.prose:
+        if IPYNB_LINK_RE.search(line):
+            err(i, "links a .ipynb -- excluded from the build, so the link is dead")
+
+    # --- frontmatter / kernel ------------------------------------------------
+    if page.frontmatter:
+        m = re.search(r"display_name:\s*(.*)", page.frontmatter)
+        got = m.group(1).strip() if m else ""
+        if got != KERNEL_DISPLAY_NAME:
+            errors.append(
+                f"{rel}:1: kernel display_name is {got or '(missing)'!r}, "
+                f"expected {KERNEL_DISPLAY_NAME!r}"
+            )
+    elif page.genre in ("tutorial", "explainer"):
+        warnings.append(f"{rel}:1: no jupytext frontmatter -- this page cannot use code-cells")
+
+    # --- TOC membership -------------------------------------------------------
+    if not testonly and page.genre != "other":
+        rel_to_docs = str(page.path).removeprefix("docs/")
+        if rel_to_docs not in toc:
+            errors.append(f"{rel}:1: not in docs/myst.yml -- the page never renders")
+
+    # --- warnings --------------------------------------------------------------
+    for lineno, info, body in page.cells:
+        if info.strip() == "mermaid":
+            warn(lineno, "bare ```mermaid fence -- prefer the ```{mermaid} directive")
+        if not info.startswith("{code-cell}"):
+            continue
+        if "skip-execution" in body:
+            warn(lineno, "skip-execution cell -- the reader sees code that never ran")
+
+    # Tutorials are executed by nbmake, so one that runs code without
+    # asserting is a doc masquerading as a test.
+    if page.genre == "tutorial" and not testonly:
+        code = [b for _, i, b in page.cells if i.startswith("{code-cell}")]
+        if code and not any(re.search(r"^\s*(assert |np\.testing\.assert)", b, re.M) for b in code):
+            warnings.append(f"{rel}:1: tutorial runs code but asserts nothing -- a doc, not a test")
+
+    return errors, warnings
+
+
+def relative_to_root(path: Path, root: Path) -> Path:
+    """Re-express a path relative to the repo root.
+
+    Genre is decided by path prefix, so an absolute path would otherwise fall
+    through to genre "other" and silently skip the genre-specific checks.
+    """
+    try:
+        return path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return path
+
+
+def collect(args: list[str], root: Path) -> list[Path]:
+    """Resolve CLI paths, defaulting to every hand-authored page under docs/."""
+    if args:
+        return [relative_to_root(Path(a), root) for a in args]
+    return sorted(
+        p for p in Path("docs").rglob("*.md") if not any(part in SKIP_DIRS for part in p.parts)
+    )
+
+
+def main(argv: list[str]) -> int:
+    """Check the requested pages and return the process exit code."""
+    root = Path.cwd()
+    if not (root / "docs").is_dir():
+        print("error: run from the repo root (no ./docs found)", file=sys.stderr)
+        return 2
+
+    toc = toc_files(root)
+    pages = collect(argv, root)
+    all_errors: list[str] = []
+    all_warnings: list[str] = []
+    for path in pages:
+        if not path.exists():
+            print(f"error: {path} does not exist", file=sys.stderr)
+            return 2
+        errors, warnings = check(Page(path), toc)
+        all_errors += errors
+        all_warnings += warnings
+
+    for line in all_warnings:
+        print(f"warning: {line}")
+    if all_warnings and all_errors:
+        print()
+    for line in all_errors:
+        print(f"error:   {line}")
+
+    print(f"\n{len(pages)} page(s): {len(all_errors)} error(s), {len(all_warnings)} warning(s)")
+    return 1 if all_errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

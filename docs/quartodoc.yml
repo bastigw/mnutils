@@ -1,0 +1,55 @@
+quartodoc:
+  package: mnutils
+  dir: api
+
+  # Without this, a member with no docstring is silently dropped from its
+  # class/module page -- several mnutils methods (e.g. MRSWashinSeries.plot_washin,
+  # fit_grouped_by_duration) have none yet, so the default left them missing
+  # entirely rather than showing at least a signature.
+  options:
+    include_empty: true
+
+  sections:
+    - title: Data Model
+      desc: Core classes representing a GE exam and its series.
+      contents:
+        - GEExam.ExamBase
+        - GEExam.DMIExam
+        - GEExam.MS_DMIExam
+        - GEExam.DMIinjExam
+        - GESeries.NiiBase
+        - GESeries.MRISeries
+        - GESeries.RawMRISeries
+        - GESeries.MRSISeries
+        - GESeries.MRSSeries
+        - GESeries.MRSWashinSeries
+
+    - title: Data Loading & File Handling
+      desc: Loading raw/reconstructed data and general file helpers.
+      contents:
+        - utils.data_loaders
+        - utils.file_helpers
+
+    - title: NIfTI & Imaging
+      desc: DICOM/NIfTI conversion and image utilities.
+      contents:
+        - utils.nifti
+        - utils.images
+
+    - title: Plotting
+      desc: Plotting for images and spectra.
+      contents:
+        - plotting.images
+        - plotting.spectra
+        - utils.spectra
+        - plotting
+
+    - title: Fitting
+      desc: Spectral fitting, wrapping xmris/pyAMARES.
+      contents:
+        - fitting.AMARES
+
+    - title: MATLAB Bridge
+      desc: MATLAB Engine setup and invocation.
+      contents:
+        - matlab.setup_matlab
