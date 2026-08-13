@@ -43,29 +43,40 @@ logger.remove()
 ```{code-cell} ipython3
 import matplotlib.pyplot as plt
 import numpy as np
+import xarray as xr
 from xmris import simulate_fid
 
 from mnutils.plotting.spectra import plot_fid, plot_spectra
 ```
 
 (plotting-spectra-simulate)=
-## 1. Simulate a FID
+## 1. Simulate 5 repetitions of a FID
 
 Two peaks — a big one at 4.68 ppm (water), a smaller one at 3.0 ppm — damped, phased, with a
-touch of noise so the plot doesn't look artificially perfect:
+touch of noise so the plot doesn't look artificially perfect. Simulating 5 noisy repetitions and
+stacking them along a new `average` dim gives one dataset that covers both the single-spectrum
+case below and the multi-line case later on this page — the same data throughout, not two
+different fixtures:
 
 ```{code-cell} ipython3
-fid = simulate_fid(
-    amplitudes=[1.0, 0.4],
-    chemical_shifts=[4.68, 3.0],
-    reference_frequency=61.4,  # MHz, ~ 2H at 9.4T
-    carrier_ppm=4.68,
-    spectral_width=2000.0,
-    n_points=512,
-    dampings=[30.0, 20.0],
-    target_snr=40.0,
-    seed=0,
+fids = xr.concat(
+    [
+        simulate_fid(
+            amplitudes=[1.0, 0.4],
+            chemical_shifts=[4.68, 3.0],
+            reference_frequency=61.4,  # MHz, ~ 2H at 9.4T
+            carrier_ppm=4.68,
+            spectral_width=2000.0,
+            n_points=512,
+            dampings=[30.0, 20.0],
+            target_snr=40.0,
+            seed=seed,
+        )
+        for seed in range(5)
+    ],
+    dim="average",
 )
+fid = fids.isel(average=0)
 fid.dims, fid.coords
 ```
 
@@ -127,8 +138,51 @@ peak_ppm = ppm_axis[np.argmax(ax.lines[0].get_ydata())]
 assert abs(peak_ppm - 4.68) < 0.2, f"expected the water peak near 4.68 ppm, got {peak_ppm:.2f}"
 ```
 
+(plotting-spectra-multi)=
+## 4. Several FIDs and spectra at once, with custom labels
+
+An extra dim beyond `time`/`chemical_shift` becomes one line per slice — no loop needed. The 5
+repetitions simulated in step 1 are exactly that shape already; passing `labels` overrides the
+default `"FID N"`/`"Spectrum N"` naming:
+
+```{code-cell} ipython3
+labels = [f"Repetition {i + 1}" for i in range(fids.sizes["average"])]
+
+fig, ax_fid = plot_fid(data=fids, labels=labels)
+plt.close(fig)
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: 5 repetitions -> 5 real + 5 imag lines, each labelled from `labels`
+assert len(ax_fid.lines) == 10
+assert [line.get_label() for line in ax_fid.lines[::2]] == [f"{label} (Real)" for label in labels]
+```
+
+```{code-cell} ipython3
+spectra = fids.xmr.to_spectrum().xmr.autophase().xmr.to_ppm()
+
+fig, ax_spectra = plot_spectra(data=spectra, labels=labels)
+plt.close(fig)
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: 5 repetitions -> 5 lines, each labelled from `labels`, water peak near 4.68 ppm
+assert len(ax_spectra.lines) == 5
+assert [line.get_label() for line in ax_spectra.lines] == labels
+for line in ax_spectra.lines:
+    ppm_axis = line.get_xdata()
+    peak_ppm = ppm_axis[np.argmax(line.get_ydata())]
+    assert abs(peak_ppm - 4.68) < 0.2, (
+        f"expected the water peak near 4.68 ppm for {line.get_label()}, got {peak_ppm:.2f}"
+    )
+```
+
 (plotting-spectra-fallback)=
-## 4. Manual arrays still work
+## 5. Manual arrays still work
 
 Both functions keep the old array-based call as a fallback — for data with no `DataArray` to
 begin with. `data` takes priority whenever both are given:
