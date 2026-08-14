@@ -43,8 +43,8 @@ it worse.
 Every one of these is enforced by `check_docs.py` — run it before you finish (§4). The build is
 silent about all of them; the checker is not.
 
-- **Frontmatter is exact**, and `display_name: Python 3 (mnutils)` is the frozen kernel label. If
-  your local Jupyter rewrites it (to `.venv`, `Python 3 (ipykernel)`, …), fix it back before
+- **Frontmatter is exact**, and `display_name: .venv` is the frozen kernel label. If
+  your local Jupyter rewrites it (to `Python 3 (ipykernel)` or similar), fix it back before
   committing. Execution is unaffected either way; `name: python3` resolves to the uv venv.
 - **Nothing before `(target)=` + `# H1`.** mystmd lifts the first heading into the page title but
   only *removes* it from the body when it leads the page. Put anything first — even a hidden
@@ -109,7 +109,7 @@ Two pathspec traps:
 
 <!-- excerpt:start -->
 - [ ] Genre identified; the matching template and `patterns.md` read
-- [ ] Frontmatter exact, `display_name: Python 3 (mnutils)`
+- [ ] Frontmatter exact, `display_name: .venv`
 - [ ] `(target)=` + single H1 is the very first content; a target above every header
 - [ ] TOC entry in `docs/myst.yml` (unless `testonly_`); no `.ipynb` links
 - [ ] `check_docs.py` passes on the page (0 errors)

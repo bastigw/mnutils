@@ -678,7 +678,7 @@ def inspect_MRSI_spectra(
         dims=[DIMS.chemical_shift],
         coords={DIMS.chemical_shift: MRSI.ppm.values},
     )
-    spectra_line = spectra.plot_spectra(
+    spectra_ax = spectra.plot_spectra(
         ax=axs[1], data=placeholder_spectrum, labels=[label]
     )
 
@@ -753,7 +753,7 @@ def inspect_MRSI_spectra(
         axs[1].set_title(
             f"Spectrum at voxel (i:{spec_i}, j:{spec_j}, slice:{MRSI_slice_idx}, sum:{np.sum(mag_spec):.5g})"
         )
-        spectra_line[0].set_data(MRSI.ppm, spectra_data)
+        spectra_ax.lines[0].set_data(MRSI.ppm, spectra_data)
         axs[1].relim()
         axs[1].autoscale(enable=True, axis="y")
 

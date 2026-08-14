@@ -34,7 +34,7 @@ jupytext:
     extension: .md
     format_name: myst
 kernelspec:
-  display_name: Python 3 (mnutils)
+  display_name: .venv
   language: python
   name: python3
 ---

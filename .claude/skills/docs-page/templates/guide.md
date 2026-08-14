@@ -11,7 +11,7 @@ one home per concept, stands alone, the palette carries the argument.
 ## Skeleton
 
 Frontmatter only if the page needs live cells. When you do add it, the kernel label is still
-exactly `Python 3 (mnutils)`.
+exactly `.venv`.
 
 ````markdown
 (my-guide)=
