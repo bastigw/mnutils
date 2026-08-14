@@ -33,6 +33,8 @@ project:
           title: Overview
         - file: plotting/images.md
           title: Displaying image arrays of any shape
+        - file: plotting/spectra.md
+          title: Plotting FIDs and spectra from a DataArray
 
     - title: Fitting
       children:

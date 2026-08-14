@@ -45,7 +45,7 @@ GENRES = {
 }
 SKIP_DIRS = ("_build", "api")
 
-KERNEL_DISPLAY_NAME = "Python 3 (mnutils)"
+KERNEL_DISPLAY_NAME = ".venv"
 
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 HEADER_RE = re.compile(r"^(#{1,6})\s+\S")
@@ -63,7 +63,9 @@ class Page:
         # Match the genre dir as a path *segment*, not a string prefix: keeps
         # `notebooks_old/` from reading as `notebooks/` and survives Windows
         # separators. Same idiom as the SKIP_DIRS filter in collect().
-        self.genre = next((g for seg, g in GENRES.items() if seg in path.parts), "other")
+        self.genre = next(
+            (g for seg, g in GENRES.items() if seg in path.parts), "other"
+        )
         self.frontmatter = self._frontmatter()
         self.headers: list[tuple[int, int, str]] = []  # (lineno, depth, text)
         self.cells: list[tuple[int, str, str]] = []  # (lineno, info, body)
@@ -112,7 +114,12 @@ class Page:
             if m:
                 tok = m.group(1)[:3]
                 if fence is None:
-                    fence, info, body, cell_start = tok, line.strip().lstrip("`~"), [], i
+                    fence, info, body, cell_start = (
+                        tok,
+                        line.strip().lstrip("`~"),
+                        [],
+                        i,
+                    )
                 elif line.strip().startswith(fence):
                     self.cells.append((cell_start, info, "\n".join(body)))
                     fence = None
@@ -180,7 +187,9 @@ def check(page: Page, toc: set[str]) -> tuple[list[str], list[str]]:
     h1s = [h for h in page.headers if h[1] == 1]
     first = page.first_content_line()
     if not h1s:
-        errors.append(f"{rel}:1: no H1 -- the page title is lifted from an H2 and rendered twice")
+        errors.append(
+            f"{rel}:1: no H1 -- the page title is lifted from an H2 and rendered twice"
+        )
     else:
         for lineno, _, text in h1s[1:]:
             err(lineno, f"second H1 {text!r} -- exactly one per page")
@@ -215,7 +224,9 @@ def check(page: Page, toc: set[str]) -> tuple[list[str], list[str]]:
                 f"expected {KERNEL_DISPLAY_NAME!r}"
             )
     elif page.genre in ("tutorial", "explainer"):
-        warnings.append(f"{rel}:1: no jupytext frontmatter -- this page cannot use code-cells")
+        warnings.append(
+            f"{rel}:1: no jupytext frontmatter -- this page cannot use code-cells"
+        )
 
     # --- TOC membership -------------------------------------------------------
     if not testonly and page.genre != "other":
@@ -236,8 +247,12 @@ def check(page: Page, toc: set[str]) -> tuple[list[str], list[str]]:
     # asserting is a doc masquerading as a test.
     if page.genre == "tutorial" and not testonly:
         code = [b for _, i, b in page.cells if i.startswith("{code-cell}")]
-        if code and not any(re.search(r"^\s*(assert |np\.testing\.assert)", b, re.M) for b in code):
-            warnings.append(f"{rel}:1: tutorial runs code but asserts nothing -- a doc, not a test")
+        if code and not any(
+            re.search(r"^\s*(assert |np\.testing\.assert)", b, re.M) for b in code
+        ):
+            warnings.append(
+                f"{rel}:1: tutorial runs code but asserts nothing -- a doc, not a test"
+            )
 
     return errors, warnings
 
@@ -259,7 +274,9 @@ def collect(args: list[str], root: Path) -> list[Path]:
     if args:
         return [relative_to_root(Path(a), root) for a in args]
     return sorted(
-        p for p in Path("docs").rglob("*.md") if not any(part in SKIP_DIRS for part in p.parts)
+        p
+        for p in Path("docs").rglob("*.md")
+        if not any(part in SKIP_DIRS for part in p.parts)
     )
 
 
@@ -289,7 +306,9 @@ def main(argv: list[str]) -> int:
     for line in all_errors:
         print(f"error:   {line}")
 
-    print(f"\n{len(pages)} page(s): {len(all_errors)} error(s), {len(all_warnings)} warning(s)")
+    print(
+        f"\n{len(pages)} page(s): {len(all_errors)} error(s), {len(all_warnings)} warning(s)"
+    )
     return 1 if all_errors else 0
 
 

@@ -1355,9 +1355,7 @@ class MRSSeries(RawMRISeries):
         if autophase:
             phased_spec = self.spec.xmr.to_hz().xmr.autophase()
         else:
-            phased_spec = self.spec.xmr.to_hz().xmr.tophase(
-                p0=zero_order, p1=first_order
-            )
+            phased_spec = self.spec.xmr.to_hz().xmr.phase(p0=zero_order, p1=first_order)
 
         return (
             phased_spec.mean("averages")
@@ -1429,7 +1427,7 @@ class MRSWashinSeries(MRSSeries):
 
         # averaged_spectra_per_minute
         return plotting.spectra.plot_spectra(
-            self.ppm, averaged_spec, labels=minute_labels, **kwargs
+            data=averaged_spec.xmr.to_ppm(), labels=minute_labels, **kwargs
         )
 
     def fit_grouped_by_duration(

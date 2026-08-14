@@ -4,7 +4,7 @@ jupytext:
     extension: .md
     format_name: myst
 kernelspec:
-  display_name: Python 3 (mnutils)
+  display_name: .venv
   language: python
   name: python3
 ---
@@ -29,16 +29,19 @@ much harder to notice.
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
+import matplotlib.pyplot as plt
+import matplotlib_inline.backend_inline
+
+# Crisp retina output + sane default DPI for the rendered docs
+matplotlib_inline.backend_inline.set_matplotlib_formats("retina")
+plt.rcParams["figure.dpi"] = 150
+
 from loguru import logger
 
 logger.remove()
 ```
 
 ```{code-cell} ipython3
-import matplotlib
-
-matplotlib.use("Agg")  # headless: this page never opens a window
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -129,7 +132,7 @@ assert mrsi_to_display[0, 0] == 0 and mrsi_to_display[1, 1] == 0  # off-diagonal
 
 fig, ax = plt.subplots()
 polys = draw_voxel_overlays_on_ax(ax, [(3, 4, 5)], mrsi_to_display)
-plt.close(fig)
+plt.show()
 
 xy = polys[0].get_xy()[:4]
 width = xy[:, 0].max() - xy[:, 0].min()
@@ -246,12 +249,14 @@ x_offset, y_offset = x_slice.start, y_slice.start
 
 fig, ax = plt.subplots(figsize=(4, 4))
 overlay_image_data_on_T1_on_ax(
-    ax, t1_full[y_slice, x_slice, demo_voxel[2]], mrsi_full[y_slice, x_slice, demo_voxel[2]]
+    t1_full[y_slice, x_slice, demo_voxel[2]],
+    mrsi_full[y_slice, x_slice, demo_voxel[2]],
+    ax=ax,
 )
 (patch,) = draw_voxel_overlays_on_ax(ax, demo_voxel, mrsi_to_display_affine=mrsi_to_display)
 # Shift the box from full-image coordinates into the cropped axes' coordinates.
 patch.set_xy(patch.get_xy() - np.array([x_offset, y_offset]))
-plt.close(fig)
+plt.show()
 
 xy = patch.get_xy()[:4]
 print(xy.min(axis=0) >= 0, xy.max(axis=0) <= [x_slice.stop - x_offset, y_slice.stop - y_offset])
@@ -281,8 +286,8 @@ steps 1, 3 and 4 into one call:
 ```{code-cell} ipython3
 from mnutils.plotting.images import overlay_voxel_on_T1
 
-overlay_voxel_on_T1(t1, mrsi_brain, demo_voxel, figsize=(4, 4))
-plt.close("all")
+fig, ax = overlay_voxel_on_T1(t1, mrsi_brain, demo_voxel, figsize=(4, 4))
+plt.show()
 ```
 
 :::{seealso}
