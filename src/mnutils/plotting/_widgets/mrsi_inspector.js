@@ -44,12 +44,23 @@ function renderWidget(data, el) {
   const spectraBuf = new Float32Array(b64ToBytes(data.spectra_bytes).buffer);
 
   // Full acquired ppm extent (don't assume direction, though ppm is
-  // monotonic increasing in practice) and the current display window, which
-  // starts as the full extent and narrows via the min/max ppm sliders.
+  // monotonic increasing in practice) and the current display window,
+  // narrowed via the dual ppm range slider.
   const ppmDataMin = Math.min(ppm[0], ppm[npts - 1]);
   const ppmDataMax = Math.max(ppm[0], ppm[npts - 1]);
   const ppmStep = npts > 1 ? Math.abs(ppm[1] - ppm[0]) || 0.01 : 0.01;
-  const view = { ppmMin: ppmDataMin, ppmMax: ppmDataMax };
+
+  // Default to the conventional 10 to -2 ppm display window (matches
+  // plotting/spectra.py's default xlim), clamped to what the data actually
+  // covers; fall back to the full extent if that clamp collapses the range
+  // (e.g. data acquired entirely outside [-2, 10]).
+  let defaultPpmMin = clamp(-2, ppmDataMin, ppmDataMax);
+  let defaultPpmMax = clamp(10, ppmDataMin, ppmDataMax);
+  if (defaultPpmMin >= defaultPpmMax) {
+    defaultPpmMin = ppmDataMin;
+    defaultPpmMax = ppmDataMax;
+  }
+  const view = { ppmMin: defaultPpmMin, ppmMax: defaultPpmMax };
 
   // ppm is monotonic, so the in-range indices form one contiguous block
   // regardless of its direction.
@@ -95,6 +106,7 @@ function renderWidget(data, el) {
   const img = document.createElement("img");
   img.className = "mnutils-mrsi-image";
   img.src = frameUrls[state.sliceIdx];
+  img.title = "Click to select voxel";
 
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", `-0.5 -0.5 ${imageWidth} ${imageHeight}`);
@@ -117,7 +129,7 @@ function renderWidget(data, el) {
   slider.value = String(state.sliceIdx);
   slider.disabled = nAnatSlices <= 1;
 
-  leftPanel.append(makeBar(slider), imgWrap, sliceTitle);
+  leftPanel.append(sliceTitle, imgWrap, makeBar(slider));
 
   const rightPanel = document.createElement("div");
   rightPanel.className = "mnutils-mrsi-right-panel";
@@ -232,39 +244,25 @@ function renderWidget(data, el) {
     updateSpectrumView();
   }
 
-  const ppmMinCtl = makeSliceSlider({
+  const ppmRangeCtl = makeDualRangeSlider({
     min: ppmDataMin,
     max: ppmDataMax,
-    value: view.ppmMin,
+    valueMin: view.ppmMin,
+    valueMax: view.ppmMax,
     step: ppmStep,
-    label: "Min ppm",
-    formatReadout: (v) => v.toFixed(2),
-    onInput: (v) => {
-      view.ppmMin = Math.min(v, view.ppmMax - ppmStep);
-      ppmMinCtl.slider.value = String(view.ppmMin);
+    label: "ppm",
+    formatReadout: (lo, hi) => `${lo.toFixed(2)} – ${hi.toFixed(2)}`,
+    onInput: (lo, hi) => {
+      view.ppmMin = lo;
+      view.ppmMax = hi;
       updateSpectrumView();
     },
   });
-  const ppmMaxCtl = makeSliceSlider({
-    min: ppmDataMin,
-    max: ppmDataMax,
-    value: view.ppmMax,
-    step: ppmStep,
-    label: "Max ppm",
-    formatReadout: (v) => v.toFixed(2),
-    onInput: (v) => {
-      view.ppmMax = Math.max(v, view.ppmMin + ppmStep);
-      ppmMaxCtl.slider.value = String(view.ppmMax);
-      updateSpectrumView();
-    },
-  });
-  ppmMinCtl.slider.disabled = ppmMaxCtl.slider.disabled = ppmDataMin >= ppmDataMax;
 
   rightPanel.append(
     spectrumTitle,
     spectrumSvg,
-    makeBar(ppmMinCtl.lbl, ppmMinCtl.slider, ppmMinCtl.readout),
-    makeBar(ppmMaxCtl.lbl, ppmMaxCtl.slider, ppmMaxCtl.readout),
+    makeBar(ppmRangeCtl.lbl, ppmRangeCtl.container, ppmRangeCtl.readout),
   );
 
   viewer.append(leftPanel, rightPanel);

@@ -28,6 +28,7 @@
   display: block;
   width: 100%;
   height: auto;
+  cursor: crosshair;
 }
 
 .mnutils-mrsi-overlay {
@@ -47,6 +48,7 @@
 .mnutils-mrsi-slice-title,
 .mnutils-mrsi-spectrum-title {
   text-align: center;
+  font-size: 1.05em;
 }
 
 .mnutils-mrsi-spectrum {
