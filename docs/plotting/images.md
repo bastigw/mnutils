@@ -58,15 +58,15 @@ fig, ax = display_images(single)
 plt.show()
 print("2D:", ax.shape)
 
-volume = np.random.randint(-10, 20, size=(20, 20, 6))
-fig, ax = display_images(volume)
-plt.show()
-print("3D (one volume, middle slice shown):", ax.shape)
+one_slice_volume = np.random.randint(-10, 20, size=(20, 20, 1))
+fig, ax = display_images(one_slice_volume)
+plt.close(fig)
+print("3D, one slice (still one image, not six):", ax.shape)
 
-grid = np.random.randint(-100, 20, size=(20, 20, 3, 7))
-fig, ax = display_images(grid)
-plt.show()
-print("4D (grid of 7):", ax.shape)
+one_slice_grid = np.random.randint(-100, 20, size=(20, 20, 1, 7))
+fig, ax = display_images(one_slice_grid)
+plt.close(fig)
+print("4D, one slice (grid of 7):", ax.shape)
 ```
 
 ```{code-cell} ipython3
@@ -77,24 +77,76 @@ assert ax.shape == (8,)  # 7 images, padded to a 2x4 grid -- one subplot unused
 fig, ax_single = display_images(single)
 plt.close(fig)
 assert ax_single.shape == (1,)
-fig, ax_vol = display_images(volume)
+fig, ax_vol = display_images(one_slice_volume)
 plt.close(fig)
 assert ax_vol.shape == (1,)  # still one image, not six
 ```
 
 A **list** of same-shaped arrays works too — it's stacked along a new last axis before the same
-rule applies. A list of 2D arrays becomes 3D (one image, the middle *array* of the list shown, not
-a grid); a list of *volumes* (each already 3D) becomes 4D (a grid, one per volume):
+rule applies (more on that [below](#plotting-images-scrub), since a list is often exactly how a
+multi-slice case shows up).
+
+(plotting-images-scrub)=
+## But a volume has more than one slice — can I see the rest?
+
+The examples above all used a single slice to keep `ax.shape` checkable. Real volumes don't stop
+at one: a `(H, W, S)` array with `S > 1` still shows only its middle slice by default — so what
+about the other `S - 1`?
+
+`display_images()` shows them too, as a slider, right here on this page — not just in a live
+Jupyter session. Once there's more than one slice, the function displays an interactive
+slice-viewer widget instead of a static image, and returns `None`: there's no `fig`/`axes` to hand
+back, because the "figure" is no longer a single static thing.
+
+```{code-cell} ipython3
+volume = np.random.randint(-10, 20, size=(20, 20, 6))
+result = display_images(volume)
+print("returns:", result)
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: multi-slice input engages the interactive widget path (no fig/axes to return)
+assert result is None
+```
+
+The same rule applies one level down for a 4D grid: every panel shares a single slider, since
+they're all still slices of the same underlying volume stack.
+
+```{code-cell} ipython3
+grid = np.random.randint(-100, 20, size=(20, 20, 3, 7))
+display_images(grid)
+```
+
+:::{note}
+The slider works after this page is built into a static site too, not only in a live kernel —
+every slice is pre-rendered once, up front, and the slider just swaps between them client-side.
+:::
+
+This is also why a **list** of plain 2D arrays is a multi-slice case, not a static one: stacked
+along a new last axis, four 2D arrays become one volume with four slices — the same "not a grid"
+rule as above, just arrived at differently — so it engages the same interactive widget:
 
 ```{code-cell} ipython3
 list_of_images = [np.full((10, 10), i, dtype=float) for i in range(4)]
-fig, ax = display_images(list_of_images)
-plt.show()
-print("list of 2D arrays:", ax.shape)
+result = display_images(list_of_images)
+print("returns:", result)
+```
 
-list_of_volumes = [np.full((10, 10, 3), i, dtype=float) for i in range(4)]
-fig, ax = display_images(list_of_volumes)
-plt.show()
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: a list of 2D arrays stacks to one multi-slice volume, not a grid
+assert result is None
+```
+
+A list of *volumes* (each already 3D) becomes 4D instead — a grid, one per volume:
+
+```{code-cell} ipython3
+list_of_single_slice_volumes = [np.full((10, 10, 1), i, dtype=float) for i in range(4)]
+fig, ax = display_images(list_of_single_slice_volumes)
+plt.close(fig)
 print("list of volumes:", ax.shape)
 ```
 
@@ -102,10 +154,7 @@ print("list of volumes:", ax.shape)
 :tags: [remove-cell]
 
 # STRICT TESTS: list input follows np.stack(..., axis=-1), then the same shape rule
-fig, ax_list2d = display_images(list_of_images)
-plt.close(fig)
-assert ax_list2d.shape == (1,)  # stacked to 3D -> one image
-fig, ax_list3d = display_images(list_of_volumes)
+fig, ax_list3d = display_images(list_of_single_slice_volumes)
 plt.close(fig)
 assert ax_list3d.shape == (4,)  # stacked to 4D -> grid of 4
 ```

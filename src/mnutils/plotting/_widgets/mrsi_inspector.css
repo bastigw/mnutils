@@ -1,0 +1,58 @@
+.mnutils-mrsi-inspector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1em;
+  outline: none;
+}
+
+.mnutils-mrsi-left-panel,
+.mnutils-mrsi-right-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  flex: 1 1 320px;
+  min-width: 260px;
+}
+
+.mnutils-mrsi-image-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.mnutils-mrsi-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mnutils-mrsi-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.mnutils-mrsi-voxel-box {
+  fill: none;
+  stroke: cyan;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.mnutils-mrsi-slice-title,
+.mnutils-mrsi-spectrum-title {
+  font-size: 0.85em;
+  text-align: center;
+}
+
+.mnutils-mrsi-spectrum {
+  width: 100%;
+  height: 200px;
+  border: 1px solid var(--jp-border-color1, #ccc);
+}
+
+.mnutils-mrsi-spectrum-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}

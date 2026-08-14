@@ -1,0 +1,30 @@
+.mnutils-slice-viewer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.mnutils-slice-viewer-image {
+  max-width: 100%;
+  height: auto;
+}
+
+.mnutils-slice-viewer-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  width: 100%;
+  max-width: 320px;
+}
+
+.mnutils-slice-viewer-controls input[type="range"] {
+  flex: 1;
+}
+
+.mnutils-slice-viewer-readout {
+  font-family: monospace;
+  font-size: 0.85em;
+  min-width: 5em;
+  text-align: right;
+}

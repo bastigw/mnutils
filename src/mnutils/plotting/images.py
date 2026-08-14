@@ -1,23 +1,23 @@
 from __future__ import annotations
 
+import io
 from typing import Any, TypedDict, Unpack
 
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
-import xarray as xr
-from ipywidgets import interact, widgets
+from IPython.display import display as ipy_display
 from loguru import logger
 from matplotlib import patches
 from matplotlib.axes import Axes
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.contour import QuadContourSet
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
 from nibabel import affines, spatialimages
-from xmris import DIMS
 
 from .. import GESeries, utils
-from . import spectra
+from ._widgets import MRSIVoxelInspectorWidget, SliceViewerWidget
 
 DEFAULT_IMAGE_AX_PARAMS = {
     "xlabel": "",
@@ -100,7 +100,7 @@ def display_nifti(
     nii: spatialimages.SpatialImage | GESeries.NiiBase,
     orientation: tuple[str, str, str] | None = None,
     **kwargs,
-) -> tuple[Figure, npt.NDArray]:
+) -> tuple[Figure, npt.NDArray] | None:
     """Orient a NIfTI image and display it via `display_images`.
 
     Parameters
@@ -114,8 +114,8 @@ def display_nifti(
 
     Returns
     -------
-    tuple[Figure, ndarray]
-        The created figure and the array of axes.
+    tuple[Figure, ndarray] or None
+        See `display_images`.
     """
     if isinstance(nii, GESeries.NiiBase):
         nii = nii.nii
@@ -136,8 +136,8 @@ def display_images(
     v_percentile: float = 1.0,
     zeros_as_nan: bool = False,
     **kwargs,
-) -> tuple[Figure, npt.NDArray]:
-    """Display a grid of 2D/3D/4D images with a shared slice slider.
+) -> tuple[Figure, npt.NDArray] | None:
+    """Display a grid of 2D/3D/4D images, with a slice slider for 3D/4D input.
 
     Parameters
     ----------
@@ -174,8 +174,11 @@ def display_images(
 
     Returns
     -------
-    tuple[Figure, ndarray]
-        The created figure and the array of axes.
+    tuple[Figure, ndarray] or None
+        For 2D input (or 3D/4D input with only one slice), the created
+        figure and its axes. For 3D/4D input with more than one slice, an
+        interactive slice-scrubbing widget is displayed instead and `None`
+        is returned.
     """
     if titles is None:
         titles = []
@@ -290,22 +293,66 @@ def display_images(
     else:
         colorbar_mode = ""
 
+    grid_kwargs = dict(
+        num_images=num_images,
+        num_rows=num_rows,
+        num_cols=num_cols,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        imshow_kws=imshow_kws,
+        image_params=image_params,
+        titles=titles,
+        colorbar=colorbar,
+        colorbar_kws=colorbar_kws,
+        colorbar_mode=colorbar_mode,
+        fig_title=fig_title,
+    )
+
+    n_slices = images.shape[2]
+    if original_dims >= 3 and n_slices > 1:
+        frames = [
+            _render_image_grid_frame(
+                images, s, fig_size=fig_size, fig_kws=fig_kws, **grid_kwargs
+            )
+            for s in range(n_slices)
+        ]
+        ipy_display(
+            SliceViewerWidget(
+                frames=frames, n_slices=n_slices, initial_index=slice_idx
+            )
+        )
+        return None
+
     fig = plt.figure(figsize=fig_size, **fig_kws if fig_kws else {})
-    subplot_kws = {}
-    gridspec_kws = {}
-
-    axes: list[Axes] = fig.subplots(
-        num_rows,
-        num_cols,
-        sharex=True,
-        sharey=True,
-        squeeze=False,
-        subplot_kw=subplot_kws,
-        gridspec_kw=gridspec_kws,
+    axes = fig.subplots(
+        num_rows, num_cols, sharex=True, sharey=True, squeeze=False
     ).flatten()  # type: ignore
-    logger.debug(f"Created figure with size {fig_size} and {len(axes)} axes.")
+    _draw_image_grid(fig, axes, images, slice_idx, **grid_kwargs)
+    return fig, axes
 
-    ims = []
+
+def _draw_image_grid(
+    fig: Figure,
+    axes: list[Axes],
+    images: npt.NDArray,
+    slice_idx: int,
+    *,
+    num_images: int,
+    num_rows: int,
+    num_cols: int,
+    cmap: str,
+    vmin: float | None,
+    vmax: float | None,
+    imshow_kws: dict[str, Any] | None,
+    image_params: dict[str, Any],
+    titles: list[str],
+    colorbar: bool,
+    colorbar_kws: dict[str, Any] | None,
+    colorbar_mode: str,
+    fig_title: str,
+) -> None:
+    """Draw one slice of the `display_images` grid onto pre-built axes."""
     for image in range(num_images):
         im = axes[image].imshow(
             images[:, :, slice_idx, image],
@@ -316,13 +363,9 @@ def display_images(
             **imshow_kws if imshow_kws else {},
         )
         axes[image].set(**image_params)
-        # Set title if provided
         if len(titles) > image:
-            # Calculate row number
             im_row = image // num_cols
-
             if num_rows == 2 and im_row == 1:
-                logger.debug("Setting title as xlabel for 2-row layout.")
                 axes[image].set_xlabel(
                     titles[image], fontsize="medium", fontweight="normal", labelpad=6
                 )
@@ -333,35 +376,36 @@ def display_images(
 
         if colorbar:
             if colorbar_mode == "each":
-                logger.debug(
-                    f"Adding colorbar to axis {image} with parameters: {colorbar_kws}"
-                )
                 fig.colorbar(im, ax=axes[image], **colorbar_kws if colorbar_kws else {})
             elif colorbar_mode == "single" and image == num_images - 1:
-                logger.debug(
-                    f"Adding single colorbar to last axis with parameters: {colorbar_kws}"
-                )
                 fig.colorbar(im, ax=axes[image], **colorbar_kws if colorbar_kws else {})
 
-        ims.append(im)
-
-    # Remove all unused axes
     for empty_ax in range(num_images, len(axes)):
         fig.delaxes(axes[empty_ax])
 
     if fig_title:
         fig.suptitle(fig_title, fontsize="large", fontweight="bold", y=1)
 
-    if original_dims >= 3:
 
-        def update_slice(slice_idx):
-            for image in range(num_images):
-                ims[image].set_data(images[:, :, slice_idx, image])
-            fig.canvas.draw_idle()
-
-        interact(update_slice, slice_idx=(0, images.shape[2] - 1))
-
-    return fig, axes
+def _render_image_grid_frame(
+    images: npt.NDArray,
+    slice_idx: int,
+    *,
+    fig_size: tuple[float, float],
+    fig_kws: dict[str, Any] | None,
+    **grid_kwargs,
+) -> bytes:
+    """Render one `display_images` slice to PNG bytes, off the pyplot registry."""
+    fig = Figure(figsize=fig_size, **fig_kws if fig_kws else {})
+    FigureCanvasAgg(fig)
+    num_rows, num_cols = grid_kwargs["num_rows"], grid_kwargs["num_cols"]
+    axes = fig.subplots(
+        num_rows, num_cols, sharex=True, sharey=True, squeeze=False
+    ).flatten()  # type: ignore
+    _draw_image_grid(fig, axes, images, slice_idx, **grid_kwargs)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    return buf.getvalue()
 
 
 def overlay_nifti_data_on_T1(
@@ -372,7 +416,7 @@ def overlay_nifti_data_on_T1(
     resample_kwargs: dict[str, Any] | None = None,
     mask: npt.NDArray | GESeries.NiiBase | None = None,
     **kwargs,
-):
+) -> tuple[Figure, list[Axes]] | None:
     """Resample a data NIfTI into T1 space and overlay it on the T1 image.
 
     Parameters
@@ -395,8 +439,8 @@ def overlay_nifti_data_on_T1(
 
     Returns
     -------
-    tuple[Figure, list[Axes]]
-        The created figure and its axes.
+    tuple[Figure, list[Axes]] or None
+        See `overlay_image_data_on_T1`.
     """
     # If mask in kwargs, apply mask to data_nii before resampling and overlaying
     apply_mask_after_resampling: bool = False
@@ -457,7 +501,7 @@ def overlay_image_data_on_T1(
     only_overlay: bool = False,
     mask_kwargs: dict[str, Any] | None = None,
     **kwargs,
-):
+) -> tuple[Figure, list[Axes]] | None:
     """Display T1, resampled data, and overlay images side by side with a slice slider.
 
     Parameters
@@ -482,16 +526,11 @@ def overlay_image_data_on_T1(
 
     Returns
     -------
-    tuple[Figure, list[Axes]]
-        The created figure and its axes.
+    tuple[Figure, list[Axes]] or None
+        For a single-slice input, the created figure and its axes. For
+        multi-slice input, an interactive slice-scrubbing widget is
+        displayed instead and `None` is returned.
     """
-    fig = plt.figure(figsize=(12, 4))
-    if only_overlay:
-        single_axes: Axes = fig.subplots(1, 1)
-        axes = [single_axes]
-    else:
-        axes: list[Axes] = fig.subplots(1, 3)
-
     if data_images.shape != t1_images.shape:
         raise ValueError(
             f"T1 images and data images must have the same shape for overlay. "
@@ -502,90 +541,100 @@ def overlay_image_data_on_T1(
         slice_idx = 0
         t1_images = t1_images[:, :, np.newaxis]
         data_images = data_images[:, :, np.newaxis]
+        if mask is not None:
+            mask = mask[:, :, np.newaxis]
+        if isinstance(mask_contour, np.ndarray):
+            mask_contour = mask_contour[:, :, np.newaxis]
     else:
         slice_idx = t1_images.shape[2] // 2
 
-    axes_idx = 0
-    if not only_overlay:
-        ims, _ = overlay_image_data_on_T1_on_ax(
-            t1_images[:, :, slice_idx],
-            ax=axes[axes_idx],
-            cmap="gray",
-            **kwargs,
-        )
-        im1 = ims[0]
-        axes[axes_idx].set_title("T1 Image")
-        logger.debug(
-            f"Displayed T1 image with shape {t1_images.shape} "
-            f"at slice index {slice_idx}."
-        )
-
-        axes_idx += 1
-        ims, _ = overlay_image_data_on_T1_on_ax(
-            data_images[:, :, slice_idx],
-            ax=axes[axes_idx],
-            **kwargs,
-        )
-        im2 = ims[0]
-        axes[axes_idx].set_title("Resampled Data")
-        axes_idx += 1
-        logger.debug(
-            f"Displayed resampled data image with shape {data_images.shape} "
-            f"at slice index {slice_idx}."
-        )
-
-    global contour, contour_kwargs, mask_contour_global
-    if mask_contour is True:
-        mask_contour_global = mask
-    else:
-        mask_contour_global = None
-
+    # `mask_contour` only draws a contour when it's `True` (reuse `mask`); an
+    # explicit array is not applied here (matches the pre-anywidget behavior).
+    resolved_mask_contour = mask if mask_contour is True else None
     contour_kwargs = DEFAULT_MASK_PARAMS.copy()
     if mask_kwargs is not None:
         contour_kwargs.update(mask_kwargs)
 
-    ims, contour = overlay_image_data_on_T1_on_ax(
+    overlay_kwargs = dict(
+        only_overlay=only_overlay,
+        mask=mask,
+        resolved_mask_contour=resolved_mask_contour,
+        mask_kwargs=mask_kwargs,
+        kwargs=kwargs,
+    )
+
+    n_slices = t1_images.shape[2]
+    if n_slices > 1:
+        frames = [
+            _render_overlay_frame(t1_images, data_images, s, **overlay_kwargs)
+            for s in range(n_slices)
+        ]
+        ipy_display(
+            SliceViewerWidget(
+                frames=frames, n_slices=n_slices, initial_index=slice_idx
+            )
+        )
+        return None
+
+    fig = plt.figure(figsize=(12, 4))
+    axes = [fig.subplots(1, 1)] if only_overlay else list(fig.subplots(1, 3))
+    _draw_overlay_slice(fig, axes, t1_images, data_images, slice_idx, **overlay_kwargs)
+    return fig, axes
+
+
+def _draw_overlay_slice(
+    fig: Figure,
+    axes: list[Axes],
+    t1_images: npt.NDArray,
+    data_images: npt.NDArray,
+    slice_idx: int,
+    *,
+    only_overlay: bool,
+    mask: npt.NDArray[np.bool_] | None,
+    resolved_mask_contour: npt.NDArray[np.bool_] | None,
+    mask_kwargs: dict[str, Any] | None,
+    kwargs: dict[str, Any],
+) -> None:
+    """Draw one slice of the `overlay_image_data_on_T1` panels onto given axes."""
+    axes_idx = 0
+    if not only_overlay:
+        overlay_image_data_on_T1_on_ax(
+            t1_images[:, :, slice_idx], ax=axes[axes_idx], cmap="gray", **kwargs
+        )
+        axes[axes_idx].set_title("T1 Image")
+        axes_idx += 1
+        overlay_image_data_on_T1_on_ax(
+            data_images[:, :, slice_idx], ax=axes[axes_idx], **kwargs
+        )
+        axes[axes_idx].set_title("Resampled Data")
+        axes_idx += 1
+
+    overlay_image_data_on_T1_on_ax(
         t1_images[:, :, slice_idx],
         data_images[:, :, slice_idx],
         mask=mask[:, :, slice_idx] if mask is not None else None,
-        mask_contour=mask_contour_global[:, :, slice_idx]
-        if mask_contour_global is not None
+        mask_contour=resolved_mask_contour[:, :, slice_idx]
+        if resolved_mask_contour is not None
         else None,
         ax=axes[axes_idx],
         mask_kwargs=mask_kwargs,
         **kwargs,
     )
-    im3, im4 = ims[0], ims[1]
     axes[axes_idx].set_title("Overlay")
 
-    def update_slice(slice_idx):
-        global contour, contour_kwargs, mask_contour_global
-        if not only_overlay:
-            im1.set_data(t1_images[:, :, slice_idx])  # pyright: ignore[reportPossiblyUnboundVariable]
-            im2.set_data(data_images[:, :, slice_idx])  # pyright: ignore[reportPossiblyUnboundVariable]
-        im3.set_data(t1_images[:, :, slice_idx])
-        # Check if we need to mask the data image for the overlay
-        if mask is not None:
-            overlay_image = np.where(
-                mask[:, :, slice_idx], data_images[:, :, slice_idx], np.nan
-            )
-        else:
-            overlay_image = data_images[:, :, slice_idx]
-        im4.set_data(overlay_image)
-        if contour is not None:
-            if mask_contour_global is False:
-                mask_contour_global = None
-            elif mask_contour_global is True:
-                mask_contour_global = mask
-            contour.remove()
-            if isinstance(mask_contour_global, np.ndarray):
-                contour = axes[axes_idx].contour(
-                    mask_contour_global[:, :, slice_idx], **contour_kwargs
-                )
-        fig.canvas.draw_idle()
 
-    interact(update_slice, slice_idx=(0, t1_images.shape[2] - 1))
-    return fig, axes
+def _render_overlay_frame(
+    t1_images: npt.NDArray, data_images: npt.NDArray, slice_idx: int, **kwargs
+) -> bytes:
+    """Render one `overlay_image_data_on_T1` slice to PNG bytes, off the pyplot registry."""
+    only_overlay = kwargs["only_overlay"]
+    fig = Figure(figsize=(12, 4))
+    FigureCanvasAgg(fig)
+    axes = [fig.subplots(1, 1)] if only_overlay else list(fig.subplots(1, 3))
+    _draw_overlay_slice(fig, axes, t1_images, data_images, slice_idx, **kwargs)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    return buf.getvalue()
 
 
 def overlay_image_data_on_T1_on_ax(
@@ -715,12 +764,15 @@ def inspect_MRSI_spectra(
     blocky: bool = True,
     magnitude: bool = False,
     autophase: bool = True,
-):
-    """Build an interactive widget to inspect MRSI spectra over a T1 image.
+) -> None:
+    """Display an interactive widget to inspect MRSI spectra over a T1 image.
 
-    Displays the T1 image with an MRSI overlay and a spectrum plot; clicking,
+    Shows the T1 image with an MRSI overlay and a spectrum plot; clicking,
     the keyboard arrows, or the slice slider update the selected voxel and
-    its spectrum.
+    its spectrum. All interaction runs client-side (no Python kernel needed
+    after the widget is displayed): every anatomical slice is pre-rendered,
+    and every voxel's spectrum is precomputed into a single buffer embedded
+    in the widget.
 
     Parameters
     ----------
@@ -736,32 +788,21 @@ def inspect_MRSI_spectra(
     autophase : bool, optional
         If True (and `magnitude` is False), autophase the spectrum before
         display, by default True.
-
-    Returns
-    -------
-    ipywidgets.VBox
-        A widget containing the slice slider and the interactive figure.
     """
-    with plt.ioff():
-        fig, axs = plt.subplots(1, 2, figsize=(12, 4))
-    # Correctly orient the T1 and MRSI images and select the slice.
-    # These are captured by the nested callbacks below via ``nonlocal`` instead
-    # of leaking into module globals.
-    markers: list = []
     t1_images = T1.images()
     if blocky:
-        t1_images, MRSI_images = utils.nifti.resample_and_orient_nifti(
+        t1_images, mrsi_images = utils.nifti.resample_and_orient_nifti(
             source_nii=MRSI.RAW_exp.nii,
             target_nii=T1.nii,
         )
     else:
-        t1_images, MRSI_images = utils.nifti.resample_and_orient_nifti(
+        t1_images, mrsi_images = utils.nifti.resample_and_orient_nifti(
             source_nii=MRSI.nii, target_nii=T1.nii
         )
 
-    slice_idx = t1_images.shape[2] // 2
+    n_anat_slices = t1_images.shape[2]
+    initial_slice = n_anat_slices // 2
 
-    # Ok now lets figure out how to go from x and y in the image to the voxel in the MRSI data
     blocky_mrsi_affine = np.asarray(MRSI.RAW_exp.nii.affine)
     t1_display_affine = utils.nifti.get_display_affine(T1.nii)
     mrsi_to_display = np.linalg.inv(t1_display_affine).dot(blocky_mrsi_affine)
@@ -771,17 +812,11 @@ def inspect_MRSI_spectra(
     logger.debug(f"MRSI affine:\n{blocky_mrsi_affine}")
     logger.debug(f"MRSI to display affine:\n{mrsi_to_display}")
 
-    MRSI_x, MRSI_y, MRSI_slice_idx = (
-        MRSI.spec.shape[1] // 2,
-        MRSI.spec.shape[2] // 2,
-        MRSI.spec.shape[3] // 2,
-    )
-    mrsi_voxel_location: VoxelCoord = tuple(
-        np.asarray([MRSI_x, MRSI_y, MRSI_slice_idx]).astype(int)
-    )
+    nx, ny, n_mrsi_slices = MRSI.spec.shape[1], MRSI.spec.shape[2], MRSI.spec.shape[3]
+    initial_voxel = (nx // 2, ny // 2, n_mrsi_slices // 2)
 
     anat_vmin, anat_vmax = fast_bounds(t1_images)
-    mrsi_vmin, mrsi_vmax = fast_bounds(MRSI_images)
+    mrsi_vmin, mrsi_vmax = fast_bounds(mrsi_images)
     logger.debug(
         f"Anatomical image bounds for display: vmin={anat_vmin:4g}, vmax={anat_vmax:4g}"
     )
@@ -789,154 +824,119 @@ def inspect_MRSI_spectra(
         f"MRSI image bounds for display: vmin={mrsi_vmin:4g}, vmax={mrsi_vmax:4g}"
     )
 
-    aspect_ratio = t1_images.shape[1] / t1_images.shape[0]
+    def mrsi_slice_for(anat_slice_idx: int) -> int:
+        raw = affines.apply_affine(display_to_mrsi, [0, 0, anat_slice_idx])[2]
+        return int(np.clip(np.round(raw), 0, n_mrsi_slices - 1))
 
-    # Plot the corrected images
-    im_bg = axs[0].imshow(
+    left_frames = []
+    slice_titles = []
+    for s in range(n_anat_slices):
+        left_frames.append(
+            _render_mrsi_left_frame(
+                t1_images,
+                mrsi_images,
+                s,
+                anat_vmin=anat_vmin,
+                anat_vmax=anat_vmax,
+                mrsi_vmin=mrsi_vmin,
+                mrsi_vmax=mrsi_vmax,
+            )
+        )
+        slice_titles.append(f"Anat. Slice {s}, MRSI Slice {mrsi_slice_for(s)}")
+
+    if magnitude and autophase:
+        logger.warning(
+            "Both magnitude and autophase options selected. Autophase will "
+            "be ignored when displaying magnitude spectrum."
+        )
+
+    npts = MRSI.ppm.values.size
+    spectra_array = np.empty((nx, ny, n_mrsi_slices, npts), dtype=np.float32)
+    for x in range(nx):
+        for y in range(ny):
+            # Top left of the image is (0, 0); the MRSI grid's coordinate
+            # system starts bottom-right, so voxel lookup flips x and y.
+            spec_i = MRSI.dims[0] - 1 - y
+            spec_j = MRSI.dims[1] - 1 - x
+            for mrsi_slice in range(n_mrsi_slices):
+                complex_spectra = MRSI.get_voxel_spectrum(spec_i, spec_j, mrsi_slice)
+                if magnitude:
+                    spectra_data = np.abs(complex_spectra)
+                elif autophase:
+                    spectra_data = complex_spectra.xmr.to_hz().xmr.autophase().real
+                else:
+                    spectra_data = complex_spectra.real
+                spectra_array[x, y, mrsi_slice, :] = spectra_data
+
+    if magnitude:
+        spectrum_label = "Magnitude Spectrum"
+    elif autophase:
+        spectrum_label = "Autophased Spectrum"
+    else:
+        spectrum_label = "Real Spectrum"
+
+    ipy_display(
+        MRSIVoxelInspectorWidget(
+            left_frames=left_frames,
+            slice_titles=slice_titles,
+            n_anat_slices=n_anat_slices,
+            initial_slice=initial_slice,
+            image_width=t1_images.shape[1],
+            image_height=t1_images.shape[0],
+            mrsi_to_display_affine=mrsi_to_display.flatten().tolist(),
+            display_to_mrsi_affine=display_to_mrsi.flatten().tolist(),
+            grid_shape=(nx, ny, n_mrsi_slices),
+            mrsi_dims=(int(MRSI.dims[0]), int(MRSI.dims[1])),
+            initial_voxel=initial_voxel,
+            ppm=MRSI.ppm.values.astype(float).tolist(),
+            spectra_bytes=spectra_array.tobytes(),
+            npts=npts,
+            spectrum_label=spectrum_label,
+        )
+    )
+
+
+def _render_mrsi_left_frame(
+    t1_images: npt.NDArray,
+    mrsi_images: npt.NDArray,
+    slice_idx: int,
+    *,
+    anat_vmin: float,
+    anat_vmax: float,
+    mrsi_vmin: float,
+    mrsi_vmax: float,
+) -> bytes:
+    """Render one T1+MRSI-overlay anatomical slice, filling the whole figure.
+
+    The axes fills the entire figure with no ticks/labels/margin and uses
+    `aspect="auto"`, so the saved PNG's content area maps linearly onto the
+    image's (ncols, nrows) data extent -- required for the widget's
+    client-side voxel-outline overlay to align with the image.
+    """
+    nrows, ncols = t1_images.shape[:2]
+    fig = Figure(figsize=(4, 4 * nrows / ncols))
+    FigureCanvasAgg(fig)
+    ax = fig.add_axes((0, 0, 1, 1))
+    ax.imshow(
         t1_images[:, :, slice_idx],
         cmap="gray",
         origin="upper",
         vmin=anat_vmin,
         vmax=anat_vmax,
-        aspect=aspect_ratio,
     )
-    im_fg = axs[0].imshow(
-        MRSI_images[:, :, slice_idx],
+    ax.imshow(
+        mrsi_images[:, :, slice_idx],
         cmap="magma",
         alpha=0.5,
         origin="upper",
         vmin=mrsi_vmin,
         vmax=mrsi_vmax,
-        # aspect=aspect_ratio,
     )
-    axs[0].set_title(f"Anat. Slice {slice_idx}, MRSI Slice {MRSI_slice_idx}")
-
-    # Create graph with empty data to be updated later
-    # Change label based on options
-    if magnitude:
-        label = "Magnitude Spectrum"
-        if autophase:
-            logger.warning(
-                "Both magnitude and autophase options selected. Autophase "
-                "will be ignored when displaying magnitude spectrum."
-            )
-    elif autophase:
-        label = "Autophased Spectrum"
-    else:
-        label = "Real Spectrum"
-
-    placeholder_spectrum = xr.DataArray(
-        np.ones_like(MRSI.ppm.values),
-        dims=[DIMS.chemical_shift],
-        coords={DIMS.chemical_shift: MRSI.ppm.values},
-    )
-    spectra_ax = spectra.plot_spectra(
-        ax=axs[1], data=placeholder_spectrum, labels=[label]
-    )
-
-    def update_voxel_marker(mrsi_voxel_position: VoxelCoord):
-        nonlocal markers
-        for m in markers:
-            m.remove()
-        markers = draw_voxel_overlays_on_ax(
-            ax=axs[0],
-            voxel_coords=mrsi_voxel_position,
-            mrsi_to_display_affine=mrsi_to_display,
-        )
-
-    def update(change):
-        nonlocal slice_idx, MRSI_slice_idx
-        slice_idx = change["new"]
-        im_bg.set_data(t1_images[:, :, slice_idx])
-        im_fg.set_data(MRSI_images[:, :, slice_idx])
-
-        MRSI_slice_idx = np.round(
-            affines.apply_affine(display_to_mrsi, [0, 0, slice_idx])
-        ).astype(int)[2]
-        axs[0].set_title(f"Anat. Slice {slice_idx}, MRSI Slice {MRSI_slice_idx}")
-        MRSI_slice_idx = np.clip(MRSI_slice_idx, 0, MRSI.spec.shape[3] - 1)
-        mrsi_voxel_location: VoxelCoord = tuple(
-            np.asarray([MRSI_x, MRSI_y, MRSI_slice_idx]).astype(int)
-        )
-        update_voxel_marker(mrsi_voxel_location)
-        update_spectra(mrsi_voxel_location)
-        fig.canvas.draw_idle()
-
-    def onclick(event):
-        if event.xdata is not None and event.ydata is not None:
-            nonlocal slice_idx, MRSI_x, MRSI_y, MRSI_slice_idx
-            # event.ydata = display row, event.xdata = display col
-            mrsi_voxel_location: VoxelCoord = tuple(
-                np.clip(
-                    np.round(
-                        affines.apply_affine(
-                            display_to_mrsi, [event.ydata, event.xdata, slice_idx]
-                        )
-                    ),
-                    [0, 0, 0],
-                    [np.asarray(MRSI.dims) - 1],
-                )
-                .squeeze()
-                .astype(int)
-            )
-            MRSI_x, MRSI_y, MRSI_slice_idx = mrsi_voxel_location
-            update_voxel_marker(mrsi_voxel_location)
-            update_spectra(mrsi_voxel_location)
-            fig.canvas.draw_idle()
-
-    def update_spectra(location: VoxelCoord):
-        # Show magnitude or (autophased) spectrum
-        x, y, MRSI_slice_idx = location
-        # Top left of image is 0,0. The coordinate system otherwise starts bottom right
-        # To select the correct voxel, we need to flip x and y coordinate
-        # i in this case is
-        spec_i = MRSI.dims[0] - 1 - int(y)
-        spec_j = MRSI.dims[1] - 1 - int(x)
-
-        complex_spectra = MRSI.get_voxel_spectrum(spec_i, spec_j, MRSI_slice_idx)
-        mag_spec = np.abs(complex_spectra)
-        if magnitude:
-            spectra_data = mag_spec
-        else:
-            if autophase:
-                spectra_data = complex_spectra.xmr.to_hz().xmr.autophase().real
-            else:
-                spectra_data = complex_spectra.real
-        axs[1].set_title(
-            f"Spectrum at voxel (i:{spec_i}, j:{spec_j}, slice:{MRSI_slice_idx}, "
-            f"sum:{np.sum(mag_spec):.5g})"
-        )
-        spectra_ax.lines[0].set_data(MRSI.ppm, spectra_data)
-        axs[1].relim()
-        axs[1].autoscale(enable=True, axis="y")
-
-    def on_key(event):
-        if event.key in ["up", "down", "left", "right"]:
-            nonlocal MRSI_x, MRSI_y, MRSI_slice_idx
-            if event.key == "down":
-                MRSI_y = max(0, MRSI_y - 1)
-            elif event.key == "up":
-                MRSI_y = min(MRSI.spec.shape[2] - 1, MRSI_y + 1)
-            elif event.key == "right":
-                MRSI_x = max(0, MRSI_x - 1)
-            elif event.key == "left":
-                MRSI_x = min(MRSI.spec.shape[1] - 1, MRSI_x + 1)
-            voxel_location: VoxelCoord = tuple(
-                np.asarray([MRSI_x, MRSI_y, MRSI_slice_idx]).astype(int)
-            )
-            update_spectra(voxel_location)
-            update_voxel_marker(voxel_location)
-        fig.canvas.draw_idle()
-
-    fig.canvas.mpl_connect("key_press_event", on_key)
-    fig.canvas.mpl_connect("button_press_event", onclick)
-
-    update_voxel_marker(mrsi_voxel_location)
-    update_spectra(mrsi_voxel_location)
-
-    slider = widgets.IntSlider(value=slice_idx, min=0, max=t1_images.shape[2] - 1)
-    slider.observe(update, names="value")
-    return widgets.VBox([slider, fig.canvas])
+    ax.set_aspect("auto")
+    ax.axis("off")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    return buf.getvalue()
 
 
 class VoxelOverlayParams(TypedDict, total=False):

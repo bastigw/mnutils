@@ -1244,23 +1244,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ipympl"
-version = "0.10.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "ipython" },
-    { name = "ipywidgets" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "traitlets" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/16/9c/f79e29f6262e821a15757662aa11cbb1db0a51ef836a32a46ddcb25e6832/ipympl-0.10.0.tar.gz", hash = "sha256:eda69602a010af2a42e8ebd069b0ee0dbe8df7fc69d7c1e8b99fece0a2fe613f", size = 3595672, upload-time = "2026-01-21T20:19:47.971Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/12/b3/88c0ef22878c86035f058df0ac6c171319ffd0aa52a406455ed3a3847566/ipympl-0.10.0-py3-none-any.whl", hash = "sha256:a09c4f0ff86490cc62aed45e53b912fb706e3ec3506c4a51ce4a670d6667f5ce", size = 519020, upload-time = "2026-01-21T20:19:46.325Z" },
-]
-
-[[package]]
 name = "ipython"
 version = "9.16.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1865,6 +1848,7 @@ version = "1.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "dcm2niiw" },
+    { name = "ipython" },
     { name = "loguru" },
     { name = "mat73" },
     { name = "matplotlib" },
@@ -1889,7 +1873,6 @@ bet = [
 dev = [
     { name = "griffe" },
     { name = "ipykernel" },
-    { name = "ipympl" },
     { name = "ipywidgets" },
     { name = "jupyter-server" },
     { name = "jupytext" },
@@ -1909,6 +1892,7 @@ dev = [
 requires-dist = [
     { name = "dcm2niiw", specifier = ">=0.1.5" },
     { name = "hd-bet", marker = "extra == 'bet'", specifier = ">=2.0.1" },
+    { name = "ipython", specifier = ">=8.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mat73", git = "https://github.com/skjerns/mat7.3" },
     { name = "matlabengine", marker = "extra == '2025a'", specifier = "==25.1.*" },
@@ -1927,7 +1911,6 @@ provides-extras = ["2025a", "bet"]
 dev = [
     { name = "griffe", specifier = "<0.40.0" },
     { name = "ipykernel", specifier = ">=7.1.0" },
-    { name = "ipympl", specifier = ">=0.9.8" },
     { name = "ipywidgets", specifier = ">=8.1.7" },
     { name = "jupyter-server", specifier = ">=2.17.0" },
     { name = "jupytext", specifier = ">=1.19.1" },
