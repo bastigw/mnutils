@@ -10,13 +10,24 @@ function applyAffine(affine, point) {
   ];
 }
 
-// Displayed ppm window and its gridlines -- covers the region most brain
-// MRSI metabolites (NAA, Cr, Cho, lipids/lactate upfield) fall in.
-const PPM_MIN = -8;
-const PPM_MAX = 2;
-const PPM_TICKS = [-8, -6, -4, -2, 0, 2];
+// Pick ~4-6 "nice" tick values in [lo, hi] using a 1/2/5-per-decade step,
+// mirroring the spirit of matplotlib's MaxNLocator(steps=[1, 2, 5]).
+function niceTicks(lo, hi, targetCount = 5) {
+  if (!(hi > lo)) return [lo];
+  const span = hi - lo;
+  const rawStep = span / targetCount;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const candidates = [1, 2, 5, 10].map((m) => m * magnitude);
+  const step = candidates.find((c) => span / c <= targetCount) ?? candidates[candidates.length - 1];
+  const start = Math.ceil(lo / step) * step;
+  const ticks = [];
+  for (let v = start; v <= hi + step * 1e-6; v += step) {
+    ticks.push(Math.round(v / step) * step); // snap to avoid float drift
+  }
+  return ticks;
+}
 
-const SPEC_MARGIN = { left: 42, right: 10, top: 10, bottom: 22 };
+const SPEC_MARGIN = { left: 52, right: 10, top: 10, bottom: 27 };
 
 function renderWidget(data, el) {
   const leftFrames = data.left_frames;
@@ -32,16 +43,23 @@ function renderWidget(data, el) {
   const ppm = data.ppm;
   const spectraBuf = new Float32Array(b64ToBytes(data.spectra_bytes).buffer);
 
-  // The ppm axis is fixed for the whole widget, so the displayed window's
-  // index range only needs computing once (ppm is monotonic, so the
-  // in-range indices form one contiguous block regardless of its direction).
+  // Full acquired ppm extent (don't assume direction, though ppm is
+  // monotonic increasing in practice) and the current display window, which
+  // starts as the full extent and narrows via the min/max ppm sliders.
+  const ppmDataMin = Math.min(ppm[0], ppm[npts - 1]);
+  const ppmDataMax = Math.max(ppm[0], ppm[npts - 1]);
+  const ppmStep = npts > 1 ? Math.abs(ppm[1] - ppm[0]) || 0.01 : 0.01;
+  const view = { ppmMin: ppmDataMin, ppmMax: ppmDataMax };
+
+  // ppm is monotonic, so the in-range indices form one contiguous block
+  // regardless of its direction.
   let winStart = 0;
   let winEnd = npts - 1;
-  {
+  function computeWindow(loPpm, hiPpm) {
     let lo = Infinity;
     let hi = -Infinity;
     for (let i = 0; i < npts; i++) {
-      if (ppm[i] >= PPM_MIN && ppm[i] <= PPM_MAX) {
+      if (ppm[i] >= loPpm && ppm[i] <= hiPpm) {
         if (i < lo) lo = i;
         if (i > hi) hi = i;
       }
@@ -51,6 +69,7 @@ function renderWidget(data, el) {
       winEnd = hi;
     }
   }
+  computeWindow(view.ppmMin, view.ppmMax);
 
   const frameUrls = leftFrames.map(
     (b64) => URL.createObjectURL(new Blob([b64ToBytes(b64)], { type: "image/png" })),
@@ -108,16 +127,21 @@ function renderWidget(data, el) {
 
   const spectrumSvg = document.createElementNS(SVG_NS, "svg");
   spectrumSvg.classList.add("mnutils-mrsi-spectrum");
-  const spectrumViewW = 440;
-  const spectrumViewH = 220;
+  // Fallback size before the ResizeObserver's first (always-async) callback
+  // fires; resizeSpectrum() below replaces this with the real rendered size.
+  let spectrumViewW = 440;
+  let spectrumViewH = 220;
   spectrumSvg.setAttribute("viewBox", `0 0 ${spectrumViewW} ${spectrumViewH}`);
   spectrumSvg.setAttribute("preserveAspectRatio", "none");
 
-  const plotW = spectrumViewW - SPEC_MARGIN.left - SPEC_MARGIN.right;
-  const plotH = spectrumViewH - SPEC_MARGIN.top - SPEC_MARGIN.bottom;
+  let plotW = spectrumViewW - SPEC_MARGIN.left - SPEC_MARGIN.right;
+  let plotH = spectrumViewH - SPEC_MARGIN.top - SPEC_MARGIN.bottom;
 
+  // High ppm on the left, decreasing rightward -- matches the NMR/MRS
+  // convention used elsewhere in the codebase (plotting/spectra.py's
+  // DEFAULT_SPECTRA_AX_PARAMS xlim).
   function pxForPpm(p) {
-    return SPEC_MARGIN.left + ((p - PPM_MIN) / (PPM_MAX - PPM_MIN)) * plotW;
+    return SPEC_MARGIN.left + ((view.ppmMax - p) / (view.ppmMax - view.ppmMin)) * plotW;
   }
 
   function pyForValue(v, min, max) {
@@ -128,35 +152,52 @@ function renderWidget(data, el) {
   const xAxisGroup = document.createElementNS(SVG_NS, "g");
   xAxisGroup.setAttribute("class", "mnutils-mrsi-spectrum-axis");
   const xAxisLine = document.createElementNS(SVG_NS, "line");
-  xAxisLine.setAttribute("x1", String(SPEC_MARGIN.left));
-  xAxisLine.setAttribute("x2", String(SPEC_MARGIN.left + plotW));
   xAxisLine.setAttribute("y1", String(SPEC_MARGIN.top + plotH));
   xAxisLine.setAttribute("y2", String(SPEC_MARGIN.top + plotH));
   xAxisGroup.append(xAxisLine);
-  for (const tick of PPM_TICKS) {
-    const px = pxForPpm(tick);
-    const tickLine = document.createElementNS(SVG_NS, "line");
-    tickLine.setAttribute("x1", String(px));
-    tickLine.setAttribute("x2", String(px));
-    tickLine.setAttribute("y1", String(SPEC_MARGIN.top + plotH));
-    tickLine.setAttribute("y2", String(SPEC_MARGIN.top + plotH + 4));
-    xAxisGroup.append(tickLine);
 
-    const label = document.createElementNS(SVG_NS, "text");
-    label.setAttribute("class", "mnutils-mrsi-spectrum-tick-label");
-    label.setAttribute("x", String(px));
-    label.setAttribute("y", String(SPEC_MARGIN.top + plotH + 16));
-    label.setAttribute("text-anchor", "middle");
-    label.textContent = String(tick);
-    xAxisGroup.append(label);
-  }
   const xUnitLabel = document.createElementNS(SVG_NS, "text");
   xUnitLabel.setAttribute("class", "mnutils-mrsi-spectrum-tick-label");
-  xUnitLabel.setAttribute("x", String(SPEC_MARGIN.left + plotW));
-  xUnitLabel.setAttribute("y", String(SPEC_MARGIN.top + plotH + 16));
   xUnitLabel.setAttribute("text-anchor", "end");
   xUnitLabel.textContent = "ppm";
   xAxisGroup.append(xUnitLabel);
+
+  // x ticks depend on the current display window (view.ppmMin/ppmMax), so
+  // they're rebuilt (not just repositioned) whenever that window or the
+  // panel size changes.
+  function drawXTicks() {
+    for (const node of xAxisGroup.querySelectorAll(".mnutils-mrsi-spectrum-xtick")) {
+      node.remove();
+    }
+    xAxisLine.setAttribute("x1", String(SPEC_MARGIN.left));
+    xAxisLine.setAttribute("x2", String(SPEC_MARGIN.left + plotW));
+    xUnitLabel.setAttribute("x", String(SPEC_MARGIN.left + plotW));
+    xUnitLabel.setAttribute("y", String(SPEC_MARGIN.top + plotH + 16));
+
+    const lo = Math.min(view.ppmMin, view.ppmMax);
+    const hi = Math.max(view.ppmMin, view.ppmMax);
+    for (const tick of niceTicks(lo, hi)) {
+      const px = pxForPpm(tick);
+      const tickLine = document.createElementNS(SVG_NS, "line");
+      tickLine.setAttribute("class", "mnutils-mrsi-spectrum-xtick");
+      tickLine.setAttribute("x1", String(px));
+      tickLine.setAttribute("x2", String(px));
+      tickLine.setAttribute("y1", String(SPEC_MARGIN.top + plotH));
+      tickLine.setAttribute("y2", String(SPEC_MARGIN.top + plotH + 4));
+      xAxisGroup.append(tickLine);
+
+      const label = document.createElementNS(SVG_NS, "text");
+      label.setAttribute(
+        "class",
+        "mnutils-mrsi-spectrum-tick-label mnutils-mrsi-spectrum-xtick",
+      );
+      label.setAttribute("x", String(px));
+      label.setAttribute("y", String(SPEC_MARGIN.top + plotH + 16));
+      label.setAttribute("text-anchor", "middle");
+      label.textContent = String(Math.round(tick * 100) / 100);
+      xAxisGroup.append(label);
+    }
+  }
 
   const yAxisGroup = document.createElementNS(SVG_NS, "g");
   yAxisGroup.setAttribute("class", "mnutils-mrsi-spectrum-axis");
@@ -172,10 +213,65 @@ function renderWidget(data, el) {
 
   spectrumSvg.append(xAxisGroup, yAxisGroup, spectrumLine);
 
-  rightPanel.append(spectrumTitle, spectrumSvg);
+  function updateSpectrumView() {
+    computeWindow(view.ppmMin, view.ppmMax);
+    drawXTicks();
+    redrawVoxel();
+  }
+
+  function resizeSpectrum() {
+    const w = spectrumSvg.clientWidth;
+    const h = spectrumSvg.clientHeight;
+    if (w < 1 || h < 1) return;
+    spectrumViewW = w;
+    spectrumViewH = h;
+    spectrumSvg.setAttribute("viewBox", `0 0 ${spectrumViewW} ${spectrumViewH}`);
+    plotW = spectrumViewW - SPEC_MARGIN.left - SPEC_MARGIN.right;
+    plotH = spectrumViewH - SPEC_MARGIN.top - SPEC_MARGIN.bottom;
+    yAxisLine.setAttribute("y2", String(SPEC_MARGIN.top + plotH));
+    updateSpectrumView();
+  }
+
+  const ppmMinCtl = makeSliceSlider({
+    min: ppmDataMin,
+    max: ppmDataMax,
+    value: view.ppmMin,
+    step: ppmStep,
+    label: "Min ppm",
+    formatReadout: (v) => v.toFixed(2),
+    onInput: (v) => {
+      view.ppmMin = Math.min(v, view.ppmMax - ppmStep);
+      ppmMinCtl.slider.value = String(view.ppmMin);
+      updateSpectrumView();
+    },
+  });
+  const ppmMaxCtl = makeSliceSlider({
+    min: ppmDataMin,
+    max: ppmDataMax,
+    value: view.ppmMax,
+    step: ppmStep,
+    label: "Max ppm",
+    formatReadout: (v) => v.toFixed(2),
+    onInput: (v) => {
+      view.ppmMax = Math.max(v, view.ppmMin + ppmStep);
+      ppmMaxCtl.slider.value = String(view.ppmMax);
+      updateSpectrumView();
+    },
+  });
+  ppmMinCtl.slider.disabled = ppmMaxCtl.slider.disabled = ppmDataMin >= ppmDataMax;
+
+  rightPanel.append(
+    spectrumTitle,
+    spectrumSvg,
+    makeBar(ppmMinCtl.lbl, ppmMinCtl.slider, ppmMinCtl.readout),
+    makeBar(ppmMaxCtl.lbl, ppmMaxCtl.slider, ppmMaxCtl.readout),
+  );
 
   viewer.append(leftPanel, rightPanel);
   el.append(viewer);
+
+  resizeSpectrum();
+  new ResizeObserver(resizeSpectrum).observe(spectrumSvg);
 
   function voxelPolygonPoints(x, y, mrsiSliceIdx) {
     const cornerOffsets = [
@@ -329,7 +425,6 @@ function renderWidget(data, el) {
   );
 
   sliceTitle.textContent = sliceTitles[state.sliceIdx];
-  redrawVoxel();
 }
 
 export default renderWidget;

@@ -40,7 +40,7 @@ function makeGroup(...children) {
  * moving the slider calls `onInput(index)` and updates the readout text via
  * `formatReadout(index)`.
  */
-function makeSliceSlider({ min, max, value, label, formatReadout, onInput }) {
+function makeSliceSlider({ min, max, value, step = 1, label, formatReadout, onInput }) {
   const lbl = document.createElement("span");
   lbl.className = "mnu-lbl";
   lbl.textContent = label;
@@ -50,6 +50,7 @@ function makeSliceSlider({ min, max, value, label, formatReadout, onInput }) {
   slider.className = "mnu-slider";
   slider.min = String(min);
   slider.max = String(max);
+  slider.step = String(step);
   slider.value = String(value);
   slider.disabled = max <= min;
 
