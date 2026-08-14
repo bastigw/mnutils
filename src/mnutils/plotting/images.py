@@ -70,9 +70,11 @@ def fast_bounds(
     # Sample the data by taking every nth element based on the sample_step
     sample_step = max(1, data.size // max_target_samples)
     logger.trace(
-        f"Sampling data with step size {sample_step} to estimate bounds from a total of {data.size} elements."
+        f"Sampling data with step size {sample_step} to estimate bounds "
+        f"from a total of {data.size} elements."
     )
-    # First filter out nan values and then sample the data to ensure we are sampling valid values for bounds estimation
+    # First filter out nan values and then sample the data to ensure we are
+    # sampling valid values for bounds estimation
     sampled_data = data[np.isfinite(data)]
     sampled_data = sampled_data[::sample_step]
 
@@ -85,8 +87,10 @@ def fast_bounds(
     # Calculate the lower and upper percentiles of the sampled data
     lower_bound, upper_bound = np.percentile(sampled_data, [p_lower, p_upper])
     logger.trace(
-        f"Sampled {sampled_data.size} elements for bounds estimation after excluding NaN values."
-        f"\nEstimated bounds: lower={lower_bound:2.2e}, upper={upper_bound:2.2e} using percentiles {p_lower} and {p_upper}."
+        f"Sampled {sampled_data.size} elements for bounds estimation "
+        f"after excluding NaN values."
+        f"\nEstimated bounds: lower={lower_bound:2.2e}, upper={upper_bound:2.2e} "
+        f"using percentiles {p_lower} and {p_upper}."
     )
 
     return lower_bound, upper_bound
@@ -97,6 +101,22 @@ def display_nifti(
     orientation: tuple[str, str, str] | None = None,
     **kwargs,
 ) -> tuple[Figure, npt.NDArray]:
+    """Orient a NIfTI image and display it via `display_images`.
+
+    Parameters
+    ----------
+    nii : nibabel.spatialimages.SpatialImage or GESeries.NiiBase
+        The NIfTI image (or wrapper) to display.
+    orientation : tuple[str, str, str], optional
+        Target axis orientation codes, by default None.
+    **kwargs
+        Additional keyword arguments forwarded to `display_images`.
+
+    Returns
+    -------
+    tuple[Figure, ndarray]
+        The created figure and the array of axes.
+    """
     if isinstance(nii, GESeries.NiiBase):
         nii = nii.nii
     return display_images(utils.nifti.orient_nifti(nii, orientation), **kwargs)
@@ -117,6 +137,46 @@ def display_images(
     zeros_as_nan: bool = False,
     **kwargs,
 ) -> tuple[Figure, npt.NDArray]:
+    """Display a grid of 2D/3D/4D images with a shared slice slider.
+
+    Parameters
+    ----------
+    images : ndarray or list
+        Image data (2D, 3D, or 4D) or a list of arrays to stack along a new
+        last axis.
+    titles : list[str], optional
+        Titles for each image, by default None.
+    fig_title : str, optional
+        Overall figure title, by default "".
+    cmap : str, optional
+        Colormap to use, by default the module's default colormap.
+    imshow_kws : dict, optional
+        Extra keyword arguments passed to `imshow`.
+    colorbar : bool, optional
+        Whether to display a colorbar, by default False.
+    colorbar_kws : dict, optional
+        Extra keyword arguments for the colorbar; supports a `"mode"` key
+        of `"single"` or `"each"`.
+    fig_kws : dict, optional
+        Extra keyword arguments passed to `plt.figure`.
+    vmin : float, optional
+        Lower display bound. Estimated from the data if omitted.
+    vmax : float, optional
+        Upper display bound. Estimated from the data if omitted.
+    v_percentile : float, optional
+        Percentile used to estimate `vmin`/`vmax` when not given, by
+        default 1.0.
+    zeros_as_nan : bool, optional
+        If True, treat zero values as NaN for display, by default False.
+    **kwargs
+        Additional axis parameters merged into the default image axis
+        parameters.
+
+    Returns
+    -------
+    tuple[Figure, ndarray]
+        The created figure and the array of axes.
+    """
     if titles is None:
         titles = []
 
@@ -173,7 +233,8 @@ def display_images(
         # Check that now not all values are nan
         if np.isnan(zeros_nan_images).all():
             logger.warning(
-                "All values in images are 0, so setting zeros_as_nan to False to avoid all values being NaN."
+                "All values in images are 0, so setting zeros_as_nan to False "
+                "to avoid all values being NaN."
             )
             zeros_as_nan = False
             zeros_nan_images = images
@@ -190,13 +251,17 @@ def display_images(
 
     if vmin == vmax or vmin is None or vmax is None or np.isnan([vmin, vmax]).any():
         logger.debug(
-            f"vmin ({vmin}) and vmax ({vmax}) are equal or NaN. Adjusting vmin and vmax to the min and max of the images for better visualization."
+            f"vmin ({vmin}) and vmax ({vmax}) are equal or NaN. Adjusting vmin "
+            f"and vmax to the min and max of the images for better visualization."
         )
         vmin, vmax = np.nanmin(images), np.nanmax(images)
-        # If vmin and vmax are still equal after adjustment, set vmin to 0 to avoid errors in imshow
+        # If vmin and vmax are still equal after adjustment, set vmin to 0 to
+        # avoid errors in imshow
         if vmin == vmax:
             logger.debug(
-                "vmin and vmax are still equal after adjustment. This is likely to all non zeros values being equal (e.g. in a mask). Setting vmin to 0 for better visualization."
+                "vmin and vmax are still equal after adjustment. This is likely "
+                "to all non zeros values being equal (e.g. in a mask). Setting "
+                "vmin to 0 for better visualization."
             )
             vmin = 0
 
@@ -308,6 +373,31 @@ def overlay_nifti_data_on_T1(
     mask: npt.NDArray | GESeries.NiiBase | None = None,
     **kwargs,
 ):
+    """Resample a data NIfTI into T1 space and overlay it on the T1 image.
+
+    Parameters
+    ----------
+    t1_nii : nibabel.spatialimages.SpatialImage
+        Anatomical T1 NIfTI image to overlay onto.
+    data_nii : nibabel.spatialimages.SpatialImage
+        Data NIfTI image to resample and overlay.
+    orientation : tuple[str, str, str], optional
+        Target axis orientation codes, by default None.
+    display_plane : utils.nifti.DISPLAY_PLANES, optional
+        Anatomical plane to display, by default None.
+    resample_kwargs : dict, optional
+        Extra keyword arguments passed to `resample_and_orient_nifti`.
+    mask : ndarray or GESeries.NiiBase, optional
+        Boolean mask applied to the data before or after resampling,
+        depending on whether its shape matches the data or the T1 image.
+    **kwargs
+        Additional keyword arguments forwarded to `overlay_image_data_on_T1`.
+
+    Returns
+    -------
+    tuple[Figure, list[Axes]]
+        The created figure and its axes.
+    """
     # If mask in kwargs, apply mask to data_nii before resampling and overlaying
     apply_mask_after_resampling: bool = False
     mask_to_pass_on: npt.NDArray[np.bool_] | None = None
@@ -322,12 +412,15 @@ def overlay_nifti_data_on_T1(
                 # Check if mask shape matches t1_shape than
                 if mask.shape == t1_nii.shape:
                     logger.debug(
-                        "Mask shape matches T1 NIfTI but not data NIfTI. Will apply mask after resampling."
+                        "Mask shape matches T1 NIfTI but not data NIfTI. "
+                        "Will apply mask after resampling."
                     )
                     apply_mask_after_resampling = True
                 else:
                     raise ValueError(
-                        f"Mask must have the same shape as data NIfTI.\nShape of mask: {mask.shape}, shape of data NIfTI: {data_nii.shape}"
+                        f"Mask must have the same shape as data NIfTI.\n"
+                        f"Shape of mask: {mask.shape}, "
+                        f"shape of data NIfTI: {data_nii.shape}"
                     )
             else:
                 masked_data = np.where(mask, data_nii.get_fdata(), np.nan)
@@ -365,6 +458,33 @@ def overlay_image_data_on_T1(
     mask_kwargs: dict[str, Any] | None = None,
     **kwargs,
 ):
+    """Display T1, resampled data, and overlay images side by side with a slice slider.
+
+    Parameters
+    ----------
+    t1_images : ndarray
+        T1-weighted anatomical image data.
+    data_images : ndarray
+        Data image, resampled into T1 space, to overlay.
+    mask : ndarray, optional
+        Boolean mask applied to the overlay data, by default None.
+    mask_contour : ndarray or bool, optional
+        Mask (or `True` to reuse `mask`) whose contour is drawn on the
+        overlay axis, by default None.
+    only_overlay : bool, optional
+        If True, only show the overlay axis instead of T1, data, and
+        overlay side by side, by default False.
+    mask_kwargs : dict, optional
+        Keyword arguments customizing the mask contour's appearance.
+    **kwargs
+        Additional keyword arguments forwarded to
+        `overlay_image_data_on_T1_on_ax`.
+
+    Returns
+    -------
+    tuple[Figure, list[Axes]]
+        The created figure and its axes.
+    """
     fig = plt.figure(figsize=(12, 4))
     if only_overlay:
         single_axes: Axes = fig.subplots(1, 1)
@@ -374,7 +494,8 @@ def overlay_image_data_on_T1(
 
     if data_images.shape != t1_images.shape:
         raise ValueError(
-            f"T1 images and data images must have the same shape for overlay. T1 shape: {t1_images.shape}, data shape: {data_images.shape}"
+            f"T1 images and data images must have the same shape for overlay. "
+            f"T1 shape: {t1_images.shape}, data shape: {data_images.shape}"
         )
 
     if t1_images.ndim < 3:
@@ -395,7 +516,8 @@ def overlay_image_data_on_T1(
         im1 = ims[0]
         axes[axes_idx].set_title("T1 Image")
         logger.debug(
-            f"Displayed T1 image with shape {t1_images.shape} at slice index {slice_idx}."
+            f"Displayed T1 image with shape {t1_images.shape} "
+            f"at slice index {slice_idx}."
         )
 
         axes_idx += 1
@@ -408,7 +530,8 @@ def overlay_image_data_on_T1(
         axes[axes_idx].set_title("Resampled Data")
         axes_idx += 1
         logger.debug(
-            f"Displayed resampled data image with shape {data_images.shape} at slice index {slice_idx}."
+            f"Displayed resampled data image with shape {data_images.shape} "
+            f"at slice index {slice_idx}."
         )
 
     global contour, contour_kwargs, mask_contour_global
@@ -502,7 +625,8 @@ def overlay_image_data_on_T1_on_ax(
     im: list[AxesImage] = []
     if overlay_image is None and mask is not None:
         base_image = np.where(mask, base_image, np.nan)
-    # If there is a base image and a overlay image change the cmap for the base image to gray and overlay image to the provided cmap
+    # If there is a base image and an overlay image, change the cmap for the
+    # base image to gray and the overlay image to the provided cmap
     if overlay_image is not None:
         cmap_base = "gray"
     else:
@@ -544,7 +668,8 @@ def overlay_image_data_on_T1_on_ax(
         )
     if mask is not None and mask.shape != overlay_image.shape:
         raise ValueError(
-            f"Mask must have the same shape as data images. Mask shape: {mask.shape}, data images shape: {overlay_image.shape}"
+            f"Mask must have the same shape as data images. "
+            f"Mask shape: {mask.shape}, data images shape: {overlay_image.shape}"
         )
     if mask is not None:
         overlay_image = np.where(mask, overlay_image, np.nan)
@@ -591,6 +716,32 @@ def inspect_MRSI_spectra(
     magnitude: bool = False,
     autophase: bool = True,
 ):
+    """Build an interactive widget to inspect MRSI spectra over a T1 image.
+
+    Displays the T1 image with an MRSI overlay and a spectrum plot; clicking,
+    the keyboard arrows, or the slice slider update the selected voxel and
+    its spectrum.
+
+    Parameters
+    ----------
+    T1 : GESeries.MRISeries
+        The T1-weighted anatomical series.
+    MRSI : GESeries.MRSISeries
+        The MRSI series to inspect.
+    blocky : bool, optional
+        If True, resample the raw (blocky) MRSI grid rather than the
+        interpolated NIfTI, by default True.
+    magnitude : bool, optional
+        If True, display the magnitude spectrum, by default False.
+    autophase : bool, optional
+        If True (and `magnitude` is False), autophase the spectrum before
+        display, by default True.
+
+    Returns
+    -------
+    ipywidgets.VBox
+        A widget containing the slice slider and the interactive figure.
+    """
     with plt.ioff():
         fig, axs = plt.subplots(1, 2, figsize=(12, 4))
     # Correctly orient the T1 and MRSI images and select the slice.
@@ -666,7 +817,8 @@ def inspect_MRSI_spectra(
         label = "Magnitude Spectrum"
         if autophase:
             logger.warning(
-                "Both magnitude and autophase options selected. Autophase will be ignored when displaying magnitude spectrum."
+                "Both magnitude and autophase options selected. Autophase "
+                "will be ignored when displaying magnitude spectrum."
             )
     elif autophase:
         label = "Autophased Spectrum"
@@ -751,7 +903,8 @@ def inspect_MRSI_spectra(
             else:
                 spectra_data = complex_spectra.real
         axs[1].set_title(
-            f"Spectrum at voxel (i:{spec_i}, j:{spec_j}, slice:{MRSI_slice_idx}, sum:{np.sum(mag_spec):.5g})"
+            f"Spectrum at voxel (i:{spec_i}, j:{spec_j}, slice:{MRSI_slice_idx}, "
+            f"sum:{np.sum(mag_spec):.5g})"
         )
         spectra_ax.lines[0].set_data(MRSI.ppm, spectra_data)
         axs[1].relim()
@@ -787,6 +940,8 @@ def inspect_MRSI_spectra(
 
 
 class VoxelOverlayParams(TypedDict, total=False):
+    """Keyword arguments accepted by `overlay_voxel_on_T1`."""
+
     show_overlay: bool
     voxel_kwargs: dict | list[dict] | None
     image_kwargs: dict | None

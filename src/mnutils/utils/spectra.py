@@ -8,6 +8,22 @@ def calculate_hz_axis(
     npts: int | None = None,
     header: dict | None = None,
 ) -> npt.NDArray[np.float64]:
+    """Calculate the frequency (Hz) axis for a spectrum.
+
+    Parameters
+    ----------
+    spectral_width : float, optional
+        Spectral width in Hz. Read from `header` if not given.
+    npts : int, optional
+        Number of spectral points. Read from `header` if not given.
+    header : dict, optional
+        Raw header dict to fall back on for `spectral_width`/`npts`.
+
+    Returns
+    -------
+    npt.NDArray[np.float64]
+        Frequency axis in Hz, centered on zero.
+    """
     _sw = spectral_width
     _npts = npts
 
@@ -21,11 +37,13 @@ def calculate_hz_axis(
 
     if _sw is None:
         raise ValueError(
-            "Spectral width information is required to calculate frequency axis. Please provide spectral width or ensure it is present in the header."
+            "Spectral width information is required to calculate frequency axis. "
+            "Please provide spectral width or ensure it is present in the header."
         )
     if _npts is None:
         raise ValueError(
-            "Number of points information is required to calculate frequency axis. Please provide number of points or ensure it is present in the header."
+            "Number of points information is required to calculate frequency axis. "
+            "Please provide number of points or ensure it is present in the header."
         )
 
     return np.linspace(-_sw / 2, _sw / 2, int(_npts))
@@ -39,6 +57,29 @@ def calculate_ppm_axis(
     npts: int | None = None,
     header: dict | None = None,
 ) -> npt.NDArray[np.float64]:
+    """Calculate the chemical shift (ppm) axis for a spectrum.
+
+    Parameters
+    ----------
+    spectral_width : float, optional
+        Spectral width in Hz. Read from `header` if not given.
+    frequency : float, optional
+        Spectrometer frequency in MHz. Read from `header` if not given.
+    carrier_ppm : float, optional
+        Carrier frequency offset in ppm. Derived from `nucleus` if not given.
+    nucleus : int or str, optional
+        Nucleus identifier (e.g. `"1H"` or `1`) used to derive `carrier_ppm`
+        when it is not provided directly.
+    npts : int, optional
+        Number of spectral points. Read from `header` if not given.
+    header : dict, optional
+        Raw header dict to fall back on for the other parameters.
+
+    Returns
+    -------
+    npt.NDArray[np.float64]
+        Chemical shift axis in ppm.
+    """
     hz_axis = calculate_hz_axis(
         spectral_width=spectral_width,
         npts=npts,
@@ -65,11 +106,13 @@ def calculate_ppm_axis(
 
     if _freq is None:
         raise ValueError(
-            "Frequency information is required to calculate ppm axis. Please provide frequency or ensure it is present in the header."
+            "Frequency information is required to calculate ppm axis. "
+            "Please provide frequency or ensure it is present in the header."
         )
 
     if nucleus is not None:
-        # Convert nucleus to integer if provided as string (e.g., '1H' -> 1) by extracting 1 to 3 digits from the string
+        # Convert nucleus to integer if provided as string (e.g., '1H' -> 1) by
+        # extracting 1 to 3 digits from the string
         if isinstance(nucleus, str):
             import re
 
@@ -78,7 +121,8 @@ def calculate_ppm_axis(
                 _nuc = int(match.group(0))
             else:
                 logger.warning(
-                    f"Could not parse nucleus from string '{nucleus}'. Defaulting to 1H. This will offset ppm by 4.68!"
+                    f"Could not parse nucleus from string '{nucleus}'. Defaulting to 1H. "
+                    "This will offset ppm by 4.68!"
                 )
                 _nuc = 1
         else:
@@ -86,7 +130,8 @@ def calculate_ppm_axis(
 
     if _nuc is not None and carrier_ppm is not None:
         logger.warning(
-            "Both nucleus and carrier_ppm provided. Carrier ppm will be used for ppm axis calculation."
+            "Both nucleus and carrier_ppm provided. Carrier ppm will be used for ppm "
+            "axis calculation."
         )
         _carrier_ppm = carrier_ppm
     elif carrier_ppm is not None:
@@ -95,7 +140,8 @@ def calculate_ppm_axis(
         _carrier_ppm = 4.68 if _nuc in [1, 2] else 0.0
     else:
         logger.warning(
-            "Neither nucleus nor carrier_ppm provided. Defaulting to 1H with carrier ppm of 4.68. This will offset ppm by 4.68!"
+            "Neither nucleus nor carrier_ppm provided. Defaulting to 1H with carrier ppm of "
+            "4.68. This will offset ppm by 4.68!"
         )
         _carrier_ppm = 4.68
 

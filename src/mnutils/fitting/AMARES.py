@@ -180,7 +180,8 @@ def fit_multiple_fids(
 
         logger.debug(f"Initializing batch fitting with parameters: {init_kwargs}")
 
-        # The input is multiple FIDs. To initialize the batch object take the average fid of the 10 highest SNR voxels
+        # The input is multiple FIDs. To initialize the batch object take the average fid
+        # of the 10 highest SNR voxels
         n_voxels = 10 if fids.shape[0] >= 10 else fids.shape[0]
         SNRs = np.apply_along_axis(pyAMARES.fidSNR, 1, fids)
         avg_fid = np.mean(fids[np.argsort(SNRs)[-n_voxels:]], axis=0)  # type: ignore
@@ -207,10 +208,12 @@ def fit_multiple_fids(
     )
 
     logger.debug(
-        f"Completed batch fitting of {len(results)} FIDs. Results type: {type(results)}, first element type: {type(results[0]) if results else 'N/A'}"
+        f"Completed batch fitting of {len(results)} FIDs. Results type: {type(results)}, "
+        f"first element type: {type(results[0]) if results else 'N/A'}"
     )
 
-    # Print debug messages about the first result. It should be a tuple of (DataFrame, MinimizerResult)
+    # Print debug messages about the first result. It should be a tuple of
+    # (DataFrame, MinimizerResult)
     if results:
         logger.debug(f"First result content: {results[0]}")
 
@@ -219,6 +222,8 @@ def fit_multiple_fids(
 
 @dataclass
 class FitResults:
+    """Container for extracted pyAMARES batch fitting results."""
+
     badfit_ids: npt.NDArray
     goodness_of_fit: pd.DataFrame
     combined_fit_results: pd.DataFrame
@@ -231,6 +236,31 @@ def extract_from_fit_results(
     index_key: str = "voxel_id",
     index_values: list | pd.Index | None = None,
 ) -> FitResults:
+    """Extract goodness-of-fit metrics and combined fit parameters from batch fit results.
+
+    Parameters
+    ----------
+    fit_results : list of tuple
+        Per-voxel results as returned by `fit_multiple_fids`, each a
+        `(DataFrame, MinimizerResult)` tuple.
+    bad_fit_chisqr_threshold : float, optional
+        Chi-squared threshold above which a fit is flagged as bad. If
+        negative (default), it is set to 3x the median chi-squared.
+    ppm_offset : float, optional
+        Offset subtracted from the fitted chemical shift values. Defaults
+        to `DEFAULT_INIT_PARAMS["ppm_offset"]`.
+    index_key : str, optional
+        Name used for the voxel index in the returned DataFrames. Defaults
+        to "voxel_id".
+    index_values : list or pandas.Index, optional
+        Values to use for the voxel index. Must match the length of
+        `fit_results` if provided. Defaults to a range index.
+
+    Returns
+    -------
+    FitResults
+        The bad fit ids, goodness-of-fit metrics, and combined fit results.
+    """
     # Extract goodness of fit metrics
     GoF_params_to_extract = ["chisqr", "redchi"]
     goodness_of_fit_metrics = np.full(
@@ -246,7 +276,8 @@ def extract_from_fit_results(
 
     for idx, result in enumerate(fit_results):
         # The minimizer results are stored in result[1]
-        # Extract chisqr, redchi, aic, and bic from it. AIC and BIC should not be valid for this analysis where we get goodness of fit
+        # Extract chisqr, redchi, aic, and bic from it. AIC and BIC should not be valid for
+        # this analysis where we get goodness of fit
         if isinstance(result, tuple) and len(result) > 1 and result[1] is not None:
             minimizer_result = result[1]
             for i, param in enumerate(GoF_params_to_extract):
@@ -287,9 +318,11 @@ def extract_from_fit_results(
         f"Median chisqr={median_chisqr:.2f}, Threshold={bad_fit_chisqr_threshold:.2f}"
     )
 
-    # Finally combine the result table into a big multi-index DataFrame mapping to more consistent naming
+    # Finally combine the result table into a big multi-index DataFrame mapping to more
+    # consistent naming
     # Prepare the results for concatenation
-    # Fill in the missing results with NaN DataFrames of the same shape and structure filled with np.nan
+    # Fill in the missing results with NaN DataFrames of the same shape and structure
+    # filled with np.nan
     # Select an index that is not in badfit_ids to get the structure
     if badfit_ids.size != 0:
         valid_index = next(
@@ -302,7 +335,8 @@ def extract_from_fit_results(
             )
         else:
             logger.warning(
-                "No valid index found to create a template DataFrame. This could mean all fits are bad. Or something else went wrong"
+                "No valid index found to create a template DataFrame. This could mean all "
+                "fits are bad. Or something else went wrong"
             )
             nan_df = pd.DataFrame()
     else:
@@ -600,10 +634,12 @@ def plot_amares_fitting(
             # Check if table is dataframe else raise error
             if not isinstance(table, pd.DataFrame):
                 raise ValueError(
-                    "Extracted table is not a pandas DataFrame. Something went wrong during results extraction."
+                    "Extracted table is not a pandas DataFrame. Something went wrong "
+                    "during results extraction."
                 )
             add_colored_table_to_plot(ax_table, table)
-            # Below the table add a text with the chisqr and redchi values if the result.out_obj is valid and has those attributes
+            # Below the table add a text with the chisqr and redchi values if the
+            # result.out_obj is valid and has those attributes
             if result.out_obj is not None:
                 chisqr = getattr(result.out_obj, "chisqr", np.nan)
                 redchi = getattr(result.out_obj, "redchi", np.nan)
@@ -611,7 +647,8 @@ def plot_amares_fitting(
                     ax_table.text(
                         0.5,
                         1,
-                        f"Fit Metrics: Chi-squared: {chisqr:.5g}, Reduced Chi-squared: {redchi:.5g}",
+                        f"Fit Metrics: Chi-squared: {chisqr:.5g}, "
+                        f"Reduced Chi-squared: {redchi:.5g}",
                         ha="center",
                         va="top",
                         fontsize=10,
@@ -661,7 +698,7 @@ def add_colored_table_to_plot(
     rounded_table = table.map(lambda x: f"{x:5.{sig}g}".strip())
 
     # Prepare MultiIndex column labels as strings for display
-    col_labels = ["{}".format(col[1]) for col in rounded_table.columns.values]
+    col_labels = [f"{col[1]}" for col in rounded_table.columns.values]
     row_labels = rounded_table.index.tolist()
 
     # Define colors for each value type
@@ -707,7 +744,8 @@ def add_colored_table_to_plot(
             cell = tbl[(row_idx + 1, col_idx)]
             cell.set_facecolor(value_type_colors.get(value_type, "white"))
 
-    # Add a row of cells above the header by getting the cells and adding a custom rectangle above the header that spans three columns
+    # Add a row of cells above the header by getting the cells and adding a custom
+    # rectangle above the header that spans three columns
     # First figure out how often the multi-index header appears
     column_names = table.columns.get_level_values(0).to_list()
     from itertools import groupby
@@ -719,7 +757,8 @@ def add_colored_table_to_plot(
     columns_counted = [(k, len(list(g))) for k, g in groupby(column_names)]
     start_col = 0
 
-    table_ax.figure.canvas.draw()  # IMPORTANT to update the positions of the cells before querying their positions
+    # IMPORTANT to update the positions of the cells before querying their positions
+    table_ax.figure.canvas.draw()
     for col_name, count in columns_counted:
         width = cell_width * count
         xy = cells[0, start_col].get_xy()

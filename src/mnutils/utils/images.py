@@ -46,15 +46,15 @@ def extract_brain(
 ) -> Path | list[Path]:
     """Extract the brain from an image file using HD-BET.
 
-    This function processes NIfTI files or directories containing DICOM files to extract the brain region
-    using the HD-BET (HD-Brain Extraction Tool). It supports optional test-time augmentation (TTA) and
-    allows saving the brain mask and/or the brain-extracted image.
+    This function processes NIfTI files or directories containing DICOM files to extract the
+    brain region using the HD-BET (HD-Brain Extraction Tool). It supports optional test-time
+    augmentation (TTA) and allows saving the brain mask and/or the brain-extracted image.
 
     Parameters
     ----------
     file : str | Path | list[str | Path]
-        The path(s) to the image file(s) or directories containing DICOM files to extract the brain from.
-        If a directory is provided, it will be converted to a NIfTI file first.
+        The path(s) to the image file(s) or directories containing DICOM files to extract the
+        brain from. If a directory is provided, it will be converted to a NIfTI file first.
     device : str, optional
         The device to use for processing. Default is "cuda".
     use_tta : bool, optional
@@ -69,8 +69,9 @@ def extract_brain(
     Returns
     -------
     Path | list[Path]
-        The path(s) to the brain-extracted NIfTI file(s). If a single file is provided as input, a single
-        Path object is returned. If a list of files is provided, a list of Path objects is returned.
+        The path(s) to the brain-extracted NIfTI file(s). If a single file is provided as input,
+        a single Path object is returned. If a list of files is provided, a list of Path objects
+        is returned.
 
     Raises
     ------
@@ -82,10 +83,10 @@ def extract_brain(
     Notes
     -----
     - This function requires the HD-BET library and PyTorch to be installed.
-    - If the input is a directory containing DICOM files, it will be converted to a NIfTI file before
-      processing.
-    - The function checks for existing brain-extracted files in the output directory to avoid overwriting
-      existing results.
+    - If the input is a directory containing DICOM files, it will be converted to a NIfTI file
+      before processing.
+    - The function checks for existing brain-extracted files in the output directory to avoid
+      overwriting existing results.
     - The HD-BET model parameters will be downloaded automatically if not already available.
 
     Examples
@@ -135,12 +136,14 @@ def extract_brain(
 
     for idx, input_path in enumerate(files):
         logger.debug(
-            f"Processing file {input_path.relative_to(os.getcwd(), walk_up=True)} ({idx + 1}/{len(files)})"
+            f"Processing file {input_path.relative_to(os.getcwd(), walk_up=True)} "
+            f"({idx + 1}/{len(files)})"
         )
         # Assert that input path has nii.gz suffix
         if not str(input_path).endswith(".nii.gz"):
             raise ValueError(
-                f"Input file {input_path} does not have a .nii.gz suffix. Please provide a valid NIfTI file."
+                f"Input file {input_path} does not have a .nii.gz suffix. "
+                "Please provide a valid NIfTI file."
             )
 
         output_dir = Path(input_path).parent
@@ -156,14 +159,20 @@ def extract_brain(
         # Check if output file already exists
         if default_output_path.exists():
             logger.warning(
-                f"Output file {default_output_path.relative_to(os.getcwd(), walk_up=True)} already exists. Skipping brain extraction for {input_path.relative_to(os.getcwd(), walk_up=True)}."
+                f"Output file {default_output_path.relative_to(os.getcwd(), walk_up=True)} "
+                f"already exists. Skipping brain extraction for "
+                f"{input_path.relative_to(os.getcwd(), walk_up=True)}."
             )
             output_files.append(default_output_path)
             continue
 
         if other_bet_niftis:
             logger.warning(
-                f"Other brain extracted NIfTI files found in output directory {output_dir.relative_to(os.getcwd(), walk_up=True)}. This may indicate that brain extraction has already been performed for this or other files. Skipping brain extraction for {input_path.relative_to(os.getcwd(), walk_up=True)} to avoid overwriting existing files."
+                f"Other brain extracted NIfTI files found in output directory "
+                f"{output_dir.relative_to(os.getcwd(), walk_up=True)}. This may indicate that "
+                f"brain extraction has already been performed for this or other files. Skipping "
+                f"brain extraction for {input_path.relative_to(os.getcwd(), walk_up=True)} to "
+                f"avoid overwriting existing files."
             )
             output_files.append(other_bet_niftis)
             continue
@@ -186,7 +195,9 @@ def extract_brain(
         )
 
         logger.debug(
-            f"Brain extracted successfully for {input_path.relative_to(os.getcwd(), walk_up=True)}, saved to {default_output_path.relative_to(os.getcwd(), walk_up=True)}"
+            f"Brain extracted successfully for "
+            f"{input_path.relative_to(os.getcwd(), walk_up=True)}, saved to "
+            f"{default_output_path.relative_to(os.getcwd(), walk_up=True)}"
         )
         output_files.append(default_output_path)
 

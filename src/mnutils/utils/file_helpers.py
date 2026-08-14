@@ -69,7 +69,6 @@ def get_all_exam_series_ids(exam_folder: str | Path) -> list[int]:
     list[int]
         A sorted list of integers representing the series IDs.
     """
-
     exam_folder = Path(exam_folder)
     series_folders = [
         folder
@@ -163,7 +162,8 @@ def get_mat_data_from_series(base_folder: str | Path, series: int) -> Path:
         return mat_files[0]
     else:
         logger.warning(
-            f"Multiple .mat files found in the Series folder. Selecting the first one.\nFile '{mat_files[0].name}', Folder path: '{series_folder}'"
+            "Multiple .mat files found in the Series folder. Selecting the first one.\n"
+            f"File '{mat_files[0].name}', Folder path: '{series_folder}'"
         )
         return mat_files[0]
 
@@ -213,7 +213,8 @@ def get_h5_data_from_series(
         return h5_files[0]
     else:
         logger.warning(
-            f"Multiple .h5 files found in the Series folder. Selecting the first one.\nFile '{h5_files[0].name}', Folder path: '{series_folder}'"
+            "Multiple .h5 files found in the Series folder. Selecting the first one.\n"
+            f"File '{h5_files[0].name}', Folder path: '{series_folder}'"
         )
         return h5_files[0]
 
@@ -299,8 +300,8 @@ def get_dicom_folder(base_folder: str | Path, series: int) -> Path:
         )
     elif len(dicom_folders) > 1:
         raise ValueError(
-            f"Multiple DICOM folders matching the series number '{series}' found in '{base_folder}'. "
-            f"Check for duplicate folders or naming inconsistencies."
+            f"Multiple DICOM folders matching the series number '{series}' found "
+            f"in '{base_folder}'. Check for duplicate folders or naming inconsistencies."
         )
     else:
         # For later processing its important that the folder name does not contain whitespaces
@@ -319,6 +320,24 @@ def get_nifti_file(
     filter_out_keywords: list[str] | None = None,
     filter_in_keywords: list[str] | None = None,
 ) -> Path | None:
+    """Find the first NIfTI file in a folder matching the given keyword filters.
+
+    Parameters
+    ----------
+    folder : Path
+        The folder to search for NIfTI files.
+    filter_out_keywords : list[str] or None, optional
+        Keywords whose presence in a filename excludes it. Defaults to
+        ["bet", "skullstrip", "ss", "resampled"] when None.
+    filter_in_keywords : list[str] or None, optional
+        Keywords a filename must contain to be included. Defaults to no
+        filtering when None.
+
+    Returns
+    -------
+    Path or None
+        The first matching NIfTI file, or None if no file matches.
+    """
     if filter_out_keywords is None:
         filter_out_keywords = ["bet", "skullstrip", "ss", "resampled"]
     if filter_in_keywords is None:
@@ -340,7 +359,8 @@ def get_nifti_file(
     )
 
     logger.trace(
-        f"Filtering NIfTI files in '{folder}' with keywords not in word: {filter_out_keywords} and keywords in word: {filter_in_keywords}"
+        f"Filtering NIfTI files in '{folder}' with keywords not in word: "
+        f"{filter_out_keywords} and keywords in word: {filter_in_keywords}"
     )
     filtered_nifti_files = all_nifti_files
     if filter_out_regex:
@@ -386,7 +406,6 @@ def get_niftis_from_series(
         If no NIfTI files are found in the series folder and `convert_dicoms`
         is False (or conversion produced no NIfTI files).
     """
-
     series_folder = get_dicom_folder(base_folder, series)
     return get_nifti_data(series_folder, convert_dicoms=convert_dicoms, **kwargs)
 
@@ -426,6 +445,7 @@ def get_nifti_data(folder: str | Path, convert_dicoms: bool = False, **kwargs) -
     - If convert_dicoms is True and no NIfTI files are found, DICOM files are converted
       using dcm2niiw with the filename format "%s_%d_%a".
     - The dcm2niiw package must be installed to use the convert_dicoms functionality.
+
     Examples
     --------
     >>> nifti_path = get_niftis('/path/to/series/folder')
@@ -433,7 +453,6 @@ def get_nifti_data(folder: str | Path, convert_dicoms: bool = False, **kwargs) -
 
 
     """
-
     folder = Path(folder)
 
     if nifti_file := get_nifti_file(folder, **kwargs):
@@ -453,12 +472,16 @@ def get_nifti_data(folder: str | Path, convert_dicoms: bool = False, **kwargs) -
             return nifti_file
 
         raise FileNotFoundError(
-            f"No NIfTI files found in the Series folder after conversion attempt.\nFolder path: '{folder}'"
+            "No NIfTI files found in the Series folder after conversion attempt.\n"
+            f"Folder path: '{folder}'"
         )
 
     error_msg = f"No NIfTI files found in the Series folder.\nFolder path: '{folder}'"
     if not convert_dicoms:
-        error_msg += "\nYou may try running with `convert_dicoms=True` to convert DICOM files to NIfTI format."
+        error_msg += (
+            "\nYou may try running with `convert_dicoms=True` to convert DICOM files "
+            "to NIfTI format."
+        )
     raise FileNotFoundError(error_msg)
 
 
@@ -581,9 +604,7 @@ def get_exam_overview(
 
 
 def is_running_in_jupyter() -> bool:
-    """
-    Checks if the code is being run within an IPython kernel (Jupyter Notebook or Console).
-    """
+    """Check if the code is being run within an IPython kernel (Jupyter Notebook or Console)."""
     try:
         # Check if the function exists
         shell = get_ipython().__class__.__name__
@@ -654,7 +675,8 @@ def move_files_with_glob(
         target_file_exists = target_file.exists()
         if target_file_exists:
             logger.warning(
-                f"File '{target_file}' already exists. Renaming the existing file by prepending its creation date."
+                f"File '{target_file}' already exists. Renaming the existing file "
+                "by prepending its creation date."
             )
             # Rename the existing file in the target folder by prepending its creation date
             creation_time = target_file.stat().st_mtime
@@ -664,10 +686,12 @@ def move_files_with_glob(
             logger.debug(f"Renamed existing file to: {timestamped_existing_file}")
 
         if prepend_creation_date:
-            # Before prepending date check if the file already has a date prefix, if so, do not prepend another one
+            # Before prepending date check if the file already has a date prefix, if so, do not
+            # prepend another one
             if re.match(r"^\d{8}_\d{6}_", file.name):
                 logger.debug(
-                    f"File '{file.name}' already has a date prefix. Moving without prepending another date."
+                    f"File '{file.name}' already has a date prefix. Moving without "
+                    "prepending another date."
                 )
             else:
                 creation_time = file.stat().st_mtime

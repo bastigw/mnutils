@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 
 import matlab.engine
-import pytest
 
 from mnutils.matlab import (
     add_matlablatest_path,
@@ -12,6 +11,7 @@ from mnutils.matlab import (
 
 
 def test_connect_to_matlab_success():
+    """Test that connect_to_matlab returns a usable MATLAB engine instance."""
     eng = connect_to_matlab()
     import matlab.engine
 
@@ -21,6 +21,7 @@ def test_connect_to_matlab_success():
 
 
 def test_setup_util_path_adds_path(tmp_path, monkeypatch):
+    """Test that setup_util_path adds MATLAB_UTILS to the MATLAB path."""
     # Create a fake MATLAB_UTILS directory
     matlab_utils_dir = tmp_path / "matlab_utils"
     matlab_utils_dir.mkdir()
@@ -39,6 +40,7 @@ def test_setup_util_path_adds_path(tmp_path, monkeypatch):
 
 
 def test_setup_util_path_path_already_exists(tmp_path, monkeypatch):
+    """Test that setup_util_path doesn't duplicate a path already on MATLAB's path."""
     matlab_utils_dir = tmp_path / "matlab_utils"
     matlab_utils_dir.mkdir()
     monkeypatch.setenv("MATLAB_UTILS", str(matlab_utils_dir))
@@ -53,6 +55,7 @@ def test_setup_util_path_path_already_exists(tmp_path, monkeypatch):
 
 
 def test_setup_util_path_invalid_path(monkeypatch):
+    """Test that setup_util_path silently ignores a non-existent MATLAB_UTILS path."""
     # Set MATLAB_UTILS to a non-existent path
     monkeypatch.setenv("MATLAB_UTILS", "/non/existent/path")
     eng = connect_to_matlab()
@@ -63,6 +66,7 @@ def test_setup_util_path_invalid_path(monkeypatch):
 
 
 def test_setup_util_path_env_not_set(monkeypatch):
+    """Test that setup_util_path doesn't raise when MATLAB_UTILS is unset."""
     monkeypatch.delenv("MATLAB_UTILS", raising=False)
     eng = connect_to_matlab()
     setup_util_path(eng)
@@ -71,6 +75,7 @@ def test_setup_util_path_env_not_set(monkeypatch):
 
 
 def test_add_matlablatest_path():
+    """Test that add_matlablatest_path adds the matlabfiles dir to MATLAB's path."""
     matlab_sources = os.getenv("MATLAB_SOURCES")
     assert matlab_sources is not None, "MATLAB_SOURCES environment variable is not set"
     matlablatest_dir = Path(matlab_sources) / "Data Analysis" / "matlabfiles"

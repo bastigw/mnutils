@@ -35,7 +35,8 @@ def connect_to_matlab() -> matlab.engine.MatlabEngine:
             raise
     else:
         logger.debug(
-            "No running MATLAB engine found. Starting a new MATLAB engine. This may take a second..."
+            "No running MATLAB engine found. Starting a new MATLAB engine. "
+            "This may take a second..."
         )
         eng = matlab.engine.start_matlab()
 
@@ -51,6 +52,16 @@ def setup_util_path(
     eng: matlab.engine.MatlabEngine,
     matlab_utils_path: str | None = os.environ.get("MATLAB_UTILS"),
 ) -> None:
+    """Add the MATLAB utils path to the MATLAB engine's path, if not already present.
+
+    Parameters
+    ----------
+    eng : matlab.engine.MatlabEngine
+        MATLAB engine instance.
+    matlab_utils_path : str | None
+        Path to the MATLAB utils folder. Defaults to the `MATLAB_UTILS` environment
+        variable.
+    """
     if matlab_utils_path and os.path.exists(matlab_utils_path):
         logger.debug(f"Adding MATLAB utils path: {matlab_utils_path}")
         currentMatlabPath = str(eng.path())
