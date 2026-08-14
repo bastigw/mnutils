@@ -51,29 +51,18 @@
   font-size: 1.05em;
 }
 
-.mnutils-mrsi-spectrum {
+.mnutils-mrsi-spectrum-container {
+  position: relative;
   width: 100%;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 220px;
+  padding: 0.4em;
+  box-sizing: border-box;
   background: var(--mnu-panel);
   border: 1px solid var(--mnu-border);
   border-radius: 6px;
-  color: var(--mnu-accent);
 }
 
-.mnutils-mrsi-spectrum-line {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-
-.mnutils-mrsi-spectrum-axis line {
-  stroke: var(--mnu-border);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.mnutils-mrsi-spectrum-tick-label {
-  fill: var(--mnu-muted);
-  font-size: 11px;
+.mnutils-mrsi-range-bar {
+  gap: 0.8em;
 }

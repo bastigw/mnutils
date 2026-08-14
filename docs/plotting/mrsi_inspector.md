@@ -23,8 +23,8 @@ voxel's spectrum is precomputed into a single buffer embedded in the widget, so 
 interaction runs client-side — it keeps working after this page is built into a static site, the
 same way the slider in [Displaying image arrays of any shape](#plotting-images-scrub) does.
 
-| Function | What it does here |
-|---|---|
+| Function                                                                  | What it does here                             |
+| ------------------------------------------------------------------------- | --------------------------------------------- |
 | [`inspect_MRSI_spectra()`](#mnutils.plotting.images.inspect_MRSI_spectra) | builds and displays the interactive inspector |
 
 ```{code-cell} ipython3
@@ -55,6 +55,9 @@ def _repo_root(start: Path = Path.cwd()) -> Path:
 
 
 hevo18_data = _repo_root() / "tests" / "datasets" / "HeVo-18" / "data"
+hevo18_data = (
+    Path("/home/sbauer/Projects/Coding/FOSS/MNUtils") / "tests" / "datasets" / "HeVo-18" / "data"
+)
 ```
 
 (plotting-mrsi-inspector-load)=
@@ -80,6 +83,18 @@ actually measured. `autophase=True` (also the default) autophases each voxel's s
 display; pass `magnitude=True` for the magnitude spectrum instead.
 
 ```{code-cell} ipython3
+mrsi.spec.xmr.autophase()
+```
+
+```{code-cell} ipython3
+import sys
+
+logger.remove()
+logger.add(sys.stdout, level="DEBUG")
+```
+
+```{code-cell} ipython3
+%prun
 inspect_MRSI_spectra(t1, mrsi)
 ```
 

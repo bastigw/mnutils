@@ -425,7 +425,7 @@ def _render_image_grid_frames(
     fig = Figure(figsize=fig_size, **fig_kws if fig_kws else {})
     FigureCanvasAgg(fig)
     num_rows, num_cols = grid_kwargs["num_rows"], grid_kwargs["num_cols"]
-    axes = fig.subplots(num_rows, num_cols, sharex=True, sharey=True, squeeze=False).flatten()  # type: ignore
+    axes = fig.subplots(num_rows, num_cols, sharex=True, sharey=True, squeeze=False).flatten()
 
     frames = []
     ims: list[AxesImage] | None = None
