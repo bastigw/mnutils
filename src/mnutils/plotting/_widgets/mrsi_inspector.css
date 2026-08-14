@@ -51,7 +51,8 @@
 
 .mnutils-mrsi-spectrum {
   width: 100%;
-  height: 200px;
+  flex: 1 1 auto;
+  min-height: 0;
   background: var(--mnu-panel);
   border: 1px solid var(--mnu-border);
   border-radius: 6px;
@@ -62,4 +63,15 @@
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
+}
+
+.mnutils-mrsi-spectrum-axis line {
+  stroke: var(--mnu-border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.mnutils-mrsi-spectrum-tick-label {
+  fill: var(--mnu-muted);
+  font-size: 9px;
 }

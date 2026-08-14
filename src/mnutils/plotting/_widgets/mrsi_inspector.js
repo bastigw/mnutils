@@ -10,6 +10,14 @@ function applyAffine(affine, point) {
   ];
 }
 
+// Displayed ppm window and its gridlines -- covers the region most brain
+// MRSI metabolites (NAA, Cr, Cho, lipids/lactate upfield) fall in.
+const PPM_MIN = -8;
+const PPM_MAX = 2;
+const PPM_TICKS = [-8, -6, -4, -2, 0, 2];
+
+const SPEC_MARGIN = { left: 42, right: 10, top: 10, bottom: 22 };
+
 function renderWidget(data, el) {
   const leftFrames = data.left_frames;
   const sliceTitles = data.slice_titles;
@@ -21,7 +29,28 @@ function renderWidget(data, el) {
   const [nx, ny, nMrsiSlices] = data.grid_shape;
   const [dimsI, dimsJ] = data.mrsi_dims;
   const npts = data.npts;
+  const ppm = data.ppm;
   const spectraBuf = new Float32Array(b64ToBytes(data.spectra_bytes).buffer);
+
+  // The ppm axis is fixed for the whole widget, so the displayed window's
+  // index range only needs computing once (ppm is monotonic, so the
+  // in-range indices form one contiguous block regardless of its direction).
+  let winStart = 0;
+  let winEnd = npts - 1;
+  {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < npts; i++) {
+      if (ppm[i] >= PPM_MIN && ppm[i] <= PPM_MAX) {
+        if (i < lo) lo = i;
+        if (i > hi) hi = i;
+      }
+    }
+    if (lo <= hi) {
+      winStart = lo;
+      winEnd = hi;
+    }
+  }
 
   const frameUrls = leftFrames.map(
     (b64) => URL.createObjectURL(new Blob([b64ToBytes(b64)], { type: "image/png" })),
@@ -69,7 +98,7 @@ function renderWidget(data, el) {
   slider.value = String(state.sliceIdx);
   slider.disabled = nAnatSlices <= 1;
 
-  leftPanel.append(imgWrap, sliceTitle, makeBar(slider));
+  leftPanel.append(makeBar(slider), imgWrap, sliceTitle);
 
   const rightPanel = document.createElement("div");
   rightPanel.className = "mnutils-mrsi-right-panel";
@@ -79,14 +108,69 @@ function renderWidget(data, el) {
 
   const spectrumSvg = document.createElementNS(SVG_NS, "svg");
   spectrumSvg.classList.add("mnutils-mrsi-spectrum");
-  const spectrumViewW = 400;
-  const spectrumViewH = 200;
+  const spectrumViewW = 440;
+  const spectrumViewH = 220;
   spectrumSvg.setAttribute("viewBox", `0 0 ${spectrumViewW} ${spectrumViewH}`);
   spectrumSvg.setAttribute("preserveAspectRatio", "none");
 
+  const plotW = spectrumViewW - SPEC_MARGIN.left - SPEC_MARGIN.right;
+  const plotH = spectrumViewH - SPEC_MARGIN.top - SPEC_MARGIN.bottom;
+
+  function pxForPpm(p) {
+    return SPEC_MARGIN.left + ((p - PPM_MIN) / (PPM_MAX - PPM_MIN)) * plotW;
+  }
+
+  function pyForValue(v, min, max) {
+    const frac = max === min ? 0.5 : (v - min) / (max - min);
+    return SPEC_MARGIN.top + (1 - frac) * plotH;
+  }
+
+  const xAxisGroup = document.createElementNS(SVG_NS, "g");
+  xAxisGroup.setAttribute("class", "mnutils-mrsi-spectrum-axis");
+  const xAxisLine = document.createElementNS(SVG_NS, "line");
+  xAxisLine.setAttribute("x1", String(SPEC_MARGIN.left));
+  xAxisLine.setAttribute("x2", String(SPEC_MARGIN.left + plotW));
+  xAxisLine.setAttribute("y1", String(SPEC_MARGIN.top + plotH));
+  xAxisLine.setAttribute("y2", String(SPEC_MARGIN.top + plotH));
+  xAxisGroup.append(xAxisLine);
+  for (const tick of PPM_TICKS) {
+    const px = pxForPpm(tick);
+    const tickLine = document.createElementNS(SVG_NS, "line");
+    tickLine.setAttribute("x1", String(px));
+    tickLine.setAttribute("x2", String(px));
+    tickLine.setAttribute("y1", String(SPEC_MARGIN.top + plotH));
+    tickLine.setAttribute("y2", String(SPEC_MARGIN.top + plotH + 4));
+    xAxisGroup.append(tickLine);
+
+    const label = document.createElementNS(SVG_NS, "text");
+    label.setAttribute("class", "mnutils-mrsi-spectrum-tick-label");
+    label.setAttribute("x", String(px));
+    label.setAttribute("y", String(SPEC_MARGIN.top + plotH + 16));
+    label.setAttribute("text-anchor", "middle");
+    label.textContent = String(tick);
+    xAxisGroup.append(label);
+  }
+  const xUnitLabel = document.createElementNS(SVG_NS, "text");
+  xUnitLabel.setAttribute("class", "mnutils-mrsi-spectrum-tick-label");
+  xUnitLabel.setAttribute("x", String(SPEC_MARGIN.left + plotW));
+  xUnitLabel.setAttribute("y", String(SPEC_MARGIN.top + plotH + 16));
+  xUnitLabel.setAttribute("text-anchor", "end");
+  xUnitLabel.textContent = "ppm";
+  xAxisGroup.append(xUnitLabel);
+
+  const yAxisGroup = document.createElementNS(SVG_NS, "g");
+  yAxisGroup.setAttribute("class", "mnutils-mrsi-spectrum-axis");
+  const yAxisLine = document.createElementNS(SVG_NS, "line");
+  yAxisLine.setAttribute("x1", String(SPEC_MARGIN.left));
+  yAxisLine.setAttribute("x2", String(SPEC_MARGIN.left));
+  yAxisLine.setAttribute("y1", String(SPEC_MARGIN.top));
+  yAxisLine.setAttribute("y2", String(SPEC_MARGIN.top + plotH));
+  yAxisGroup.append(yAxisLine);
+
   const spectrumLine = document.createElementNS(SVG_NS, "polyline");
   spectrumLine.setAttribute("class", "mnutils-mrsi-spectrum-line");
-  spectrumSvg.append(spectrumLine);
+
+  spectrumSvg.append(xAxisGroup, yAxisGroup, spectrumLine);
 
   rightPanel.append(spectrumTitle, spectrumSvg);
 
@@ -117,11 +201,43 @@ function renderWidget(data, el) {
     return spectraBuf.subarray(offset, offset + npts);
   }
 
+  // Y ticks depend on the currently displayed voxel's amplitude range, so
+  // they're rebuilt (not just repositioned) on every redraw.
+  function drawYTicks(min, max) {
+    for (const node of yAxisGroup.querySelectorAll(".mnutils-mrsi-spectrum-ytick")) {
+      node.remove();
+    }
+    const values = [min, (min + max) / 2, max];
+    for (const v of values) {
+      const py = pyForValue(v, min, max);
+
+      const tickLine = document.createElementNS(SVG_NS, "line");
+      tickLine.setAttribute("class", "mnutils-mrsi-spectrum-ytick");
+      tickLine.setAttribute("x1", String(SPEC_MARGIN.left - 4));
+      tickLine.setAttribute("x2", String(SPEC_MARGIN.left));
+      tickLine.setAttribute("y1", String(py));
+      tickLine.setAttribute("y2", String(py));
+      yAxisGroup.append(tickLine);
+
+      const label = document.createElementNS(SVG_NS, "text");
+      label.setAttribute(
+        "class",
+        "mnutils-mrsi-spectrum-tick-label mnutils-mrsi-spectrum-ytick",
+      );
+      label.setAttribute("x", String(SPEC_MARGIN.left - 6));
+      label.setAttribute("y", String(py + 3));
+      label.setAttribute("text-anchor", "end");
+      label.textContent = v.toExponential(1);
+      yAxisGroup.append(label);
+    }
+  }
+
   function drawSpectrum(x, y, mrsiSliceIdx) {
     const spectrum = spectrumAt(x, y, mrsiSliceIdx);
     let min = Infinity;
     let max = -Infinity;
-    for (const v of spectrum) {
+    for (let i = winStart; i <= winEnd; i++) {
+      const v = spectrum[i];
       if (v < min) min = v;
       if (v > max) max = v;
     }
@@ -130,13 +246,11 @@ function renderWidget(data, el) {
       max += 1;
     }
     const points = [];
-    for (let i = 0; i < npts; i++) {
-      const px = (i / (npts - 1)) * spectrumViewW;
-      const py =
-        spectrumViewH - ((spectrum[i] - min) / (max - min)) * spectrumViewH;
-      points.push(`${px},${py}`);
+    for (let i = winStart; i <= winEnd; i++) {
+      points.push(`${pxForPpm(ppm[i])},${pyForValue(spectrum[i], min, max)}`);
     }
     spectrumLine.setAttribute("points", points.join(" "));
+    drawYTicks(min, max);
 
     const specI = dimsI - 1 - y;
     const specJ = dimsJ - 1 - x;
@@ -177,6 +291,7 @@ function renderWidget(data, el) {
   slider.addEventListener("input", () => goToSlice(Number(slider.value)));
 
   img.addEventListener("click", (evt) => {
+    viewer.focus();
     const rect = img.getBoundingClientRect();
     const px = evt.clientX - rect.left;
     const py = evt.clientY - rect.top;
@@ -185,22 +300,33 @@ function renderWidget(data, el) {
     selectVoxelFromClick(row, col);
   });
 
-  viewer.addEventListener("keydown", (evt) => {
-    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(evt.key)) {
-      return;
-    }
-    evt.preventDefault();
-    if (evt.key === "ArrowDown") {
-      state.y = Math.max(0, state.y - 1);
-    } else if (evt.key === "ArrowUp") {
-      state.y = Math.min(ny - 1, state.y + 1);
-    } else if (evt.key === "ArrowRight") {
-      state.x = Math.max(0, state.x - 1);
-    } else if (evt.key === "ArrowLeft") {
-      state.x = Math.min(nx - 1, state.x + 1);
-    }
-    redrawVoxel();
-  });
+  // Grab focus so arrow keys reach us without an extra click, and stop the
+  // keydown from propagating past the widget: notebook hosts (VS Code,
+  // JupyterLab) bind ArrowUp/ArrowDown at the document/window level for cell
+  // navigation, and a plain `preventDefault()` on our own listener doesn't
+  // stop that outer handler from also firing on the same event.
+  viewer.addEventListener("mouseenter", () => viewer.focus());
+  viewer.addEventListener(
+    "keydown",
+    (evt) => {
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(evt.key)) {
+        return;
+      }
+      evt.preventDefault();
+      evt.stopPropagation();
+      if (evt.key === "ArrowDown") {
+        state.y = Math.max(0, state.y - 1);
+      } else if (evt.key === "ArrowUp") {
+        state.y = Math.min(ny - 1, state.y + 1);
+      } else if (evt.key === "ArrowRight") {
+        state.x = Math.max(0, state.x - 1);
+      } else if (evt.key === "ArrowLeft") {
+        state.x = Math.min(nx - 1, state.x + 1);
+      }
+      redrawVoxel();
+    },
+    { capture: true },
+  );
 
   sliceTitle.textContent = sliceTitles[state.sliceIdx];
   redrawVoxel();
