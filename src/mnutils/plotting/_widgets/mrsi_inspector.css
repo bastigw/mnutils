@@ -66,3 +66,37 @@
 .mnutils-mrsi-range-bar {
   gap: 0.8em;
 }
+
+/* Theme nouislider (used for the ppm dual-range) to match the rest of the
+   widget's accent/border tokens instead of its default blue skin. */
+.mnutils-mrsi-ppm-slider {
+  flex: 1;
+  height: 1.4em;
+  margin: 0 0.6em;
+}
+
+.mnutils-mrsi-ppm-slider.noUi-target {
+  background: var(--mnu-border);
+  border: none;
+  box-shadow: none;
+}
+
+.mnutils-mrsi-ppm-slider .noUi-connect {
+  background: var(--mnu-accent);
+}
+
+.mnutils-mrsi-ppm-slider .noUi-handle {
+  width: 16px;
+  height: 16px;
+  top: -6px;
+  right: -8px;
+  border-color: var(--mnu-border);
+  border-radius: 50%;
+  box-shadow: none;
+  background: var(--mnu-accent);
+}
+
+.mnutils-mrsi-ppm-slider .noUi-handle::before,
+.mnutils-mrsi-ppm-slider .noUi-handle::after {
+  display: none;
+}

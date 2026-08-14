@@ -4,10 +4,24 @@
 // real component model rather than hand-rolled DOM diffing.
 import Chart from "https://esm.sh/chart.js@4.4.1/auto";
 import htm from "https://esm.sh/htm@3.1.1";
+import noUiSlider from "https://esm.sh/nouislider@15.8.1";
 import { h, render } from "https://esm.sh/preact@10.19.6";
 import { useEffect, useMemo, useRef, useState } from "https://esm.sh/preact@10.19.6/hooks";
 
 const html = htm.bind(h);
+
+const NOUISLIDER_CSS_HREF = "https://cdn.jsdelivr.net/npm/nouislider@15.8.1/dist/nouislider.min.css";
+
+// nouislider ships its own stylesheet rather than being themeable via JS
+// options; inject it once per document (widgets render into plain divs, not
+// shadow roots, so a single document-level <link> covers every instance).
+function ensureNoUiSliderCss() {
+  if (document.querySelector(`link[href="${NOUISLIDER_CSS_HREF}"]`)) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = NOUISLIDER_CSS_HREF;
+  document.head.appendChild(link);
+}
 
 // Apply a row-major 4x4 affine (flattened to 16 floats) to a 3-vector.
 // MRSI-specific (the affine and its inverse are baked into this widget's
@@ -21,67 +35,58 @@ function applyAffine(affine, point) {
   ];
 }
 
-// Dual-thumb ppm range slider. Markup/classes mirror _shared/dom.js's
-// `makeDualRangeSlider` (`.mnu-dual-range*`) so it picks up the same themed,
-// dark-mode-aware styling from _shared/theme.css instead of a second,
-// hand-rolled (and non-themed) implementation.
+// Dual-thumb ppm range slider, backed by nouislider (dedicated dual-handle
+// range library) instead of the two-overlaid-native-inputs hack. The
+// instance is created once and driven imperatively thereafter: external prop
+// changes go through `.set(values, false)` (suppresses events) so they don't
+// loop back into `onChange`, while user drags fire nouislider's 'update'
+// event (also covers programmatic-less internal moves during a drag) into
+// `onChange`.
 function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
-  const minRef = useRef(null);
-  const maxRef = useRef(null);
+  const containerRef = useRef(null);
+  const sliderRef = useRef(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-  const handleMinInput = (e) => {
-    const lo = Math.min(Number(e.target.value), valueMax - step);
-    onChange(lo, valueMax);
-  };
-  const handleMaxInput = (e) => {
-    const hi = Math.max(Number(e.target.value), valueMin + step);
-    onChange(valueMin, hi);
-  };
+  useEffect(() => {
+    ensureNoUiSliderCss();
+    if (!containerRef.current) return undefined;
 
-  // Overlapping thumbs both sit at the same screen position when their
-  // values are close; whichever input the pointer actually went down on is
-  // the one the user meant to grab, so bring it to the front for the drag.
-  const bringToFront = (front, back) => {
-    if (front.current) front.current.style.zIndex = "3";
-    if (back.current) back.current.style.zIndex = "1";
-  };
+    const slider = noUiSlider.create(containerRef.current, {
+      start: [valueMin, valueMax],
+      connect: true,
+      range: { min, max },
+      step,
+      behaviour: "drag-fixed",
+    });
+    sliderRef.current = slider;
 
-  const disabled = max <= min;
-  const pct = (v) => (max === min ? 0 : ((v - min) / (max - min)) * 100);
+    slider.on("update", (values) => {
+      const [lo, hi] = values.map(Number);
+      onChangeRef.current(lo, hi);
+    });
 
-  return html`
-    <div className="mnu-dual-range">
-      <div className="mnu-dual-range-track"></div>
-      <div
-        className="mnu-dual-range-fill"
-        style=${{
-          left: `${pct(valueMin)}%`,
-          width: `${Math.max(0, pct(valueMax) - pct(valueMin))}%`,
-        }}></div>
-      <input
-        ref=${minRef}
-        type="range"
-        className="mnu-slider mnu-dual-range-input"
-        min=${min}
-        max=${max}
-        step=${step}
-        value=${valueMin}
-        disabled=${disabled}
-        onPointerDown=${() => bringToFront(minRef, maxRef)}
-        onInput=${handleMinInput} />
-      <input
-        ref=${maxRef}
-        type="range"
-        className="mnu-slider mnu-dual-range-input"
-        min=${min}
-        max=${max}
-        step=${step}
-        value=${valueMax}
-        disabled=${disabled}
-        onPointerDown=${() => bringToFront(maxRef, minRef)}
-        onInput=${handleMaxInput} />
-    </div>
-  `;
+    return () => {
+      slider.destroy();
+      sliderRef.current = null;
+    };
+    // Range bounds/step come from the dataset and never change after mount;
+    // only valueMin/valueMax move thereafter, synced imperatively below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [min, max, step]);
+
+  useEffect(() => {
+    sliderRef.current?.set([valueMin, valueMax], false);
+  }, [valueMin, valueMax]);
+
+  useEffect(() => {
+    const slider = sliderRef.current;
+    if (!slider) return;
+    if (max <= min) slider.disable();
+    else slider.enable();
+  }, [min, max]);
+
+  return html`<div ref=${containerRef} className="mnutils-mrsi-ppm-slider"></div>`;
 }
 
 // Chart.js spectrum plot. The chart instance is created once (empty deps
