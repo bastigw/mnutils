@@ -4,38 +4,39 @@ jupytext:
     extension: .md
     format_name: myst
 kernelspec:
-  display_name: Python 3 (mnutils)
+  display_name: .venv
   language: python
   name: python3
 ---
 
 (plotting-spectra)=
+
 # Plotting FIDs and spectra from a DataArray
 
 > **`plot_fid`/`plot_spectra` now take a `chemical_shift`/`time`-dimensioned `xr.DataArray`
 > directly — how do I see that without loading a real scan?**
 
-[`xmris.simulate_fid()`](https://github.com/andrewendlinger/xmris) builds exactly the kind of
+[`xmris.simulate_fid()`](https://andrewendlinger.github.io/xmris/api/fitting-simulation/#xmris-fitting-simulation-simulate-fid) builds exactly the kind of
 `DataArray` `MRSSeries`/`RawMRISeries` produce from real data — `time`-dimensioned, with
 `reference_frequency`/`carrier_ppm` in `.attrs` — so it's the fixture of choice here: fully
 synthetic, seeded, no scanner file needed.
 
-| Function | What it does here |
-|---|---|
-| [`plot_fid()`](#mnutils.plotting.spectra.plot_fid) | plots the simulated FID against its `time` coord |
+| Function                                                   | What it does here                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
+| [`plot_fid()`](#mnutils.plotting.spectra.plot_fid)         | plots the simulated FID against its `time` coord             |
 | [`plot_spectra()`](#mnutils.plotting.spectra.plot_spectra) | plots the phased spectrum against its `chemical_shift` coord |
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
-import matplotlib.pyplot as plt
-import matplotlib_inline.backend_inline
-
-# Crisp retina output + sane default DPI for the rendered docs
-matplotlib_inline.backend_inline.set_matplotlib_formats("retina")
-plt.rcParams["figure.dpi"] = 150
-
 from loguru import logger
+from matplotlib.pyplot import rcParams
+from matplotlib_inline.backend_inline import set_matplotlib_formats
+
+set_matplotlib_formats("retina")
+rcParams["figure.dpi"] = 150
+rcParams["figure.figsize"] = [6, 4]
+
 
 logger.remove()
 ```
@@ -50,6 +51,7 @@ from mnutils.plotting.spectra import plot_fid, plot_spectra
 ```
 
 (plotting-spectra-simulate)=
+
 ## 1. Simulate 5 repetitions of a FID
 
 Two peaks — a big one at 4.68 ppm (water), a smaller one at 3.0 ppm — damped, phased, with a
@@ -62,12 +64,12 @@ different fixtures:
 fids = xr.concat(
     [
         simulate_fid(
-            amplitudes=[1.0, 0.4],
+            amplitudes=[1.0 * (seed + 1), 0.4 * (seed / 5 + 1)],
             chemical_shifts=[4.68, 3.0],
-            reference_frequency=61.4,  # MHz, ~ 2H at 9.4T
+            reference_frequency=19.6,  # MHz, ~ 2H at 3T
             carrier_ppm=4.68,
-            spectral_width=2000.0,
-            n_points=512,
+            spectral_width=1000.0,
+            n_points=700,
             dampings=[30.0, 20.0],
             target_snr=40.0,
             seed=seed,
@@ -77,7 +79,7 @@ fids = xr.concat(
     dim="average",
 )
 fid = fids.isel(average=0)
-fid
+fids
 ```
 
 `simulate_fid` always returns a `time`-dimensioned `DataArray` — the same shape
@@ -85,13 +87,14 @@ fid
 below works identically against either source.
 
 (plotting-spectra-fid)=
+
 ## 2. Plot the FID — `data=` is the whole call
 
 No `header`, no `dwelltime`/`deadtime`: the `time` coord already carries the axis, in seconds,
 and `plot_fid` converts it to ms for display.
 
 ```{code-cell} ipython3
-fig, ax = plot_fid(data=fid)
+ax = plot_fid(data=fid)
 plt.show()
 ```
 
@@ -108,18 +111,15 @@ assert ax.get_xlabel() == "Time [ms]"
 ```
 
 (plotting-spectra-spectrum)=
+
 ## 3. FFT, phase, plot — no phasing inside the plot call
 
 `plot_spectra` only plots; phasing happens upstream through the `xmr` accessor, the same chain
 [`MRSSeries.phase_avg_spec`](#mnutils.GESeries.MRSSeries.phase_avg_spec) uses on real data:
 
 ```{code-cell} ipython3
-spectrum = fid.xmr.to_spectrum().xmr.autophase().xmr.to_ppm()
-spectrum
-```
-
-```{code-cell} ipython3
-fig, ax = plot_spectra(data=spectrum)
+spectrum = fid.xmr.autophase().xmr.to_ppm()
+ax = plot_spectra(data=spectrum)
 plt.show()
 ```
 
@@ -135,10 +135,13 @@ np.testing.assert_allclose(
 )
 ppm_axis = ax.lines[0].get_xdata()
 peak_ppm = ppm_axis[np.argmax(ax.lines[0].get_ydata())]
-assert abs(peak_ppm - 4.68) < 0.2, f"expected the water peak near 4.68 ppm, got {peak_ppm:.2f}"
+assert abs(peak_ppm - 4.68) < 0.2, (
+    f"expected the water peak near 4.68 ppm, got {peak_ppm:.2f}"
+)
 ```
 
 (plotting-spectra-multi)=
+
 ## 4. Several FIDs and spectra at once, with custom labels
 
 An extra dim beyond `time`/`chemical_shift` becomes one line per slice — no loop needed. The 5
@@ -148,7 +151,7 @@ default `"FID N"`/`"Spectrum N"` naming:
 ```{code-cell} ipython3
 labels = [f"Repetition {i + 1}" for i in range(fids.sizes["average"])]
 
-fig, ax_fid = plot_fid(data=fids, labels=labels)
+ax_fid = plot_fid(data=fids, labels=labels)
 plt.show()
 ```
 
@@ -157,13 +160,15 @@ plt.show()
 
 # STRICT TESTS: 5 repetitions -> 5 real + 5 imag lines, each labelled from `labels`
 assert len(ax_fid.lines) == 10
-assert [line.get_label() for line in ax_fid.lines[::2]] == [f"{label} (Real)" for label in labels]
+assert [line.get_label() for line in ax_fid.lines[::2]] == [
+    f"{label} (Real)" for label in labels
+]
 ```
 
 ```{code-cell} ipython3
 spectra = fids.xmr.to_spectrum().xmr.autophase().xmr.to_ppm()
 
-fig, ax_spectra = plot_spectra(data=spectra, labels=labels)
+ax_spectra = plot_spectra(data=spectra, labels=labels)
 plt.show()
 ```
 
@@ -182,13 +187,14 @@ for line in ax_spectra.lines:
 ```
 
 (plotting-spectra-fallback)=
+
 ## 5. Manual arrays still work
 
 Both functions keep the old array-based call as a fallback — for data with no `DataArray` to
 begin with. `data` takes priority whenever both are given:
 
 ```{code-cell} ipython3
-fig, ax = plot_spectra(
+ax = plot_spectra(
     ppm=spectrum.coords["chemical_shift"].values,
     spectra=spectrum.values.real,
 )

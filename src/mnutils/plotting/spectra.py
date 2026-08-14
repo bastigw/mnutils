@@ -8,8 +8,6 @@ import pandas as pd
 import seaborn as sns
 import xarray as xr
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from matplotlib.lines import Line2D
 from xmris import DIMS
 
 DEFAULT_SPECTRA_AX_PARAMS = {
@@ -82,7 +80,7 @@ def plot_spectra(
     labels: list[str] | None = None,
     line_kwargs: dict | list[dict] | None = None,
     **kwargs,
-) -> tuple[Figure, Axes] | list[Line2D]:
+) -> Axes:
     """Plot one or more spectra against a chemical-shift (ppm) axis.
 
     Pass already-phased data — either `data` (an `xr.DataArray` with a
@@ -96,9 +94,8 @@ def plot_spectra(
     if resolved_labels is None:
         resolved_labels = []
 
-    created_fig = None
     if ax is None:
-        created_fig, ax = plt.subplots(figsize=(7, 4))
+        _, ax = plt.subplots()
 
     spectra_arr = np.asarray(resolved_spectra)
     if spectra_arr.ndim == 1:
@@ -135,9 +132,7 @@ def plot_spectra(
     if spectra_arr.shape[0] > 1 or resolved_labels:
         ax.legend()
 
-    if created_fig is not None:
-        return created_fig, ax
-    return lines
+    return ax
 
 
 def _resolve_fid_input(
@@ -169,7 +164,7 @@ def plot_fid(
     show_real: bool = True,
     show_imag: bool = True,
     **kwargs,
-) -> tuple[Figure, Axes] | Axes:
+) -> Axes:
     """Plot one or more FIDs against a time axis.
 
     Pass either `data` (an `xr.DataArray` with a `time` dim/coord, e.g.
@@ -185,9 +180,8 @@ def plot_fid(
     if fid_values.ndim == 1:
         fid_values = fid_values[np.newaxis, :]  # Convert to 2D for consistency
 
-    created_fig = None
     if ax is None:
-        created_fig, ax = plt.subplots(figsize=(7, 6))
+        _, ax = plt.subplots()
 
     for i in range(fid_values.shape[0]):
         label_real = f"{labels[i]} (Real)" if i < len(labels) else f"FID {i + 1} (Real)"
@@ -209,8 +203,6 @@ def plot_fid(
     sns.set_palette("colorblind")
     sns.despine()
 
-    if created_fig is not None:
-        return created_fig, ax
     return ax
 
 
