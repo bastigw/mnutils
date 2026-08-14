@@ -2,10 +2,11 @@ import base64
 from pathlib import Path
 
 from ._html import render_html
+from ._shared import load_css, load_esm
 
 _DIR = Path(__file__).parent
-_JS = (_DIR / "mrsi_inspector.js").read_text()
-_CSS = (_DIR / "mrsi_inspector.css").read_text()
+_JS = load_esm(_DIR / "mrsi_inspector.js")
+_CSS = load_css(_DIR / "mrsi_inspector.css")
 
 
 class MRSIVoxelInspectorWidget:

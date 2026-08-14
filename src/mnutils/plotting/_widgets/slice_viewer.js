@@ -1,7 +1,3 @@
-function b64ToBytes(b64) {
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-}
-
 function renderWidget(data, el) {
   const frames = data.frames;
   const nSlices = data.n_slices;
@@ -12,36 +8,34 @@ function renderWidget(data, el) {
     (b64) => URL.createObjectURL(new Blob([b64ToBytes(b64)], { type: "image/png" })),
   );
 
-  const container = document.createElement("div");
-  container.className = "mnutils-slice-viewer";
+  const viewer = document.createElement("div");
+  viewer.className = "mnu-viewer mnutils-slice-viewer";
+
+  const panel = document.createElement("div");
+  panel.className = "mnu-panel mnutils-slice-viewer-panel";
 
   const img = document.createElement("img");
   img.className = "mnutils-slice-viewer-image";
   img.src = urls[initialIndex];
 
-  const controls = document.createElement("div");
-  controls.className = "mnutils-slice-viewer-controls";
+  panel.append(img);
 
-  const slider = document.createElement("input");
-  slider.type = "range";
-  slider.min = "0";
-  slider.max = String(nSlices - 1);
-  slider.value = String(initialIndex);
-  slider.disabled = nSlices <= 1;
-
-  const readout = document.createElement("span");
-  readout.className = "mnutils-slice-viewer-readout";
-  readout.textContent = `${label} ${slider.value}`;
-
-  slider.addEventListener("input", () => {
-    const idx = Number(slider.value);
-    img.src = urls[idx];
-    readout.textContent = `${label} ${idx}`;
+  const { lbl, slider, readout } = makeSliceSlider({
+    min: 0,
+    max: nSlices - 1,
+    value: initialIndex,
+    label,
+    formatReadout: (idx) => String(idx),
+    onInput: (idx) => {
+      img.src = urls[idx];
+    },
   });
 
-  controls.append(slider, readout);
-  container.append(img, controls);
-  el.append(container);
+  const bar = makeBar(makeGroup(lbl, readout), slider);
+  bar.classList.add("mnutils-slice-viewer-bar");
+
+  viewer.append(bar, panel);
+  el.append(viewer);
 }
 
 export default renderWidget;

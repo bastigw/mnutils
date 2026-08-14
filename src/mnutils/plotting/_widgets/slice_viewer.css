@@ -1,30 +1,38 @@
 .mnutils-slice-viewer {
+  margin-top: 1em;
+}
+
+.mnutils-slice-viewer-bar {
+  justify-content: flex-start;
+  border-bottom: 1px solid var(--mnu-border-soft);
+}
+
+.mnutils-slice-viewer-bar .mnu-lbl,
+.mnutils-slice-viewer-bar .mnu-readout {
+  font-size: 1.1em;
+}
+
+.mnutils-slice-viewer-bar .mnu-readout {
+  font-family: inherit;
+  font-weight: 700;
+  line-height: inherit;
+  min-width: 0;
+  color: var(--mnu-fg-strong);
+}
+
+.mnutils-slice-viewer-bar .mnu-slider {
+  flex: none;
+  width: min(100%, 320px);
+  height: 1.3em;
+}
+
+.mnutils-slice-viewer-panel {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.4em;
+  justify-content: center;
+  border-bottom: none;
 }
 
 .mnutils-slice-viewer-image {
   max-width: 100%;
   height: auto;
-}
-
-.mnutils-slice-viewer-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.6em;
-  width: 100%;
-  max-width: 320px;
-}
-
-.mnutils-slice-viewer-controls input[type="range"] {
-  flex: 1;
-}
-
-.mnutils-slice-viewer-readout {
-  font-family: monospace;
-  font-size: 0.85em;
-  min-width: 5em;
-  text-align: right;
 }

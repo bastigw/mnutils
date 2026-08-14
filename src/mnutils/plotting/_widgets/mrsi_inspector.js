@@ -10,14 +10,6 @@ function applyAffine(affine, point) {
   ];
 }
 
-function clamp(value, lo, hi) {
-  return Math.min(hi, Math.max(lo, value));
-}
-
-function b64ToBytes(b64) {
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-}
-
 function renderWidget(data, el) {
   const leftFrames = data.left_frames;
   const sliceTitles = data.slice_titles;
@@ -42,15 +34,15 @@ function renderWidget(data, el) {
     mrsiSliceIdx: data.initial_voxel[2],
   };
 
-  const container = document.createElement("div");
-  container.className = "mnutils-mrsi-inspector";
-  container.tabIndex = 0;
+  const viewer = document.createElement("div");
+  viewer.className = "mnu-viewer mnutils-mrsi-inspector";
+  viewer.tabIndex = 0;
 
   const leftPanel = document.createElement("div");
   leftPanel.className = "mnutils-mrsi-left-panel";
 
   const imgWrap = document.createElement("div");
-  imgWrap.className = "mnutils-mrsi-image-wrap";
+  imgWrap.className = "mnu-panel mnutils-mrsi-image-wrap";
 
   const img = document.createElement("img");
   img.className = "mnutils-mrsi-image";
@@ -67,22 +59,23 @@ function renderWidget(data, el) {
   imgWrap.append(img, svg);
 
   const sliceTitle = document.createElement("div");
-  sliceTitle.className = "mnutils-mrsi-slice-title";
+  sliceTitle.className = "mnu-lbl mnutils-mrsi-slice-title";
 
   const slider = document.createElement("input");
   slider.type = "range";
+  slider.className = "mnu-slider";
   slider.min = "0";
   slider.max = String(nAnatSlices - 1);
   slider.value = String(state.sliceIdx);
   slider.disabled = nAnatSlices <= 1;
 
-  leftPanel.append(imgWrap, sliceTitle, slider);
+  leftPanel.append(imgWrap, sliceTitle, makeBar(slider));
 
   const rightPanel = document.createElement("div");
   rightPanel.className = "mnutils-mrsi-right-panel";
 
   const spectrumTitle = document.createElement("div");
-  spectrumTitle.className = "mnutils-mrsi-spectrum-title";
+  spectrumTitle.className = "mnu-lbl mnutils-mrsi-spectrum-title";
 
   const spectrumSvg = document.createElementNS(SVG_NS, "svg");
   spectrumSvg.classList.add("mnutils-mrsi-spectrum");
@@ -97,8 +90,8 @@ function renderWidget(data, el) {
 
   rightPanel.append(spectrumTitle, spectrumSvg);
 
-  container.append(leftPanel, rightPanel);
-  el.append(container);
+  viewer.append(leftPanel, rightPanel);
+  el.append(viewer);
 
   function voxelPolygonPoints(x, y, mrsiSliceIdx) {
     const cornerOffsets = [
@@ -192,7 +185,7 @@ function renderWidget(data, el) {
     selectVoxelFromClick(row, col);
   });
 
-  container.addEventListener("keydown", (evt) => {
+  viewer.addEventListener("keydown", (evt) => {
     if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(evt.key)) {
       return;
     }

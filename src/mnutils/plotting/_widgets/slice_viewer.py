@@ -2,10 +2,11 @@ import base64
 from pathlib import Path
 
 from ._html import render_html
+from ._shared import load_css, load_esm
 
 _DIR = Path(__file__).parent
-_JS = (_DIR / "slice_viewer.js").read_text()
-_CSS = (_DIR / "slice_viewer.css").read_text()
+_JS = load_esm(_DIR / "slice_viewer.js")
+_CSS = load_css(_DIR / "slice_viewer.css")
 
 
 class SliceViewerWidget:
