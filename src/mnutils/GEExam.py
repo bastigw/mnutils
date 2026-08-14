@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime
 from operator import itemgetter
 from pathlib import Path
-from typing import Iterator
 
 import numpy as np
 import numpy.typing as npt
@@ -17,6 +17,8 @@ ANATOMICAL_SERIES_TO_SKIP = ["FGRE", "localizer", "GE_HOS", "localiser"]
 
 
 class ExamBase:
+    """Base class for a GE exam, loading series metadata and providing series access."""
+
     def __init__(
         self,
         BASE_FOLDER: str | Path,
@@ -44,17 +46,20 @@ class ExamBase:
         self.all: dict[int, GESeries.MRISeries] = {}
 
     def __repr__(self) -> str:
+        """Return a short representation showing the class and base folder name."""
         class_name = self.__class__.__name__
         folder_name = self.BASE_FOLDER.name
         return f"{class_name}({folder_name})"
 
     def __str__(self) -> str:
+        """Return a formatted overview of the exam's series."""
         width = 72
         line_sep = "\n" + "-" * width + "\n"
         topline = f"  {self.__repr__()}  ".center(width, "-") + "\n"
         return f"{topline}{self.exam_overview.to_string(max_colwidth=40)}{line_sep}"
 
     def __getitem__(self, key: int) -> GESeries.MRISeries:
+        """Return the loaded series with the given series ID."""
         try:
             return self.all[key]
         except KeyError as ke:
@@ -65,8 +70,8 @@ class ExamBase:
             raise
 
     def __iter__(self) -> Iterator[tuple[int, GESeries.MRISeries]]:
-        for series_id, series_obj in self.all.items():
-            yield series_id, series_obj
+        """Iterate over loaded series as (series ID, series object) pairs."""
+        yield from self.all.items()
 
     def _create_series_dict(self) -> dict[int, type[GESeries.MRISeries]]:
         series_class_dict = {}
@@ -131,6 +136,13 @@ class ExamBase:
         return series_class_dict
 
     def load_all(self, overwrite: bool = False) -> None:
+        """Load all series listed in the series dictionary.
+
+        Parameters
+        ----------
+        overwrite : bool, optional
+            If True, reload series that are already loaded, by default False.
+        """
         for series_id, series_class in self.series_dict.items():
             if (
                 overwrite
@@ -142,6 +154,15 @@ class ExamBase:
                 logger.debug(f"Series {series_id} already loaded, skipping.")
 
     def load_series(self, series_ids: int | list[int], overwrite: bool = False) -> None:
+        """Load one or more specific series by ID.
+
+        Parameters
+        ----------
+        series_ids : int or list of int
+            Series ID or list of series IDs to load.
+        overwrite : bool, optional
+            If True, reload series that are already loaded, by default False.
+        """
         if isinstance(series_ids, int):
             series_ids = [series_ids]
         for series_id in series_ids:
@@ -162,6 +183,8 @@ class ExamBase:
 
 
 class DMIExam(ExamBase):
+    """Exam containing anatomical, MRS, and MRSI series for a DMI acquisition."""
+
     def __init__(
         self,
         BASE_FOLDER: str | Path,
@@ -216,6 +239,13 @@ class DMIExam(ExamBase):
         self.all_MRSI: list[GESeries.MRSISeries] = []
 
     def load_all_series(self, overwrite: bool = False) -> None:
+        """Load all series and sort them into anatomical, MRS, and MRSI lists.
+
+        Parameters
+        ----------
+        overwrite : bool, optional
+            If True, reload series that are already loaded, by default False.
+        """
         super().load_all(overwrite=overwrite)
 
         # Iterate through all series and assign to appropriate lists
@@ -238,14 +268,16 @@ class DMIExam(ExamBase):
                     logger.warning(
                         f"Multiple anatomical datasets detected. "
                         f"Previous: Series ID {self.anatomical.SERIES_ID}, "
-                        f"Name '{self.exam_overview.at[self.anatomical.SERIES_ID, 'Folder Name']}'. "
-                        f"New: Series ID {series_obj.SERIES_ID}, "
+                        f"Name '{self.exam_overview.at[self.anatomical.SERIES_ID, 'Folder Name']}'."
+                        f" New: Series ID {series_obj.SERIES_ID}, "
                         f"Name '{self.exam_overview.at[series_obj.SERIES_ID, 'Folder Name']}'."
                     )
                 self.anatomical = series_obj
 
 
 class MS_DMIExam(DMIExam):
+    """DMI exam for a multi-slice acquisition with a single MRSI and two MRS series."""
+
     def __init__(
         self,
         BASE_FOLDER: str | Path,
@@ -262,6 +294,13 @@ class MS_DMIExam(DMIExam):
         self.normalisation_factor: np.complexfloating
 
     def load_all_series(self, overwrite: bool = False) -> None:
+        """Load all series and identify the MRSI series and the pre-/post-MRS pair.
+
+        Parameters
+        ----------
+        overwrite : bool, optional
+            If True, reload series that are already loaded, by default False.
+        """
         super().load_all_series(overwrite)
 
         if len(self.all_MRSI) != 1:
@@ -302,6 +341,8 @@ class MS_DMIExam(DMIExam):
 
 
 class DMIinjExam(DMIExam):
+    """DMI exam for an intravenous injection, splitting series into pre-/post-injection."""
+
     def __init__(
         self,
         BASE_FOLDER: str | Path,
@@ -341,6 +382,13 @@ class DMIinjExam(DMIExam):
         self.injection_time: datetime
 
     def load_all_series(self, overwrite: bool = False) -> None:
+        """Load all series and split MRS/MRSI series into pre- and post-injection groups.
+
+        Parameters
+        ----------
+        overwrite : bool, optional
+            If True, reload series that are already loaded, by default False.
+        """
         super().load_all_series(overwrite=overwrite)
 
         for series_obj in self.all.values():
@@ -404,7 +452,7 @@ class DMIinjExam(DMIExam):
             logger.debug(
                 f"No pre-{series_type} series found before the reference series."
             )
-            pre_series = int(-1)
+            pre_series = -1
         elif pre_series_idx.size == 1:
             pre_series = int(series[pre_series_idx].item())
         else:
@@ -429,6 +477,15 @@ class DMIinjExam(DMIExam):
     def plot_MRS_over_time(
         self, phase_params: dict | None = None, plot_params: dict | None = None
     ) -> None:
+        """Plot phased MRS spectra from all series over time relative to injection.
+
+        Parameters
+        ----------
+        phase_params : dict, optional
+            Keyword arguments passed to each series' ``phase_avg_spec``.
+        plot_params : dict, optional
+            Keyword arguments passed to ``plot_spectra_over_time``.
+        """
         plot_kwargs = plot_params if plot_params is not None else {}
         phase_kwargs = phase_params if phase_params is not None else {}
 

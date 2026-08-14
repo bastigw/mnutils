@@ -71,6 +71,27 @@ def load_raw_fids(
     load_most_recent: bool = True,
     force_override: bool = False,
 ) -> tuple[np.ndarray, Path]:
+    """Load raw FIDs for a series, reading from a cached HDF5 file when available.
+
+    Parameters
+    ----------
+    DATA_FOLDER : Path or str
+        Path to the exam's data folder.
+    series_id : int
+        Series number to load raw FIDs for.
+    load_most_recent : bool
+        If True, return the most recently created cached `*_raw_fids.h5` file
+        instead of re-reading the scan archive.
+    force_override : bool
+        If True, delete and regenerate an existing output HDF5 file rather than
+        returning its cached contents.
+
+    Returns
+    -------
+    tuple[np.ndarray, Path]
+        The complex raw FIDs array and the path to the HDF5 file it was
+        loaded from (or written to).
+    """
     scan_archive_file = file_helpers.get_h5_data_from_series(DATA_FOLDER, series_id)
     series_folder = file_helpers.get_exam_folder(DATA_FOLDER) / f"Series{series_id}"
 
@@ -105,7 +126,8 @@ def load_raw_fids(
             return data, output_h5_file
         else:
             logger.warning(
-                f"Output file {output_h5_file} already exists. Overriding as force_override is True."
+                f"Output file {output_h5_file} already exists. "
+                "Overriding as force_override is True."
             )
             output_h5_file.unlink()
 
@@ -158,7 +180,8 @@ def _loadmat(filename: str | Path) -> dict:
     Args:
         filename (str): The path to the .mat file to be loaded.
 
-    Returns:
+    Returns
+    -------
         dict: A dictionary containing the contents of the .mat file, with
         MATLAB objects converted to Python-native types.
     """
@@ -169,15 +192,21 @@ def _loadmat(filename: str | Path) -> dict:
 
 
 def _check_keys(data: dict) -> dict:
-    """
-    Recursively checks and converts MATLAB structs within a dictionary to Python dictionaries.
-    This function iterates through the keys of the given dictionary and checks if any of the
-    values are MATLAB structs (from `scipy.io.matlab.mat_struct`). If a MATLAB struct is found,
-    it is converted to a Python dictionary using the `_todict` function.
-    Args:
-        dict (dict): The input dictionary to process.
-    Returns:
-        dict: The processed dictionary with MATLAB structs converted to Python dictionaries.
+    """Recursively convert MATLAB structs within a dictionary to Python dictionaries.
+
+    Iterates through the keys of the given dictionary and checks if any of the values
+    are MATLAB structs (from `scipy.io.matlab.mat_struct`). If a MATLAB struct is
+    found, it is converted to a Python dictionary using the `_todict` function.
+
+    Parameters
+    ----------
+    data : dict
+        The input dictionary to process.
+
+    Returns
+    -------
+    dict
+        The processed dictionary with MATLAB structs converted to Python dictionaries.
     """
     from scipy.io.matlab import mat_struct
 
@@ -188,10 +217,7 @@ def _check_keys(data: dict) -> dict:
 
 
 def _todict(matobj, mat_struct_type: type) -> dict:
-    """
-    A recursive function which constructs from matobjects nested dictionaries
-    """
-
+    """Recursively construct nested dictionaries from a MATLAB struct object."""
     out: dict = {}
     for field_name in matobj._fieldnames:
         elem = matobj.__dict__[field_name]

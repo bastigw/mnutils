@@ -13,6 +13,7 @@ from mnutils.utils import data_loaders
 
 @pytest.fixture
 def test_folder():
+    """Return the directory containing this test file."""
     test_path = os.path.realpath(__file__)
     folder = os.path.dirname(test_path)
     return folder
@@ -20,10 +21,12 @@ def test_folder():
 
 @pytest.fixture
 def dataset_folder(test_folder):
+    """Return the path to the test datasets directory."""
     return os.path.join(test_folder, "datasets")
 
 
 def test_load_raw_fids_creates_correct_files(dataset_folder):
+    """Test that load_raw_fids returns correctly-shaped complex FID arrays and writes an h5 file."""
     base_folder = os.path.join(dataset_folder, "HeVo-18")
     data_folder = os.path.join(base_folder, "data")
     npts_expected = {

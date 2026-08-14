@@ -18,6 +18,7 @@ logger.add(sys.stdout, level="DEBUG")
 
 @pytest.fixture
 def test_folder():
+    """Return the directory containing this test file."""
     test_path = os.path.realpath(__file__)
     folder = os.path.dirname(test_path)
     return folder
@@ -25,10 +26,12 @@ def test_folder():
 
 @pytest.fixture
 def dataset_folder(test_folder):
+    """Return the path to the test datasets directory."""
     return os.path.join(test_folder, "datasets")
 
 
 def test_hevo23_bet(dataset_folder):
+    """Test that extract_brain produces the expected skull-stripped nifti output file."""
     base_folder = Path(dataset_folder) / "HeVo-23"
     data_folder = base_folder / "data"
     series = 2

@@ -18,6 +18,8 @@ DEFAULT_SPECTRA_AX_PARAMS = {
 
 
 class DefaultTickerParams:
+    """Default tick locator parameters used by `set_default_ticks`."""
+
     yticker_bins: int | Literal["auto"] = "auto"
     xticker_bins: int | Literal["auto"] = "auto"
     ticker_steps: list[int] = [1, 2, 5]
@@ -289,7 +291,6 @@ def plot_spectra_over_time(
     seaborn.FacetGrid
         The resulting FacetGrid.
     """
-
     if labels is None:
         labels = []
 

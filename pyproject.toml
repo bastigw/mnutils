@@ -67,6 +67,23 @@ mat73 = { git = "https://github.com/skjerns/mat7.3" }
 xmris = { git = "https://github.com/andrewendlinger/xmris.git" }
 # xmris = { path = "../xmris", editable = true }
 
+# --- Ruff (Linter) ---
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "NPY", "D", "UP"] # Errors, Failures, Isort, NumPy, Docstrings, Upgrade
+ignore = ["D100", "D104", "D401"]                  # Ignore missing docstring in public module/package
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore line length, unused imports, and import positions in notebooks/scripts
+"docs/**/*.py" = ["E501", "F401", "E402"]
+"docs/**/*.ipynb" = ["E501", "F401", "E402"]
+
 # --- Jupytext ---
 # Two-way syncing between Jupyter Notebooks (.ipynb) and Markdown (.md) for docs pages.
 # Edit in .md (git-friendly) or .ipynb (interactive), but only ever commit .md files.

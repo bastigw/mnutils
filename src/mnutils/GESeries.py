@@ -20,6 +20,8 @@ from .utils import data_loaders, file_helpers, nifti, spectra
 
 
 class NiiBase:
+    """Wraps a NIfTI image with orientation-aware loading, display, and I/O helpers."""
+
     def __init__(
         self,
         nii: spatialimages.SpatialImage | Path,
@@ -35,6 +37,7 @@ class NiiBase:
 
     @property
     def affine(self) -> np.ndarray:
+        """The affine matrix of the NIfTI image."""
         if self.nii.affine is not None:
             return self.nii.affine
         else:
@@ -43,6 +46,7 @@ class NiiBase:
     def resample_self_to(
         self, target_nii: spatialimages.SpatialImage | NiiBase, **kwargs
     ) -> NiiBase:
+        """Return a new NiiBase with this image resampled onto target_nii's grid."""
         # Create new object of with resampled data
         if isinstance(target_nii, NiiBase):
             target_nii = target_nii.nii
@@ -56,6 +60,7 @@ class NiiBase:
         caching: bool = True,
         **kwargs,
     ) -> npt.NDArray[np.float64]:
+        """Return the image data array, oriented per orientation or display_plane."""
         if orientation is None and display_plane is None:
             orientation = self.orientation
         return nifti.orient_nifti(
@@ -71,10 +76,13 @@ class NiiBase:
         new_data: npt.NDArray | xr.DataArray,
         new_affine: npt.NDArray | None = None,
     ) -> NiiBase:
+        """Return a new NiiBase wrapping new_data, keeping this image's header/affine."""
         if new_affine is None and new_data.shape != self.nii.shape:
-            # A change in shape is okay if the voxel sizes are different. Trust the user that a correct affine is provided
+            # A change in shape is okay if the voxel sizes are different. Trust the
+            # user that a correct affine is provided
             raise ValueError(
-                f"New data shape {new_data.shape} does not match original NIfTI shape {self.nii.shape}."
+                f"New data shape {new_data.shape} does not match original "
+                f"NIfTI shape {self.nii.shape}."
             )
 
         if new_affine is not None:
@@ -106,6 +114,7 @@ class NiiBase:
         return NiiBase(new_nii, orientation=self.orientation)
 
     def apply_mask(self, mask: npt.NDArray | NiiBase) -> npt.NDArray:
+        """Return the image data with voxels outside mask set to NaN."""
         images = self.images()
         if isinstance(mask, NiiBase):
             mask = mask.images()
@@ -123,6 +132,7 @@ class NiiBase:
         mask: npt.NDArray | NiiBase | None = None,
         **kwargs,
     ):
+        """Display the image, optionally masked, via plotting.images.display_images."""
         # Check if orientation or display_plane is provided in kwargs and orient images
         logger.debug(
             f"Displaying NIfTI with orientation {orientation} and display plane {display_plane}."
@@ -146,6 +156,7 @@ class NiiBase:
         mask: npt.NDArray | NiiBase | None = None,
         **kwargs,
     ) -> None:
+        """Overlay this image on a T1 image, resampling and masking as needed."""
         if resample_kwargs is None:
             resample_kwargs = {}
         if orientation is None and display_plane is None:
@@ -244,15 +255,18 @@ class NiiBase:
         return self.get_brain_mask(create=True)
 
     def save(self, output_path: Path) -> None:
+        """Save the NIfTI image to output_path as a Nifti1Image."""
         if self.nii_path is not None:
             logger.warning(
-                f"NIfTI was originally loaded from {self.nii_path}. Saving to a new location {output_path}."
+                f"NIfTI was originally loaded from {self.nii_path}. "
+                f"Saving to a new location {output_path}."
             )
         # Create directory if it does not exist
         output_path.parent.mkdir(parents=True, exist_ok=True)
         file_helpers.move_files_with_glob(output_path.parent, f"*{output_path.stem}*")
 
-        # To correctly store them in often required Nifti1 format, we need to convert them to Nifti1Image before saving
+        # To correctly store them in often required Nifti1 format, we need to
+        # convert them to Nifti1Image before saving
         nifti1.Nifti1Image(
             self.nii.dataobj,
             self.nii.affine,
@@ -264,6 +278,8 @@ class NiiBase:
 
 
 class MRISeries(NiiBase):
+    """A reconstructed MRI series, loaded as a NIfTI from a scan's DATA_FOLDER."""
+
     def __init__(
         self,
         DATA_FOLDER: Path,
@@ -280,11 +296,14 @@ class MRISeries(NiiBase):
             super().__init__(nii_path, orientation)
         except (ValueError, FileNotFoundError) as e:
             logger.warning(
-                f"Could not create or find NIfTIs for series {self.SERIES_ID}. Proceeding without initializing NiiBase.\nError: {e}"
+                f"Could not create or find NIfTIs for series {self.SERIES_ID}. "
+                f"Proceeding without initializing NiiBase.\nError: {e}"
             )
 
 
 class RawMRISeries(MRISeries):
+    """An MRI series with the associated raw reconstructed .mat data loaded."""
+
     def __init__(self, DATA_FOLDER: Path, SERIES_ID: int) -> None:
         super().__init__(DATA_FOLDER, SERIES_ID)
         self.mat_path: Path = file_helpers.get_mat_data_from_series(
@@ -297,6 +316,7 @@ class RawMRISeries(MRISeries):
 
     @cached_property
     def fids(self) -> xr.DataArray:
+        """The raw FIDs, unchopped and conjugated, as a DataArray over id and time."""
         fids, _ = data_loaders.load_raw_fids(self.DATA_FOLDER, self.SERIES_ID)
         fids = fids.copy()
         if self.fids_are_chopped:
@@ -310,7 +330,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def fids_are_chopped(self) -> bool:
-        """Whether the FIDs are chopped or not"""
+        """Whether the FIDs are chopped or not."""
         value = self._get_header_value(["rdb_hdr", "data_collect_type"])
         if isinstance(value, float):
             is_chopped = int(value) % 2 == 0
@@ -323,7 +343,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def pfile_number(self) -> int:
-        """The P-file number of the scan"""
+        """The P-file number of the scan."""
         value = self._get_header_value(["rdb_hdr", "run_int"])
         if isinstance(value, float):
             return int(value)
@@ -332,7 +352,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def protocol_name(self) -> str:
-        """The protocol name of the scan"""
+        """The protocol name of the scan."""
         value = self._get_header_value(["series", "prtcl"])
         if isinstance(value, str):
             return str(value)
@@ -341,7 +361,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def series_name(self) -> str:
-        """The series name of the scan"""
+        """The series name of the scan."""
         value = self._get_header_value(["series", "se_desc"])
         if isinstance(value, str):
             return str(value)
@@ -350,7 +370,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def exam_number(self) -> int:
-        """The exam number of the scan"""
+        """The exam number of the scan."""
         value = self._get_header_value(["exam", "ex_no"])
         if isinstance(value, float):
             return int(value)
@@ -359,7 +379,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def scan_datetime(self) -> datetime:
-        """The scan datetime"""
+        """The scan datetime."""
         date = self._get_header_value(["rdb_hdr", "scan_date"])
         time = self._get_header_value(["rdb_hdr", "scan_time"])
         if isinstance(date, str) and isinstance(time, str):
@@ -370,17 +390,17 @@ class RawMRISeries(MRISeries):
 
     @property
     def scan_date(self) -> date:
-        """The scan date"""
+        """The scan date."""
         return self.scan_datetime.date()
 
     @property
     def scan_time(self) -> time:
-        """The scan time"""
+        """The scan time."""
         return self.scan_datetime.time()
 
     @property
     def transients(self) -> float:
-        """The number of transients"""
+        """The number of transients."""
         value = self._get_header_value(["rdb_hdr", "nframes"])
         if isinstance(value, (int, float)):
             return float(value)
@@ -389,7 +409,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def bandwidth(self) -> float:
-        """The bandwidth of the scan (Hz)"""
+        """The bandwidth of the scan (Hz)."""
         value = self._get_header_value(["rdb_hdr", "user0"])
         if isinstance(value, (int, float)):
             return float(value)
@@ -398,17 +418,17 @@ class RawMRISeries(MRISeries):
 
     @property
     def dwelltime(self) -> float:
-        """The dwell time of the scan (s, 1/Hz)"""
+        """The dwell time of the scan (s, 1/Hz)."""
         return 1 / self.bandwidth
 
     @property
     def deadtime(self) -> float:
-        """The dead time is assumed to be a single echo time in seconds"""
+        """The dead time is assumed to be a single echo time in seconds."""
         return self.echo_time / 1e6  # Convert from microseconds to seconds
 
     @property
     def centre_frequency(self) -> float:
-        """The centre frequency of the scan (MHz)"""
+        """The centre frequency of the scan (MHz)."""
         value = self._get_header_value(["rdb_hdr", "ps_mps_freq"])
         if isinstance(value, (int, float)):
             return float(value) / 1e7  # For some reason stored in Hz x10
@@ -417,7 +437,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def nucleus(self) -> int:
-        """The nucleus of the scan as integer (e.g. 1 for 1H, 13 for 13C)"""
+        """The nucleus of the scan as integer (e.g. 1 for 1H, 13 for 13C)."""
         value = self._get_header_value(["image", "specnuc"])
         # Try casting to int if not possible return 0
         try:
@@ -428,7 +448,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def carrier_ppm(self) -> float:
-        """The carrier ppm of the scan centre frequency (ppm). Based on nucleus"""
+        """The carrier ppm of the scan centre frequency (ppm). Based on nucleus."""
         if self.nucleus in [1, 2]:
             return 4.68
         else:
@@ -436,7 +456,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def echo_time(self) -> float:
-        """The echo time (TE) of the scan (us)"""
+        """The echo time (TE) of the scan (us)."""
         value = self._get_header_value(["rdb_hdr", "te"])
         if isinstance(value, (int, float)):
             return value
@@ -445,7 +465,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def field_of_view(self) -> float:
-        """The field of view (FOV) of the scan (mm)"""
+        """The field of view (FOV) of the scan (mm)."""
         value = self._get_header_value(["rdb_hdr", "fov"])
         if isinstance(value, (int, float)):
             return float(value)
@@ -454,7 +474,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def flip_angle(self) -> float:
-        """The flip angle of the scan (in degrees)"""
+        """The flip angle of the scan (in degrees)."""
         value = self._get_header_value(["image", "mr_flip"])
         if isinstance(value, (int, float)):
             return float(value)
@@ -463,7 +483,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def inversion_time(self) -> float:
-        """The inversion time (TI) of the scan (us)"""
+        """The inversion time (TI) of the scan (us)."""
         value = self._get_header_value(["rdb_hdr", "user25"])
         if isinstance(value, float):
             return float(value)
@@ -472,7 +492,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def number_of_excitations(self) -> int:
-        """The number of excitations (NEX) of the scan"""
+        """The number of excitations (NEX) of the scan."""
         value = self._get_header_value(["image", "nex"])
         if isinstance(value, float):
             return int(value)
@@ -481,7 +501,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def repetition_time(self) -> float:
-        """The repetition time (TR) of the scan (ms)"""
+        """The repetition time (TR) of the scan (ms)."""
         value = self._get_header_value(["image", "tr"])
         if isinstance(value, float):
             return float(value) / 1e3
@@ -490,7 +510,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def rf_pulse_type(self) -> int:
-        """The RF pulse type used in the scan"""
+        """The RF pulse type used in the scan."""
         value = self._get_header_value(["rdb_hdr", "user14"])
         if isinstance(value, float):
             return int(value)
@@ -499,7 +519,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def slice_thickness(self) -> float:
-        """The slice thickness of the scan (mm)"""
+        """The slice thickness of the scan (mm)."""
         value = self._get_header_value(["image", "slthick"])
         if isinstance(value, float):
             return float(value)
@@ -508,7 +528,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def scan_duration(self) -> timedelta:
-        """The scan duration"""
+        """The scan duration."""
         value = self._get_header_value(["image", "sctime"])
         if isinstance(value, float):
             return timedelta(microseconds=value)
@@ -517,7 +537,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def reconstruction_used(self) -> int:
-        """The reconstruction method used"""
+        """The reconstruction method used."""
         value = self._get_header_value(["rdb_hdr", "recon"])
         if isinstance(value, float):
             return int(value)
@@ -526,7 +546,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def waveform_type_scan_mode(self) -> float:
-        """The waveform type or scan mode"""
+        """The waveform type or scan mode."""
         value = self._get_header_value(["rdb_hdr", "user3"])
         if isinstance(value, float):
             return float(value)
@@ -535,7 +555,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def receive_gain_1(self) -> float:
-        """The first receive gain"""
+        """The first receive gain."""
         value = self._get_header_value(["rdb_hdr", "ps_mps_r1"])
         if isinstance(value, float):
             return float(value)
@@ -544,7 +564,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def receive_gain_2(self) -> float:
-        """The second receive gain"""
+        """The second receive gain."""
         value = self._get_header_value(["rdb_hdr", "ps_mps_r2"])
         if isinstance(value, float):
             return float(value)
@@ -553,7 +573,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def transmit_gain(self) -> int:
-        """The transmit gain (TG)"""
+        """The transmit gain (TG)."""
         value = self._get_header_value(["rdb_hdr", "ps_mps_tg"])
         if isinstance(value, float):
             return int(value)
@@ -562,7 +582,7 @@ class RawMRISeries(MRISeries):
 
     @property
     def field_strength(self) -> float:
-        """The field strength of the scan (T)"""
+        """The field strength of the scan (T)."""
         value = self._get_header_value(["mrconfig", "fieldStrength"])
         if isinstance(value, float):
             return float(value) / 10000
@@ -572,8 +592,8 @@ class RawMRISeries(MRISeries):
     def _get_header_value(
         self, key_path: list[str]
     ) -> None | str | np.double | npt.NDArray:
-        """
-        Helper method to traverse the header dictionary using a key path.
+        """Traverse the header dictionary using a key path.
+
         Raises AttributeError if the path is invalid.
         """
         value = self.header
@@ -602,6 +622,8 @@ class RawMRISeries(MRISeries):
 
 
 class MRSISeries(RawMRISeries):
+    """A raw MRSI series: spectroscopic imaging spectra, fitting, and voxel maps."""
+
     def __init__(
         self, DATA_FOLDER: Path, SERIES_ID: int, load_processed_data: bool = False
     ) -> None:
@@ -655,45 +677,54 @@ class MRSISeries(RawMRISeries):
 
     @cached_property
     def spec_flat(self) -> xr.DataArray:
+        """The spectra with the voxel dimensions stacked into a single voxel dim."""
         return self.spec.stack(voxel=self.spec.dims[1:4])
 
     @cached_property
     def fids_flat(self) -> xr.DataArray:
+        """The FIDs with the voxel dimensions stacked into a single voxel dim."""
         return self.fids.stack(voxel=self.fids.dims[1:4])
 
     @cached_property
     def fids(self) -> xr.DataArray:
+        """The FIDs, derived from the spectra via FFT."""
         return self.spec.xmr.to_hz().xmr.to_fid()
 
     @cached_property
     def avg_fid(self) -> xr.DataArray:
-        """Average fid across voxels with SNR above threshold"""
+        """Average fid across voxels with SNR above threshold."""
         return self.fids.where(self.get_SNR_mask()).mean(["i", "j", "k"], skipna=True)
 
     @cached_property
     def SNR_map(self) -> xr.DataArray:
+        """The per-voxel SNR, computed from the FIDs via pyAMARES.fidSNR."""
         return xr.apply_ufunc(
             pyAMARES.fidSNR, self.fids, input_core_dims=[["time"]], vectorize=True
         )
 
     @property
     def voxel_size(self) -> float:
+        """The in-plane voxel size (mm), derived from the field of view and matrix."""
         mtx = self.dims[0:2]
         # Assert that mtx is the same in x and y
         if mtx[0] != mtx[1]:
             logger.warning(
-                f"Matrix size in x and y are not the same: {mtx[0]} vs {mtx[1]}. Using x size for voxel size calculation."
+                f"Matrix size in x and y are not the same: {mtx[0]} vs {mtx[1]}. "
+                "Using x size for voxel size calculation."
             )
         return self.field_of_view / mtx[0]
 
     @cached_property
     def default_SNR_mask(self) -> xr.DataArray:
+        """The default SNR mask, computed with get_SNR_mask's default threshold."""
         return self.get_SNR_mask()
 
     def get_SNR_mask(self, threshold=1.5) -> xr.DataArray:
+        """Return a boolean mask of voxels with SNR at or above threshold."""
         return self.SNR_map >= threshold
 
     def create_MRSI_affine(self) -> npt.NDArray:
+        """Return an affine matrix rescaled to the MRSI voxel size and offset."""
         # Create new affine matrix based on original nifti affine and mat voxel size
         # This assumes the same orientation and slice thickness and spacing
 
@@ -703,7 +734,9 @@ class MRSISeries(RawMRISeries):
         # Check if the original affine has uniform scaling in x and y
         if not np.isclose(self.nii.affine[0, 0], self.nii.affine[1, 1]):
             logger.warning(
-                f"Original affine matrix has non-uniform scaling in x and y: {self.nii.affine[0, 0]} vs {self.nii.affine[1, 1]}. Using x scaling for new affine."
+                "Original affine matrix has non-uniform scaling in x and y: "
+                f"{self.nii.affine[0, 0]} vs {self.nii.affine[1, 1]}. "
+                "Using x scaling for new affine."
             )
 
         interpolated_voxel_sizes = self.nii.affine[0, 0]
@@ -723,31 +756,37 @@ class MRSISeries(RawMRISeries):
         # For a correct shift we need to add an additonal half voxel
         shift += np.array([new_affine[0, 0], new_affine[1, 1], 0]) / 2
         logger.trace(
-            f"Calculated shift for new affine: {shift}. Original affine translation: {self.nii.affine[:3, 3]}"
+            f"Calculated shift for new affine: {shift}. "
+            f"Original affine translation: {self.nii.affine[:3, 3]}"
         )
         new_affine[:3, 3] += shift
 
         return new_affine
 
     def create_MRSI_nii(self) -> NiiBase:
+        """Return the RAW magnitude image as a NiiBase, with the MRSI affine."""
         magnitude_data = np.sum(np.abs(self.spec), axis=0).astype(np.float32)
         return self.with_new_data(
             new_data=magnitude_data, new_affine=self.create_MRSI_affine()
         )
 
     def create_map_nii(self, map_data: npt.NDArray) -> NiiBase:
+        """Wrap a per-voxel map array as a NiiBase, with the MRSI affine."""
         # Make sure map_data has correct shape
         if map_data.shape != self.dims:
             raise ValueError(
-                f"map_data shape {map_data.shape} does not match expected dimensions {self.dims}."
+                f"map_data shape {map_data.shape} does not match "
+                f"expected dimensions {self.dims}."
             )
         return self.with_new_data(
             new_data=map_data, new_affine=self.create_MRSI_affine()
         )
 
     def get_voxel_spectrum(self, x: int, y: int, slice: int) -> xr.DataArray:
+        """Return the spectrum at voxel (x, y, slice)."""
         logger.debug(
-            f"Assuming voxel coordinates (x, y, slice) = ({x}, {y}, {slice}) are in correct order and within bounds."
+            f"Assuming voxel coordinates (x, y, slice) = ({x}, {y}, {slice}) "
+            "are in correct order and within bounds."
         )
         return self.spec.sel(i=x, j=y, k=slice)
 
@@ -759,6 +798,7 @@ class MRSISeries(RawMRISeries):
         init_params: dict,
         fit_params: dict | None = None,
     ):
+        """Fit the FID at voxel (x, y, slice) with AMARES."""
         if fit_params is None:
             fit_params = {}
         fid = self.fids.sel(i=x, j=y, k=slice)
@@ -785,6 +825,25 @@ class MRSISeries(RawMRISeries):
         bad_fit_chisqr_threshold: float = -1.0,
         testing_mode: bool = False,
     ) -> npt.NDArray:
+        """Fit all voxels above the SNR threshold with AMARES and store the maps.
+
+        Parameters
+        ----------
+        init_params : dict
+            Initial fit parameters, merged with series-derived MHz/sw/deadtime.
+        batch_fitting_params : dict, optional
+            Forwarded to ``fitting.AMARES.fit_multiple_fids``.
+        bad_fit_chisqr_threshold : float, optional
+            Chi-squared threshold above which a fit is flagged as bad. Defaults to -1.0
+            (disabled).
+        testing_mode : bool, optional
+            If True, limit fitting to the first 100 voxels above the SNR threshold.
+
+        Returns
+        -------
+        numpy.ndarray
+            Flattened voxel indices of fits flagged as bad.
+        """
         if batch_fitting_params is None:
             batch_fitting_params = {}
         SNR_mask = self.get_SNR_mask()
@@ -867,6 +926,23 @@ class MRSISeries(RawMRISeries):
         return original_badfit_ids
 
     def save_processed_data(self, output_folder: Path | None = None) -> Path:
+        """Save fitted maps, FIDs, and identifying attributes to an HDF5 file.
+
+        Parameters
+        ----------
+        output_folder : Path, optional
+            Directory to save into. Defaults to ``OUTPUT_FOLDER / "processing_data"``.
+
+        Returns
+        -------
+        Path
+            Path to the saved (or, if a file already exists, the existing) HDF5 file.
+
+        Raises
+        ------
+        OSError
+            If the saved file fails the post-save integrity check.
+        """
         attrs_to_save = [
             "SERIES_ID",  # Necessary to identify series later, do not remove
             "exam_number",  # Necessary to identify series later, do not remove
@@ -896,7 +972,8 @@ class MRSISeries(RawMRISeries):
         # If file exists, log warning and return
         if full_path.exists():
             logger.warning(
-                f"File {full_path} already exists. Not overwriting. Returning existing file path."
+                f"File {full_path} already exists. Not overwriting. "
+                "Returning existing file path."
             )
             return full_path
 
@@ -942,8 +1019,9 @@ class MRSISeries(RawMRISeries):
         if not is_okay:
             logger.error("Saved data did not pass the integrity check! Renaming file!!")
             full_path.rename(full_path.with_suffix(".corrupt"))
-            raise IOError(
-                "Saved data did not pass the integrity check! Debug this to make sure data is saved correctly."
+            raise OSError(
+                "Saved data did not pass the integrity check! "
+                "Debug this to make sure data is saved correctly."
             )
         else:
             logger.debug("Saved data passed the integrity check.")
@@ -953,6 +1031,21 @@ class MRSISeries(RawMRISeries):
     def load_processed_data(
         self, output_folder: Path | None = None, force_load: bool = False
     ) -> bool:
+        """Load the most recent processed-data HDF5 file for this series.
+
+        Parameters
+        ----------
+        output_folder : Path, optional
+            Directory to search in. Defaults to ``OUTPUT_FOLDER / "processing_data"``.
+        force_load : bool, optional
+            If True, load the data even if SERIES_ID, exam_number, or acquisition
+            time do not match this series.
+
+        Returns
+        -------
+        bool
+            True if data was loaded successfully, False otherwise.
+        """
         if output_folder is None:
             output_folder = self.OUTPUT_FOLDER / "processing_data"
 
@@ -962,7 +1055,8 @@ class MRSISeries(RawMRISeries):
             )
         except FileNotFoundError:
             logger.warning(
-                f"No processed data file found in directory {output_folder}. Returning without loading."
+                f"No processed data file found in directory {output_folder}. "
+                "Returning without loading."
             )
             return False
         with h5py.File(old_processed_data, "r") as f:
@@ -978,7 +1072,9 @@ class MRSISeries(RawMRISeries):
                     == self.scan_datetime
                 )
                 logger.debug(
-                    f"Series ID match: {same_series_id}, Exam number match: {same_exam_number}, Acquisition time match: {same_acq_time}"
+                    f"Series ID match: {same_series_id}, "
+                    f"Exam number match: {same_exam_number}, "
+                    f"Acquisition time match: {same_acq_time}"
                 )
                 if not all([same_series_id, same_exam_number, same_acq_time]):
                     logger.warning(
@@ -992,7 +1088,8 @@ class MRSISeries(RawMRISeries):
                         )
             except KeyError as e:
                 logger.error(
-                    f"KeyError: {e}. The following keys must be present in the file: 'SERIES_ID', 'exam_number', 'acquisition_time'."
+                    f"KeyError: {e}. The following keys must be present in the "
+                    "file: 'SERIES_ID', 'exam_number', 'acquisition_time'."
                 )
                 logger.error(
                     f"Tree of the HDF5 file:\n{file_helpers.print_hdf5_tree(f)}"
@@ -1038,25 +1135,31 @@ class MRSISeries(RawMRISeries):
             # Check if fitted_metabolite_maps and goodness_of_fit_maps are loaded
             if not self.fitted_metabolite_maps:
                 logger.warning(
-                    "No fitted metabolite maps were loaded. Something went wrong! Datasets probably not stored correctly in hdf5 file."
+                    "No fitted metabolite maps were loaded. Something went wrong! "
+                    "Datasets probably not stored correctly in hdf5 file."
                 )
             if not self.goodness_of_fit_maps:
                 logger.warning(
-                    "No goodness of fit maps were loaded. Something went wrong! Datasets probably not stored correctly in hdf5 file."
+                    "No goodness of fit maps were loaded. Something went wrong! "
+                    "Datasets probably not stored correctly in hdf5 file."
                 )
         return True
 
     def _check_saved_data(self, filename: Path) -> bool:
-        """
-        Private method to check if the saved data file is valid.
-        Validates that the file is an HDF5 file, contains maps in the 'fitted_data' group,
-        and ensures the maps are nonzero in size and have 3D dimensions.
+        """Check if the saved data file is valid.
 
-        Args:
-            filename (Path): The path to the file to check.
+        Validates that the file is an HDF5 file, contains maps in the 'fitted_data'
+        group, and ensures the maps are nonzero in size and have 3D dimensions.
 
-        Returns:
-            bool: True if the file passes all checks, False otherwise.
+        Parameters
+        ----------
+        filename : Path
+            The path to the file to check.
+
+        Returns
+        -------
+        bool
+            True if the file passes all checks, False otherwise.
         """
         if not filename.exists():
             logger.error(f"File {filename} does not exist.")
@@ -1100,12 +1203,14 @@ class MRSISeries(RawMRISeries):
                         data = dataset[:]
                         if data.size == 0:
                             logger.error(
-                                f"Dataset '{key}' in 'fitted_data' group is empty in {filename}."
+                                f"Dataset '{key}' in 'fitted_data' group is "
+                                f"empty in {filename}."
                             )
                             return False
                         if data.ndim != 3:
                             logger.error(
-                                f"Dataset '{key}' in 'fitted_data' group is not 3D in {filename}."
+                                f"Dataset '{key}' in 'fitted_data' group is "
+                                f"not 3D in {filename}."
                             )
                             return False
                     elif isinstance(dataset, h5py.Group):
@@ -1115,17 +1220,20 @@ class MRSISeries(RawMRISeries):
                                 subdata = subdataset[:]
                                 if subdata.size == 0:
                                     logger.error(
-                                        f"Sub-dataset '{subkey}' in '{key}' group is empty in {filename}."
+                                        f"Sub-dataset '{subkey}' in '{key}' group "
+                                        f"is empty in {filename}."
                                     )
                                     return False
                                 if subdata.ndim != 3:
                                     logger.error(
-                                        f"Sub-dataset '{subkey}' in '{key}' group is not 3D in {filename}."
+                                        f"Sub-dataset '{subkey}' in '{key}' group "
+                                        f"is not 3D in {filename}."
                                     )
                                     return False
                     else:
                         logger.error(
-                            f"Unexpected data type in 'fitted_data' group for key '{key}' in {filename}."
+                            f"Unexpected data type in 'fitted_data' group for "
+                            f"key '{key}' in {filename}."
                         )
                         return False
 
@@ -1159,6 +1267,7 @@ class MRSISeries(RawMRISeries):
         metabolite_name: str,
         **kwargs,
     ):
+        """Display the fitted metabolite map for metabolite_name."""
         fig, ax = plotting.images.display_images(
             self.fitted_metabolite_maps[metabolite_name],
             title=f"Fitted Metabolite Map: {metabolite_name}",
@@ -1172,6 +1281,7 @@ class MRSISeries(RawMRISeries):
         metric_name: str,
         **kwargs,
     ):
+        """Display the goodness-of-fit map for metric_name."""
         fig, ax = plotting.images.display_images(
             self.goodness_of_fit_maps[metric_name],
             title=f"Goodness of Fit Map: {metric_name}",
@@ -1180,10 +1290,14 @@ class MRSISeries(RawMRISeries):
         )
         return fig, ax
 
-    def visualize_fitted_values(self): ...
+    def visualize_fitted_values(self):
+        """Not yet implemented."""
+        ...
 
 
 class MRSSeries(RawMRISeries):
+    """A single-voxel MRS series: FIDs, spectra, averaging, and fitting."""
+
     def __init__(self, DATA_FOLDER: Path, SERIES_ID: int) -> None:
         super().__init__(DATA_FOLDER, SERIES_ID)
         spec_data = self.recon.get("spec", np.ndarray([]))
@@ -1220,6 +1334,7 @@ class MRSSeries(RawMRISeries):
 
     @cached_property
     def fids(self) -> xr.DataArray:
+        """The FIDs from RawMRISeries, with the id coordinate renamed to averages."""
         # Return the fids from RawMRISeries but rename coordinate id to averages
         super().fids  # Ensure fids is cached in RawMRISeries before renaming
         fids = super().fids.rename({"id": "averages"})
@@ -1227,13 +1342,18 @@ class MRSSeries(RawMRISeries):
 
     @cached_property
     def avg_fid(self) -> xr.DataArray:
+        """The FID averaged across all averages."""
         return self.fids.mean("averages").assign_attrs(**self.spec.attrs)
 
     @cached_property
     def avg_spec(self) -> xr.DataArray:
-        # WARNING: fid to spectrum has different scaling than avg spec!! this is probably due to scaling in the mat data
+        """The spectrum averaged across all averages."""
+        # WARNING: fid to spectrum has different scaling than avg spec!! this is
+        # probably due to scaling in the mat data
         logger.trace(
-            "Calculating average spectrum from averaged FIDs. Note that this may have different scaling than the average of the spectra due to scaling in the mat data."
+            "Calculating average spectrum from averaged FIDs. Note that this may "
+            "have different scaling than the average of the spectra due to "
+            "scaling in the mat data."
         )
         return self.spec.mean("averages").assign_attrs(**self.spec.attrs)
 
@@ -1254,8 +1374,13 @@ class MRSSeries(RawMRISeries):
         time_per_fid = scan_duration_sec / self.averages
 
         if scan_duration_sec % group_duration != 0:
+            actual_group_duration = (
+                group_duration * self.averages
+            ) / scan_duration_sec
             logger.warning(
-                f"Scan duration {scan_duration_sec:.2f}s is not an exact multiple of group duration {group_duration:.2f}s.\n Actual group duration will be {(group_duration * self.averages) / scan_duration_sec:.2f}s."
+                f"Scan duration {scan_duration_sec:.2f}s is not an exact multiple "
+                f"of group duration {group_duration:.2f}s.\n Actual group "
+                f"duration will be {actual_group_duration:.2f}s."
             )
 
         group_size = int(group_duration / time_per_fid)
@@ -1352,6 +1477,7 @@ class MRSSeries(RawMRISeries):
         ppm_min: float = -np.inf,
         ppm_max: float = np.inf,
     ) -> xr.DataArray:
+        """Phase (or autophase) the average spectrum, limited to a ppm range."""
         if autophase:
             phased_spec = self.spec.xmr.to_hz().xmr.autophase()
         else:
@@ -1367,6 +1493,7 @@ class MRSSeries(RawMRISeries):
     def limit_spec_to_ppm_range(
         self, ppm_min: float = -2, ppm_max: float = 6
     ) -> xr.DataArray:
+        """Return the spectra limited to the chemical_shift range [ppm_min, ppm_max]."""
         return self.spec.sel(chemical_shift=slice(ppm_max, ppm_min))
 
     def fit_average_fid(
@@ -1376,18 +1503,22 @@ class MRSSeries(RawMRISeries):
         normalisation_factor: np.complexfloating | None = None,
         filter_by_ppm: tuple[float, float] | None = None,
     ):
+        """Fit the averaged FID (avg_fid) with AMARES, normalizing it first."""
         if fit_params is None:
             fit_params = {}
         # Normalize avg_fid
         if normalisation_factor is None:
             scaling_factor = np.max(self.avg_fid) * self.number_of_excitations
             logger.warning(
-                "Using averaged fid as normalisation factor. It is recommended to provide a normalisation_factor for consistent scaling across series. See debug for more details."
+                "Using averaged fid as normalisation factor. It is recommended to "
+                "provide a normalisation_factor for consistent scaling across "
+                "series. See debug for more details."
             )
         else:
             scaling_factor = normalisation_factor * self.number_of_excitations
         logger.debug(
-            f"Scaling the FID by factor {scaling_factor:.4g} for fitting. Number of excitations: {self.number_of_excitations}"
+            f"Scaling the FID by factor {scaling_factor:.4g} for fitting. "
+            f"Number of excitations: {self.number_of_excitations}"
         )
 
         avg_fid = self.avg_fid / scaling_factor
@@ -1403,15 +1534,19 @@ class MRSSeries(RawMRISeries):
 
 
 class MRSWashinSeries(MRSSeries):
+    """An MRS washin series: repeated spectra fitted and grouped over time."""
+
     def __init__(self, DATA_FOLDER: Path, SERIES_ID: int) -> None:
         super().__init__(DATA_FOLDER, SERIES_ID)
         self.fit_results: list = []
 
     @property
     def extracted_results(self):
+        """The fit results extracted into a FitResults, or an empty one if unfit."""
         if not self.fit_results:
             logger.info(
-                "No fit results present. Please run fit_grouped_by_duration() first. Returning empty results."
+                "No fit results present. Please run fit_grouped_by_duration() "
+                "first. Returning empty results."
             )
             return fitting.AMARES.FitResults(
                 np.asarray([]), pd.DataFrame(), pd.DataFrame()
@@ -1420,6 +1555,7 @@ class MRSWashinSeries(MRSSeries):
             return self.extract_from_fit_results()
 
     def plot_washin(self, **kwargs):
+        """Plot the duration-averaged spectra, one line per minute."""
         averaged_spec = self.average_spectra_by_duration(
             kwargs.pop("group_duration", None)
         )
@@ -1437,23 +1573,28 @@ class MRSWashinSeries(MRSSeries):
         normalisation_factor: np.complexfloating | None = None,
         group_duration: int = 60,
     ) -> list:
+        """Average FIDs by duration and fit each group's FID with AMARES."""
         if fit_params is None:
             fit_params = {}
         if normalisation_factor is None:
             logger.warning(
-                "No normalisation_factor provided. This can lead to different scaling between different series."
+                "No normalisation_factor provided. This can lead to different "
+                "scaling between different series."
             )
 
         averaged_fids = self.average_fids_by_duration(group_duration=group_duration)
         if normalisation_factor is None:
             scaling_factor = np.max(averaged_fids[0, :]) * self.number_of_excitations
             logger.warning(
-                "Using first averaged fid as normalisation factor. It is recommended to provide a normalisation_factor for consistent scaling across series. See debug for more details."
+                "Using first averaged fid as normalisation factor. It is "
+                "recommended to provide a normalisation_factor for consistent "
+                "scaling across series. See debug for more details."
             )
         else:
             scaling_factor = normalisation_factor * self.number_of_excitations
         logger.debug(
-            f"Scaling the FIDs by factor {scaling_factor:.4g} for fitting. Number of excitations: {self.number_of_excitations}"
+            f"Scaling the FIDs by factor {scaling_factor:.4g} for fitting. "
+            f"Number of excitations: {self.number_of_excitations}"
         )
 
         fit_results = []
@@ -1476,6 +1617,7 @@ class MRSWashinSeries(MRSSeries):
     def extract_from_fit_results(
         self, index_key: str = "group_id", index_values: list | None = None
     ) -> fitting.AMARES.FitResults:
+        """Restructure self.fit_results into a combined FitResults."""
         restructured_results = []
         for res in self.fit_results:
             data = (res.result_multiplets, res.out_obj)
