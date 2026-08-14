@@ -14,9 +14,17 @@ import sys
 from pathlib import Path
 
 
+def _find_project_root() -> Path:
+    """Return the root of the MNUtils project, or exit if not found."""
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    msg = "Error: could not find MNUtils project root (no pyproject.toml in any parent)"
+    raise RuntimeError(msg)
+
+
 def _get_docs_dir() -> Path:
-    project_root = Path(__file__).resolve().parents[2]
-    docs_dir = project_root / "docs"
+    docs_dir = _find_project_root() / "docs"
 
     if not docs_dir.exists():
         print(f"Error: 'docs' directory not found at: {docs_dir!s}")
@@ -119,10 +127,6 @@ def docs_all() -> None:
 TEST_CHAPTERS = ("basics", "data-model", "plotting", "fitting", "nifti", "matlab")
 
 
-def _get_project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def generate_test_notebooks() -> None:
     """Convert every executable page under TEST_CHAPTERS into a test notebook.
 
@@ -132,7 +136,7 @@ def generate_test_notebooks() -> None:
     start). Output goes under tests/autogen_notebooks/, which is gitignored --
     regenerate it before running pytest, never commit it.
     """
-    project_root = _get_project_root()
+    project_root = _find_project_root()
     docs_dir = project_root / "docs"
     out_root = project_root / "tests" / "autogen_notebooks"
 

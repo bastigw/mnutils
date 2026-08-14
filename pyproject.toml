@@ -59,8 +59,8 @@ dev = [
 addopts = "--capture=no --nbmake"
 testpaths = ["tests"]
 
-[tool.uv]
-config-settings = { editable_mode = "compat" }
+# [tool.uv]
+# config-settings = { editable_mode = "compat" }
 
 [tool.uv.sources]
 mat73 = { git = "https://github.com/skjerns/mat7.3" }
