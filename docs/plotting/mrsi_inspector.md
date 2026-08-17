@@ -54,7 +54,7 @@ def _repo_root(start: Path = Path.cwd()) -> Path:
     raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
 
 
-hevo18_data = _repo_root() / "tests" / "datasets" / "HeVo-18" / "data"
+nist_data = _repo_root() / "tests" / "datasets" / "20250408-NIST-Mag2" / "data"
 ```
 
 (plotting-mrsi-inspector-load)=
@@ -66,8 +66,8 @@ Same anonymized phantom dataset as
 T1-weighted anatomical scan, series 8 the MRSI acquisition covering it.
 
 ```{code-cell} ipython3
-t1 = MRISeries(hevo18_data, 2)
-mrsi = MRSISeries(hevo18_data, 8)
+t1 = MRISeries(nist_data, 2)
+mrsi = MRSISeries(nist_data, 5)
 ```
 
 (plotting-mrsi-inspector-widget)=
@@ -90,7 +90,7 @@ on the right always reflects the currently selected voxel.
 
 The spectrum panel carries its own two range sliders: the horizontal one under the plot sets the
 ppm window (the whole acquired sweep is embedded, so it reaches every sample), and the vertical one
-beside it sets the y limits. Touching the vertical slider ticks *Fixed y-axis* for you — an axis
+beside it sets the y limits. Touching the vertical slider ticks _Fixed y-axis_ for you — an axis
 you dialled in by hand only stays meaningful if it stops rescaling itself — and unticking the box
 hands the axis back to the automatic per-voxel scaling. Leaving the box ticked without touching the
 slider instead scales the axis to the loudest voxel anywhere in the grid, so amplitudes stay

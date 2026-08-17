@@ -106,11 +106,17 @@
   cursor: crosshair;
 }
 
+/* Purely a drawing surface: the voxel outline sits on top of the frame, but
+   the click handler lives on the <img> underneath it. Without this the SVG --
+   a full-size absolutely positioned box, painted last -- wins every hit test
+   over the image and swallows the clicks the voxel picker exists to receive.
+   Inherited by the polygons, which have nothing to handle either. */
 .mnutils-mrsi-overlay {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  pointer-events: none;
 }
 
 /* Two stacked polygons, not one: over a T1 the box crosses both black
