@@ -8,11 +8,13 @@ license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "dcm2niiw>=0.1.5",
+    "ipython>=8.0",
     "loguru>=0.7.3",
     "mat73",
     "matplotlib>=3.10.7",
     "nibabel>=5.3.2",
     "nmrglue>=0.11",
+    "pillow>=12.3.0",
     "scipy>=1.15.3",
     "seaborn>=0.13.2",
     "tailwind-colors>=1.4.1",
@@ -37,7 +39,6 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "ipykernel>=7.1.0",
-    "ipympl>=0.9.8",
     "ipywidgets>=8.1.7",
     "matlabengine==25.1.*",
     "nb-clean>=4.0.1",
@@ -59,8 +60,8 @@ dev = [
 addopts = "--capture=no --nbmake"
 testpaths = ["tests"]
 
-[tool.uv]
-config-settings = { editable_mode = "compat" }
+# [tool.uv]
+# config-settings = { editable_mode = "compat" }
 
 [tool.uv.sources]
 mat73 = { git = "https://github.com/skjerns/mat7.3" }

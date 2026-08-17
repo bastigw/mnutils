@@ -1,0 +1,101 @@
+/* =========================================================================
+   MNUtils shared widget theme.
+   Concatenated ahead of each widget's own <name>.css by the Python asset
+   loader (_shared/__init__.py::load_css). Holds the `--mnu-*` design tokens
+   (light + dark) and the invariant `mnu-*` chrome shared by every widget.
+   Widget-specific / layout classes live in the widget's own CSS and override
+   these defaults (concatenated afterwards, so they win at equal specificity).
+   ========================================================================= */
+
+:root {
+  --mnu-bg: #ffffff;
+  --mnu-panel: #fafafa;
+  --mnu-border: #e0e0e0;
+  --mnu-border-soft: #eeeeee;
+  --mnu-fg: #333333;
+  --mnu-fg-strong: #111111;
+  --mnu-muted: #666666;
+  --mnu-muted-2: #888888;
+  --mnu-label: #444444;
+  --mnu-accent: #0055aa;
+  --mnu-accent-strong: #004488;
+  --mnu-shadow: rgba(0, 0, 0, 0.05);
+  --mnu-focus-ring: rgba(100, 150, 200, 0.15);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mnu-bg: #1e1e1e;
+    --mnu-panel: #252526;
+    --mnu-border: #3c3c3c;
+    --mnu-border-soft: #333333;
+    --mnu-fg: #d4d4d4;
+    --mnu-fg-strong: #f0f0f0;
+    --mnu-muted: #a0a0a0;
+    --mnu-muted-2: #8a8a8a;
+    --mnu-label: #c8c8c8;
+    --mnu-accent: #4ea1ff;
+    --mnu-accent-strong: #3b82d6;
+    --mnu-shadow: rgba(0, 0, 0, 0.35);
+    --mnu-focus-ring: rgba(120, 170, 220, 0.25);
+  }
+}
+
+/* =========================================
+   Container & control-bar chrome, shared by every widget.
+   ========================================= */
+.mnu-viewer {
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--mnu-fg);
+  background: var(--mnu-bg);
+  border: 1px solid var(--mnu-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--mnu-shadow);
+  overflow: hidden;
+}
+
+.mnu-panel {
+  position: relative;
+  background: var(--mnu-panel);
+  border-bottom: 1px solid var(--mnu-border-soft);
+}
+
+.mnu-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.5em 0.7em;
+  background: var(--mnu-bg);
+}
+
+.mnu-grp {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+
+.mnu-lbl {
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--mnu-label);
+}
+
+.mnu-readout {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.8em;
+  color: var(--mnu-muted);
+  min-width: 5em;
+  text-align: right;
+}
+
+.mnu-slider {
+  flex: 1;
+  accent-color: var(--mnu-accent);
+}
+
+.mnu-slider:focus-visible {
+  outline: 2px solid var(--mnu-focus-ring);
+}
+

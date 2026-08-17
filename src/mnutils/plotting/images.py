@@ -1,23 +1,43 @@
 from __future__ import annotations
 
+import io
+import zlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TypedDict, Unpack
 
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
-import xarray as xr
-from ipywidgets import interact, widgets
+import PIL.Image
+from IPython.display import display as ipy_display
 from loguru import logger
 from matplotlib import patches
 from matplotlib.axes import Axes
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
 from matplotlib.contour import QuadContourSet
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
 from nibabel import affines, spatialimages
-from xmris import DIMS
 
 from .. import GESeries, utils
-from . import spectra
+from ._widgets import MRSIVoxelInspectorWidget, SliceViewerWidget
+
+# WebP quality for the MRSI inspector's anatomical frames. These are display
+# rasters -- already normalised, colormapped and alpha-blended to 8-bit -- not
+# data, so lossy encoding costs nothing measurable: q92 holds ~41 dB PSNR
+# against the exact composite while being ~7x smaller than the PNG equivalent.
+MRSI_FRAME_QUALITY = 92
+
+# float16 tops out at 65504, and raw spectra routinely exceed that, so the
+# buffer is divided by a scale factor before the cast and multiplied back in
+# the browser. 32000 leaves an octave of headroom under the limit.
+_F16_TARGET_MAX = 32000.0
+
+# Warn past this uncompressed spectra size -- a big grid can otherwise silently
+# produce a notebook hundreds of MB wide.
+_SPECTRA_WARN_BYTES = 32 * 1024**2
 
 DEFAULT_IMAGE_AX_PARAMS = {
     "xlabel": "",
@@ -79,9 +99,7 @@ def fast_bounds(
     sampled_data = sampled_data[::sample_step]
 
     if sampled_data.size == 0:
-        logger.warning(
-            "Sampled data contains only NaN values. Returning (0, 0) as bounds."
-        )
+        logger.warning("Sampled data contains only NaN values. Returning (0, 0) as bounds.")
         return 0.0, 1.0
 
     # Calculate the lower and upper percentiles of the sampled data
@@ -100,7 +118,7 @@ def display_nifti(
     nii: spatialimages.SpatialImage | GESeries.NiiBase,
     orientation: tuple[str, str, str] | None = None,
     **kwargs,
-) -> tuple[Figure, npt.NDArray]:
+) -> tuple[Figure, npt.NDArray] | None:
     """Orient a NIfTI image and display it via `display_images`.
 
     Parameters
@@ -114,8 +132,8 @@ def display_nifti(
 
     Returns
     -------
-    tuple[Figure, ndarray]
-        The created figure and the array of axes.
+    tuple[Figure, ndarray] or None
+        See `display_images`.
     """
     if isinstance(nii, GESeries.NiiBase):
         nii = nii.nii
@@ -136,8 +154,8 @@ def display_images(
     v_percentile: float = 1.0,
     zeros_as_nan: bool = False,
     **kwargs,
-) -> tuple[Figure, npt.NDArray]:
-    """Display a grid of 2D/3D/4D images with a shared slice slider.
+) -> tuple[Figure, npt.NDArray] | None:
+    """Display a grid of 2D/3D/4D images, with a slice slider for 3D/4D input.
 
     Parameters
     ----------
@@ -174,8 +192,11 @@ def display_images(
 
     Returns
     -------
-    tuple[Figure, ndarray]
-        The created figure and the array of axes.
+    tuple[Figure, ndarray] or None
+        For 2D input (or 3D/4D input with only one slice), the created
+        figure and its axes. For 3D/4D input with more than one slice, an
+        interactive slice-scrubbing widget is displayed instead and `None`
+        is returned.
     """
     if titles is None:
         titles = []
@@ -241,9 +262,7 @@ def display_images(
         images = zeros_nan_images
 
     if vmin is None or vmax is None:
-        new_vmin, new_vmax = fast_bounds(
-            images, p_lower=v_percentile, p_upper=100 - v_percentile
-        )
+        new_vmin, new_vmax = fast_bounds(images, p_lower=v_percentile, p_upper=100 - v_percentile)
         if vmin is None:
             vmin = new_vmin
         if vmax is None:
@@ -290,22 +309,64 @@ def display_images(
     else:
         colorbar_mode = ""
 
+    grid_kwargs = dict(
+        num_images=num_images,
+        num_rows=num_rows,
+        num_cols=num_cols,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        imshow_kws=imshow_kws,
+        image_params=image_params,
+        titles=titles,
+        colorbar=colorbar,
+        colorbar_kws=colorbar_kws,
+        colorbar_mode=colorbar_mode,
+        fig_title=fig_title,
+    )
+
+    n_slices = images.shape[2]
+    if original_dims >= 3 and n_slices > 1:
+        frames = _render_image_grid_frames(
+            images, list(range(n_slices)), fig_size=fig_size, fig_kws=fig_kws, **grid_kwargs
+        )
+        ipy_display(SliceViewerWidget(frames=frames, n_slices=n_slices, initial_index=slice_idx))
+        return None
+
     fig = plt.figure(figsize=fig_size, **fig_kws if fig_kws else {})
-    subplot_kws = {}
-    gridspec_kws = {}
+    axes = fig.subplots(num_rows, num_cols, sharex=True, sharey=True, squeeze=False).flatten()  # type: ignore
+    _draw_image_grid(fig, axes, images, slice_idx, **grid_kwargs)
+    return fig, axes
 
-    axes: list[Axes] = fig.subplots(
-        num_rows,
-        num_cols,
-        sharex=True,
-        sharey=True,
-        squeeze=False,
-        subplot_kw=subplot_kws,
-        gridspec_kw=gridspec_kws,
-    ).flatten()  # type: ignore
-    logger.debug(f"Created figure with size {fig_size} and {len(axes)} axes.")
 
-    ims = []
+def _draw_image_grid(
+    fig: Figure,
+    axes: list[Axes],
+    images: npt.NDArray,
+    slice_idx: int,
+    *,
+    num_images: int,
+    num_rows: int,
+    num_cols: int,
+    cmap: str,
+    vmin: float | None,
+    vmax: float | None,
+    imshow_kws: dict[str, Any] | None,
+    image_params: dict[str, Any],
+    titles: list[str],
+    colorbar: bool,
+    colorbar_kws: dict[str, Any] | None,
+    colorbar_mode: str,
+    fig_title: str,
+) -> tuple[list[AxesImage], list[Any]]:
+    """Draw one slice of the `display_images` grid onto pre-built axes.
+
+    Returns the per-axis image artists and colorbars (`None` where an axis
+    has no colorbar), so a later slice can be applied in place via
+    `_update_image_grid` without rebuilding the figure.
+    """
+    ims: list[AxesImage] = []
+    cbars: list[Any] = []
     for image in range(num_images):
         im = axes[image].imshow(
             images[:, :, slice_idx, image],
@@ -315,53 +376,89 @@ def display_images(
             vmax=vmax,
             **imshow_kws if imshow_kws else {},
         )
+        ims.append(im)
         axes[image].set(**image_params)
-        # Set title if provided
         if len(titles) > image:
-            # Calculate row number
             im_row = image // num_cols
-
             if num_rows == 2 and im_row == 1:
-                logger.debug("Setting title as xlabel for 2-row layout.")
                 axes[image].set_xlabel(
                     titles[image], fontsize="medium", fontweight="normal", labelpad=6
                 )
             else:
-                axes[image].set_title(
-                    titles[image], fontsize="medium", fontweight="normal"
-                )
+                axes[image].set_title(titles[image], fontsize="medium", fontweight="normal")
 
+        cbar = None
         if colorbar:
             if colorbar_mode == "each":
-                logger.debug(
-                    f"Adding colorbar to axis {image} with parameters: {colorbar_kws}"
-                )
-                fig.colorbar(im, ax=axes[image], **colorbar_kws if colorbar_kws else {})
+                cbar = fig.colorbar(im, ax=axes[image], **colorbar_kws if colorbar_kws else {})
             elif colorbar_mode == "single" and image == num_images - 1:
-                logger.debug(
-                    f"Adding single colorbar to last axis with parameters: {colorbar_kws}"
-                )
-                fig.colorbar(im, ax=axes[image], **colorbar_kws if colorbar_kws else {})
+                cbar = fig.colorbar(im, ax=axes[image], **colorbar_kws if colorbar_kws else {})
+        cbars.append(cbar)
 
-        ims.append(im)
-
-    # Remove all unused axes
     for empty_ax in range(num_images, len(axes)):
         fig.delaxes(axes[empty_ax])
 
     if fig_title:
         fig.suptitle(fig_title, fontsize="large", fontweight="bold", y=1)
 
-    if original_dims >= 3:
+    return ims, cbars
 
-        def update_slice(slice_idx):
-            for image in range(num_images):
-                ims[image].set_data(images[:, :, slice_idx, image])
-            fig.canvas.draw_idle()
 
-        interact(update_slice, slice_idx=(0, images.shape[2] - 1))
+def _update_image_grid(
+    images: npt.NDArray,
+    slice_idx: int,
+    ims: list[AxesImage],
+    cbars: list[Any],
+    *,
+    num_images: int,
+    colorbar_mode: str,
+    **_unused,
+) -> None:
+    """Apply a new slice to an already-drawn `_draw_image_grid` in place.
 
-    return fig, axes
+    Titles, axis params, and (for `colorbar_mode == "single"`) the colorbar
+    are all slice-independent and were already set by `_draw_image_grid`, so
+    only the image data (and, for `colorbar_mode == "each"`, the per-axis
+    autoscale + colorbar range) needs updating per slice.
+    """
+    for image in range(num_images):
+        ims[image].set_data(images[:, :, slice_idx, image])
+        if colorbar_mode == "each":
+            ims[image].autoscale()
+            cbars[image].update_normal(ims[image])
+
+
+def _render_image_grid_frames(
+    images: npt.NDArray,
+    slice_indices: list[int],
+    *,
+    fig_size: tuple[float, float],
+    fig_kws: dict[str, Any] | None,
+    **grid_kwargs,
+) -> list[bytes]:
+    """Render a batch of `display_images` slices to PNG bytes.
+
+    Builds one Figure/axes for the whole batch (off the pyplot registry) and
+    reuses it across slices via `_update_image_grid`, instead of rebuilding
+    the figure/gridspec/colorbar from scratch per slice.
+    """
+    fig = Figure(figsize=fig_size, **fig_kws if fig_kws else {})
+    FigureCanvasAgg(fig)
+    num_rows, num_cols = grid_kwargs["num_rows"], grid_kwargs["num_cols"]
+    axes = fig.subplots(num_rows, num_cols, sharex=True, sharey=True, squeeze=False).flatten()
+
+    frames = []
+    ims: list[AxesImage] | None = None
+    cbars: list[Any] = []
+    for slice_idx in slice_indices:
+        if ims is None:
+            ims, cbars = _draw_image_grid(fig, axes, images, slice_idx, **grid_kwargs)
+        else:
+            _update_image_grid(images, slice_idx, ims, cbars, **grid_kwargs)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png")
+        frames.append(buf.getvalue())
+    return frames
 
 
 def overlay_nifti_data_on_T1(
@@ -372,7 +469,7 @@ def overlay_nifti_data_on_T1(
     resample_kwargs: dict[str, Any] | None = None,
     mask: npt.NDArray | GESeries.NiiBase | None = None,
     **kwargs,
-):
+) -> tuple[Figure, list[Axes]] | None:
     """Resample a data NIfTI into T1 space and overlay it on the T1 image.
 
     Parameters
@@ -395,8 +492,8 @@ def overlay_nifti_data_on_T1(
 
     Returns
     -------
-    tuple[Figure, list[Axes]]
-        The created figure and its axes.
+    tuple[Figure, list[Axes]] or None
+        See `overlay_image_data_on_T1`.
     """
     # If mask in kwargs, apply mask to data_nii before resampling and overlaying
     apply_mask_after_resampling: bool = False
@@ -444,9 +541,7 @@ def overlay_nifti_data_on_T1(
     if apply_mask_after_resampling and mask is not None:
         mask_to_pass_on = mask
 
-    return overlay_image_data_on_T1(
-        t1_images, data_images, mask=mask_to_pass_on, **kwargs
-    )
+    return overlay_image_data_on_T1(t1_images, data_images, mask=mask_to_pass_on, **kwargs)
 
 
 def overlay_image_data_on_T1(
@@ -457,7 +552,7 @@ def overlay_image_data_on_T1(
     only_overlay: bool = False,
     mask_kwargs: dict[str, Any] | None = None,
     **kwargs,
-):
+) -> tuple[Figure, list[Axes]] | None:
     """Display T1, resampled data, and overlay images side by side with a slice slider.
 
     Parameters
@@ -482,16 +577,11 @@ def overlay_image_data_on_T1(
 
     Returns
     -------
-    tuple[Figure, list[Axes]]
-        The created figure and its axes.
+    tuple[Figure, list[Axes]] or None
+        For a single-slice input, the created figure and its axes. For
+        multi-slice input, an interactive slice-scrubbing widget is
+        displayed instead and `None` is returned.
     """
-    fig = plt.figure(figsize=(12, 4))
-    if only_overlay:
-        single_axes: Axes = fig.subplots(1, 1)
-        axes = [single_axes]
-    else:
-        axes: list[Axes] = fig.subplots(1, 3)
-
     if data_images.shape != t1_images.shape:
         raise ValueError(
             f"T1 images and data images must have the same shape for overlay. "
@@ -502,90 +592,107 @@ def overlay_image_data_on_T1(
         slice_idx = 0
         t1_images = t1_images[:, :, np.newaxis]
         data_images = data_images[:, :, np.newaxis]
+        if mask is not None:
+            mask = mask[:, :, np.newaxis]
+        if isinstance(mask_contour, np.ndarray):
+            mask_contour = mask_contour[:, :, np.newaxis]
     else:
         slice_idx = t1_images.shape[2] // 2
 
-    axes_idx = 0
-    if not only_overlay:
-        ims, _ = overlay_image_data_on_T1_on_ax(
-            t1_images[:, :, slice_idx],
-            ax=axes[axes_idx],
-            cmap="gray",
-            **kwargs,
-        )
-        im1 = ims[0]
-        axes[axes_idx].set_title("T1 Image")
-        logger.debug(
-            f"Displayed T1 image with shape {t1_images.shape} "
-            f"at slice index {slice_idx}."
-        )
-
-        axes_idx += 1
-        ims, _ = overlay_image_data_on_T1_on_ax(
-            data_images[:, :, slice_idx],
-            ax=axes[axes_idx],
-            **kwargs,
-        )
-        im2 = ims[0]
-        axes[axes_idx].set_title("Resampled Data")
-        axes_idx += 1
-        logger.debug(
-            f"Displayed resampled data image with shape {data_images.shape} "
-            f"at slice index {slice_idx}."
-        )
-
-    global contour, contour_kwargs, mask_contour_global
-    if mask_contour is True:
-        mask_contour_global = mask
-    else:
-        mask_contour_global = None
-
+    # `mask_contour` only draws a contour when it's `True` (reuse `mask`); an
+    # explicit array is not applied here (matches this function's long-standing
+    # behavior; `overlay_image_data_on_T1_on_ax` is the one that honours it).
+    resolved_mask_contour = mask if mask_contour is True else None
     contour_kwargs = DEFAULT_MASK_PARAMS.copy()
     if mask_kwargs is not None:
         contour_kwargs.update(mask_kwargs)
 
-    ims, contour = overlay_image_data_on_T1_on_ax(
+    overlay_kwargs = dict(
+        only_overlay=only_overlay,
+        mask=mask,
+        resolved_mask_contour=resolved_mask_contour,
+        mask_kwargs=mask_kwargs,
+        kwargs=kwargs,
+    )
+
+    n_slices = t1_images.shape[2]
+    if n_slices > 1:
+        frames = _render_overlay_frames(
+            t1_images, data_images, list(range(n_slices)), **overlay_kwargs
+        )
+        ipy_display(SliceViewerWidget(frames=frames, n_slices=n_slices, initial_index=slice_idx))
+        return None
+
+    fig = plt.figure(figsize=(12, 4))
+    axes = [fig.subplots(1, 1)] if only_overlay else list(fig.subplots(1, 3))
+    _draw_overlay_slice(fig, axes, t1_images, data_images, slice_idx, **overlay_kwargs)
+    return fig, axes
+
+
+def _draw_overlay_slice(
+    fig: Figure,
+    axes: list[Axes],
+    t1_images: npt.NDArray,
+    data_images: npt.NDArray,
+    slice_idx: int,
+    *,
+    only_overlay: bool,
+    mask: npt.NDArray[np.bool_] | None,
+    resolved_mask_contour: npt.NDArray[np.bool_] | None,
+    mask_kwargs: dict[str, Any] | None,
+    kwargs: dict[str, Any],
+) -> None:
+    """Draw one slice of the `overlay_image_data_on_T1` panels onto given axes."""
+    axes_idx = 0
+    if not only_overlay:
+        overlay_image_data_on_T1_on_ax(
+            t1_images[:, :, slice_idx], ax=axes[axes_idx], cmap="gray", **kwargs
+        )
+        axes[axes_idx].set_title("T1 Image")
+        axes_idx += 1
+        overlay_image_data_on_T1_on_ax(data_images[:, :, slice_idx], ax=axes[axes_idx], **kwargs)
+        axes[axes_idx].set_title("Resampled Data")
+        axes_idx += 1
+
+    overlay_image_data_on_T1_on_ax(
         t1_images[:, :, slice_idx],
         data_images[:, :, slice_idx],
         mask=mask[:, :, slice_idx] if mask is not None else None,
-        mask_contour=mask_contour_global[:, :, slice_idx]
-        if mask_contour_global is not None
+        mask_contour=resolved_mask_contour[:, :, slice_idx]
+        if resolved_mask_contour is not None
         else None,
         ax=axes[axes_idx],
         mask_kwargs=mask_kwargs,
         **kwargs,
     )
-    im3, im4 = ims[0], ims[1]
     axes[axes_idx].set_title("Overlay")
 
-    def update_slice(slice_idx):
-        global contour, contour_kwargs, mask_contour_global
-        if not only_overlay:
-            im1.set_data(t1_images[:, :, slice_idx])  # pyright: ignore[reportPossiblyUnboundVariable]
-            im2.set_data(data_images[:, :, slice_idx])  # pyright: ignore[reportPossiblyUnboundVariable]
-        im3.set_data(t1_images[:, :, slice_idx])
-        # Check if we need to mask the data image for the overlay
-        if mask is not None:
-            overlay_image = np.where(
-                mask[:, :, slice_idx], data_images[:, :, slice_idx], np.nan
-            )
-        else:
-            overlay_image = data_images[:, :, slice_idx]
-        im4.set_data(overlay_image)
-        if contour is not None:
-            if mask_contour_global is False:
-                mask_contour_global = None
-            elif mask_contour_global is True:
-                mask_contour_global = mask
-            contour.remove()
-            if isinstance(mask_contour_global, np.ndarray):
-                contour = axes[axes_idx].contour(
-                    mask_contour_global[:, :, slice_idx], **contour_kwargs
-                )
-        fig.canvas.draw_idle()
 
-    interact(update_slice, slice_idx=(0, t1_images.shape[2] - 1))
-    return fig, axes
+def _render_overlay_frames(
+    t1_images: npt.NDArray, data_images: npt.NDArray, slice_indices: list[int], **kwargs
+) -> list[bytes]:
+    """Render a batch of `overlay_image_data_on_T1` slices to PNG bytes.
+
+    Builds one Figure/axes for the whole batch (off the pyplot registry) and
+    reuses it across slices, clearing each axis before redrawing — the
+    per-slice content (imshow bounds, mask contour) isn't reusable in place
+    since it's recomputed per slice, but the figure/gridspec construction is.
+    """
+    only_overlay = kwargs["only_overlay"]
+    fig = Figure(figsize=(12, 4))
+    FigureCanvasAgg(fig)
+    axes = [fig.subplots(1, 1)] if only_overlay else list(fig.subplots(1, 3))
+
+    frames = []
+    for i, slice_idx in enumerate(slice_indices):
+        if i:
+            for ax in axes:
+                ax.cla()
+        _draw_overlay_slice(fig, axes, t1_images, data_images, slice_idx, **kwargs)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png")
+        frames.append(buf.getvalue())
+    return frames
 
 
 def overlay_image_data_on_T1_on_ax(
@@ -635,11 +742,7 @@ def overlay_image_data_on_T1_on_ax(
     # Get vmin and vmax bounds for anatomical image by default
     anat_vmin, anat_vmax = fast_bounds(base_image, p_lower=1.0, p_upper=99.0)
 
-    im.append(
-        ax.imshow(
-            base_image, origin="upper", cmap=cmap_base, vmin=anat_vmin, vmax=anat_vmax
-        )
-    )
+    im.append(ax.imshow(base_image, origin="upper", cmap=cmap_base, vmin=anat_vmin, vmax=anat_vmax))
 
     # See if vmin and vmax are provided in kwargs and apply to data image
     if overlay_image is None:
@@ -663,9 +766,7 @@ def overlay_image_data_on_T1_on_ax(
     logger.debug(f"Setting overlay vmin: {vmin:4g}, vmax: {vmax:4g}")
     # Assert that t1_images and data_images have the same shape
     if base_image.shape != overlay_image.shape:
-        raise ValueError(
-            "T1 images and data images must have the same shape for overlay."
-        )
+        raise ValueError("T1 images and data images must have the same shape for overlay.")
     if mask is not None and mask.shape != overlay_image.shape:
         raise ValueError(
             f"Mask must have the same shape as data images. "
@@ -715,12 +816,15 @@ def inspect_MRSI_spectra(
     blocky: bool = True,
     magnitude: bool = False,
     autophase: bool = True,
-):
-    """Build an interactive widget to inspect MRSI spectra over a T1 image.
+) -> None:
+    """Display an interactive widget to inspect MRSI spectra over a T1 image.
 
-    Displays the T1 image with an MRSI overlay and a spectrum plot; clicking,
+    Shows the T1 image with an MRSI overlay and a spectrum plot; clicking,
     the keyboard arrows, or the slice slider update the selected voxel and
-    its spectrum.
+    its spectrum. All interaction runs client-side (no Python kernel needed
+    after the widget is displayed): every anatomical slice is pre-rendered,
+    and every voxel's spectrum is precomputed into a single buffer embedded
+    in the widget.
 
     Parameters
     ----------
@@ -734,34 +838,24 @@ def inspect_MRSI_spectra(
     magnitude : bool, optional
         If True, display the magnitude spectrum, by default False.
     autophase : bool, optional
-        If True (and `magnitude` is False), autophase the spectrum before
-        display, by default True.
-
-    Returns
-    -------
-    ipywidgets.VBox
-        A widget containing the slice slider and the interactive figure.
+        If True (and `magnitude` is False), phase each voxel independently
+        before display, by default True. See `mrsi_spectra_for_display` for
+        why this is done per voxel rather than through a single global fit.
     """
-    with plt.ioff():
-        fig, axs = plt.subplots(1, 2, figsize=(12, 4))
-    # Correctly orient the T1 and MRSI images and select the slice.
-    # These are captured by the nested callbacks below via ``nonlocal`` instead
-    # of leaking into module globals.
-    markers: list = []
     t1_images = T1.images()
     if blocky:
-        t1_images, MRSI_images = utils.nifti.resample_and_orient_nifti(
+        t1_images, mrsi_images = utils.nifti.resample_and_orient_nifti(
             source_nii=MRSI.RAW_exp.nii,
             target_nii=T1.nii,
         )
     else:
-        t1_images, MRSI_images = utils.nifti.resample_and_orient_nifti(
+        t1_images, mrsi_images = utils.nifti.resample_and_orient_nifti(
             source_nii=MRSI.nii, target_nii=T1.nii
         )
 
-    slice_idx = t1_images.shape[2] // 2
+    n_anat_slices = t1_images.shape[2]
+    initial_slice = n_anat_slices // 2
 
-    # Ok now lets figure out how to go from x and y in the image to the voxel in the MRSI data
     blocky_mrsi_affine = np.asarray(MRSI.RAW_exp.nii.affine)
     t1_display_affine = utils.nifti.get_display_affine(T1.nii)
     mrsi_to_display = np.linalg.inv(t1_display_affine).dot(blocky_mrsi_affine)
@@ -771,172 +865,237 @@ def inspect_MRSI_spectra(
     logger.debug(f"MRSI affine:\n{blocky_mrsi_affine}")
     logger.debug(f"MRSI to display affine:\n{mrsi_to_display}")
 
-    MRSI_x, MRSI_y, MRSI_slice_idx = (
-        MRSI.spec.shape[1] // 2,
-        MRSI.spec.shape[2] // 2,
-        MRSI.spec.shape[3] // 2,
-    )
-    mrsi_voxel_location: VoxelCoord = tuple(
-        np.asarray([MRSI_x, MRSI_y, MRSI_slice_idx]).astype(int)
-    )
+    nx, ny, n_mrsi_slices = MRSI.spec.shape[1], MRSI.spec.shape[2], MRSI.spec.shape[3]
+    initial_voxel = (nx // 2, ny // 2, n_mrsi_slices // 2)
 
     anat_vmin, anat_vmax = fast_bounds(t1_images)
-    mrsi_vmin, mrsi_vmax = fast_bounds(MRSI_images)
-    logger.debug(
-        f"Anatomical image bounds for display: vmin={anat_vmin:4g}, vmax={anat_vmax:4g}"
-    )
-    logger.debug(
-        f"MRSI image bounds for display: vmin={mrsi_vmin:4g}, vmax={mrsi_vmax:4g}"
-    )
+    mrsi_vmin, mrsi_vmax = fast_bounds(mrsi_images)
+    logger.debug(f"Anatomical image bounds for display: vmin={anat_vmin:4g}, vmax={anat_vmax:4g}")
+    logger.debug(f"MRSI image bounds for display: vmin={mrsi_vmin:4g}, vmax={mrsi_vmax:4g}")
 
-    aspect_ratio = t1_images.shape[1] / t1_images.shape[0]
+    def mrsi_slice_for(anat_slice_idx: int) -> int:
+        raw = affines.apply_affine(display_to_mrsi, [0, 0, anat_slice_idx])[2]
+        return int(np.clip(np.round(raw), 0, n_mrsi_slices - 1))
 
-    # Plot the corrected images
-    im_bg = axs[0].imshow(
-        t1_images[:, :, slice_idx],
-        cmap="gray",
-        origin="upper",
-        vmin=anat_vmin,
-        vmax=anat_vmax,
-        aspect=aspect_ratio,
-    )
-    im_fg = axs[0].imshow(
-        MRSI_images[:, :, slice_idx],
-        cmap="magma",
-        alpha=0.5,
-        origin="upper",
-        vmin=mrsi_vmin,
-        vmax=mrsi_vmax,
-        # aspect=aspect_ratio,
-    )
-    axs[0].set_title(f"Anat. Slice {slice_idx}, MRSI Slice {MRSI_slice_idx}")
+    logger.debug("Starting rendering of Left frames")
 
-    # Create graph with empty data to be updated later
-    # Change label based on options
+    left_frames = _render_mrsi_left_frames(
+        t1_images,
+        mrsi_images,
+        list(range(n_anat_slices)),
+        anat_vmin=anat_vmin,
+        anat_vmax=anat_vmax,
+        mrsi_vmin=mrsi_vmin,
+        mrsi_vmax=mrsi_vmax,
+    )
+    slice_titles = [
+        f"Anat. Slice {s}, MRSI Slice {mrsi_slice_for(s)}" for s in range(n_anat_slices)
+    ]
+
+    if magnitude and autophase:
+        logger.warning(
+            "Both magnitude and autophase options selected. Autophase will "
+            "be ignored when displaying magnitude spectrum."
+        )
+
+    logger.debug("Starting rendering of spectra array")
+
+    ppm_axis, spectra_array = mrsi_spectra_for_display(
+        MRSI, magnitude=magnitude, autophase=autophase
+    )
+    npts = ppm_axis.size
+    spectra_bytes, spectra_scale = _encode_spectra(spectra_array)
+    # Bounds over the whole grid, computed here rather than in the browser:
+    # they set the travel of the widget's manual y-limit slider, which has to
+    # be drawable before anything has scanned the 2.9M-value buffer.
+    spectra_min = float(np.nanmin(spectra_array)) if spectra_array.size else 0.0
+    spectra_max = float(np.nanmax(spectra_array)) if spectra_array.size else 1.0
+
     if magnitude:
-        label = "Magnitude Spectrum"
-        if autophase:
-            logger.warning(
-                "Both magnitude and autophase options selected. Autophase "
-                "will be ignored when displaying magnitude spectrum."
-            )
+        spectrum_label = "Magnitude Spectrum"
     elif autophase:
-        label = "Autophased Spectrum"
+        spectrum_label = "Autophased Spectrum"
     else:
-        label = "Real Spectrum"
+        spectrum_label = "Real Spectrum"
 
-    placeholder_spectrum = xr.DataArray(
-        np.ones_like(MRSI.ppm.values),
-        dims=[DIMS.chemical_shift],
-        coords={DIMS.chemical_shift: MRSI.ppm.values},
+    logger.debug("Ready to display")
+
+    ipy_display(
+        MRSIVoxelInspectorWidget(
+            left_frames=left_frames,
+            slice_titles=slice_titles,
+            n_anat_slices=n_anat_slices,
+            initial_slice=initial_slice,
+            image_width=t1_images.shape[1],
+            image_height=t1_images.shape[0],
+            mrsi_to_display_affine=mrsi_to_display.flatten().tolist(),
+            display_to_mrsi_affine=display_to_mrsi.flatten().tolist(),
+            grid_shape=(nx, ny, n_mrsi_slices),
+            mrsi_dims=(int(MRSI.dims[0]), int(MRSI.dims[1])),
+            initial_voxel=initial_voxel,
+            ppm=ppm_axis.tolist(),
+            spectra_bytes=spectra_bytes,
+            spectra_scale=spectra_scale,
+            spectra_min=spectra_min,
+            spectra_max=spectra_max,
+            npts=npts,
+            spectrum_label=spectrum_label,
+        )
     )
-    spectra_ax = spectra.plot_spectra(
-        ax=axs[1], data=placeholder_spectrum, labels=[label]
+
+
+def mrsi_spectra_for_display(
+    MRSI: GESeries.MRSISeries,
+    *,
+    magnitude: bool = False,
+    autophase: bool = True,
+) -> tuple[npt.NDArray, npt.NDArray]:
+    """Build the exact ppm axis and spectra grid `inspect_MRSI_spectra` displays.
+
+    Split out of the widget so the displayed numbers can be inspected directly
+    — the inspector ships precisely this array, so plotting `spectra[x, y, z]`
+    against `ppm` reproduces a voxel's panel exactly:
+
+    >>> ppm, spectra = mrsi_spectra_for_display(mrsi)  # doctest: +SKIP
+    >>> plt.plot(ppm, spectra[8, 8, 8])                # doctest: +SKIP
+
+    Parameters
+    ----------
+    MRSI : GESeries.MRSISeries
+        The MRSI series to read spectra from.
+    magnitude : bool, optional
+        If True, return the magnitude spectrum, by default False.
+    autophase : bool, optional
+        If True (and `magnitude` is False), phase each voxel independently,
+        by default True.
+
+    Returns
+    -------
+    ppm : ndarray
+        1-D ppm axis, spanning the full acquired sweep.
+    spectra : ndarray
+        Real-valued grid indexed `[x, y, mrsi_slice, point]`, matching the
+        voxel coordinates the widget's picker reports.
+    """
+    ppm = np.asarray(MRSI.ppm.values, dtype=float)
+    spectral_dim = MRSI.spec.dims[0]
+    # Top left of the image is (0, 0); the MRSI grid's coordinate system
+    # starts bottom-right, so the array is reversed along i/j and the (x, y)
+    # voxel axes read from (j, i) rather than (i, j) -- matches the mapping
+    # `overlay_voxel_on_T1`/the widget's client-side voxel picker expect.
+    grid = (
+        MRSI.spec.isel(i=slice(None, None, -1), j=slice(None, None, -1))
+        .transpose("j", "i", "k", spectral_dim)
+        .values
     )
 
-    def update_voxel_marker(mrsi_voxel_position: VoxelCoord):
-        nonlocal markers
-        for m in markers:
-            m.remove()
-        markers = draw_voxel_overlays_on_ax(
-            ax=axs[0],
-            voxel_coords=mrsi_voxel_position,
-            mrsi_to_display_affine=mrsi_to_display,
+    if magnitude:
+        return ppm, np.abs(grid)
+    if not autophase:
+        return ppm, grid.real
+    # Phase every voxel by its own peak instead of applying one global
+    # correction to all of them. xmris' `autophase(mode="single")` derives a
+    # single zero-order phase from the grid's strongest voxel; on real data
+    # that leaves the median voxel only ~0.52 absorptive and outright inverts
+    # ~29% of them, which reads as corrupted spectra. Rotating each voxel by
+    # the argument of its own largest point makes every peak absorptive and
+    # positive, is one complex multiply (~0.02 s for a 16x16x16 grid, against
+    # ~0.85 s for the global fit), and is display-only -- no fitting decision
+    # is taken here. `mode="all"` upstream would be the real home for this;
+    # it currently raises NotImplementedError.
+    peak = np.abs(grid).argmax(axis=-1)
+    xs, ys, zs = np.indices(peak.shape)
+    phi = np.angle(grid[xs, ys, zs, peak])
+    return ppm, (grid * np.exp(-1j * phi)[..., None]).real
+
+
+def _encode_spectra(spectra_array: npt.NDArray) -> tuple[bytes, float]:
+    """Pack the per-voxel spectra grid into a compact wire buffer.
+
+    Returns the zlib-compressed float16 buffer and the scale factor needed to
+    recover the original values (`value = stored * scale`).
+
+    Two reductions over the obvious `astype(np.float32).tobytes()`, which for a
+    16x16x16 grid at 700 points is 11.5 MB before base64 inflates it to 15.3:
+
+    - **float16 halves it.** This buffer only ever feeds a line plot, so the
+      ~3 significant digits it keeps are far inside display precision. Raw
+      spectra do overflow float16's 65504 limit, though, so the grid is scaled
+      into range first and the factor travels with it.
+    - **zlib then takes another ~8x**, because neighbouring points in a
+      spectrum are highly correlated. The browser inflates it with the built-in
+      `DecompressionStream`, so this costs no JS dependency.
+    """
+    nbytes = spectra_array.size * 4
+    if nbytes > _SPECTRA_WARN_BYTES:
+        logger.warning(
+            f"MRSI spectra buffer is large ({nbytes / 1024**2:.0f} MB as float32 for a "
+            f"{'x'.join(str(d) for d in spectra_array.shape)} grid). The widget embeds it in "
+            "its output, so the notebook and any built docs page will grow accordingly."
         )
+    peak = float(np.nanmax(np.abs(spectra_array))) if spectra_array.size else 0.0
+    # A power of two, not `peak / target`: scaling by one shifts every value's
+    # exponent and leaves its mantissa bits untouched, so it is both exact (no
+    # rounding on top of the float16 cast) and keeps the buffer as compressible
+    # as it was. An arbitrary divisor perturbs every mantissa and cost ~4x on
+    # the compressed size when measured.
+    scale = 2.0 ** np.ceil(np.log2(peak / _F16_TARGET_MAX)) if peak > _F16_TARGET_MAX else 1.0
+    scaled = (spectra_array / scale) if scale != 1.0 else spectra_array
+    return zlib.compress(scaled.astype(np.float16).tobytes(), 6), float(scale)
 
-    def update(change):
-        nonlocal slice_idx, MRSI_slice_idx
-        slice_idx = change["new"]
-        im_bg.set_data(t1_images[:, :, slice_idx])
-        im_fg.set_data(MRSI_images[:, :, slice_idx])
 
-        MRSI_slice_idx = np.round(
-            affines.apply_affine(display_to_mrsi, [0, 0, slice_idx])
-        ).astype(int)[2]
-        axs[0].set_title(f"Anat. Slice {slice_idx}, MRSI Slice {MRSI_slice_idx}")
-        MRSI_slice_idx = np.clip(MRSI_slice_idx, 0, MRSI.spec.shape[3] - 1)
-        mrsi_voxel_location: VoxelCoord = tuple(
-            np.asarray([MRSI_x, MRSI_y, MRSI_slice_idx]).astype(int)
-        )
-        update_voxel_marker(mrsi_voxel_location)
-        update_spectra(mrsi_voxel_location)
-        fig.canvas.draw_idle()
+def _render_mrsi_left_frames(
+    t1_images: npt.NDArray,
+    mrsi_images: npt.NDArray,
+    slice_indices: list[int],
+    *,
+    anat_vmin: float,
+    anat_vmax: float,
+    mrsi_vmin: float,
+    mrsi_vmax: float,
+    quality: int = MRSI_FRAME_QUALITY,
+    max_workers: int = 8,
+) -> list[bytes]:
+    """Render a batch of T1+MRSI-overlay anatomical slices, one WebP per slice.
 
-    def onclick(event):
-        if event.xdata is not None and event.ydata is not None:
-            nonlocal slice_idx, MRSI_x, MRSI_y, MRSI_slice_idx
-            # event.ydata = display row, event.xdata = display col
-            mrsi_voxel_location: VoxelCoord = tuple(
-                np.clip(
-                    np.round(
-                        affines.apply_affine(
-                            display_to_mrsi, [event.ydata, event.xdata, slice_idx]
-                        )
-                    ),
-                    [0, 0, 0],
-                    [np.asarray(MRSI.dims) - 1],
-                )
-                .squeeze()
-                .astype(int)
-            )
-            MRSI_x, MRSI_y, MRSI_slice_idx = mrsi_voxel_location
-            update_voxel_marker(mrsi_voxel_location)
-            update_spectra(mrsi_voxel_location)
-            fig.canvas.draw_idle()
+    These frames are pure raster: no ticks, labels, titles, colorbar or
+    contours, just a grayscale T1 with a half-transparent magma overlay
+    filling the whole image. Going through a matplotlib `Figure`/Agg canvas
+    to produce that costs ~130 ms per slice, almost all of it rasterization
+    and PNG encoding, for arithmetic that is really only `cmap(norm(arr))`
+    plus an alpha blend. So the Figure is gone: matplotlib still *supplies*
+    the colormaps (via `ScalarMappable`, so nothing is reimplemented and the
+    two can't drift), and the blend and encode are done directly.
 
-    def update_spectra(location: VoxelCoord):
-        # Show magnitude or (autophased) spectrum
-        x, y, MRSI_slice_idx = location
-        # Top left of image is 0,0. The coordinate system otherwise starts bottom right
-        # To select the correct voxel, we need to flip x and y coordinate
-        # i in this case is
-        spec_i = MRSI.dims[0] - 1 - int(y)
-        spec_j = MRSI.dims[1] - 1 - int(x)
+    Frames come out at the volume's native (nrows, ncols) rather than a
+    dpi-derived size. The client side is resolution-independent -- the SVG
+    voxel overlay is sized by a data-coordinate `viewBox` and clicks are
+    mapped through the rendered `rect.width` -- so this is purely sharper.
 
-        complex_spectra = MRSI.get_voxel_spectrum(spec_i, spec_j, MRSI_slice_idx)
-        mag_spec = np.abs(complex_spectra)
-        if magnitude:
-            spectra_data = mag_spec
-        else:
-            if autophase:
-                spectra_data = complex_spectra.xmr.to_hz().xmr.autophase().real
-            else:
-                spectra_data = complex_spectra.real
-        axs[1].set_title(
-            f"Spectrum at voxel (i:{spec_i}, j:{spec_j}, slice:{MRSI_slice_idx}, "
-            f"sum:{np.sum(mag_spec):.5g})"
-        )
-        spectra_ax.lines[0].set_data(MRSI.ppm, spectra_data)
-        axs[1].relim()
-        axs[1].autoscale(enable=True, axis="y")
+    WebP rather than PNG: at native resolution these frames are ~318 kB each
+    as PNG but ~42 kB as WebP q92 (41 dB PSNR against the exact composite),
+    which is what keeps the widget's payload manageable. Encoding releases
+    the GIL, so slices are encoded on a thread pool.
+    """
+    anat = ScalarMappable(Normalize(anat_vmin, anat_vmax), "gray")
+    over = ScalarMappable(Normalize(mrsi_vmin, mrsi_vmax), "magma")
 
-    def on_key(event):
-        if event.key in ["up", "down", "left", "right"]:
-            nonlocal MRSI_x, MRSI_y, MRSI_slice_idx
-            if event.key == "down":
-                MRSI_y = max(0, MRSI_y - 1)
-            elif event.key == "up":
-                MRSI_y = min(MRSI.spec.shape[2] - 1, MRSI_y + 1)
-            elif event.key == "right":
-                MRSI_x = max(0, MRSI_x - 1)
-            elif event.key == "left":
-                MRSI_x = min(MRSI.spec.shape[1] - 1, MRSI_x + 1)
-            voxel_location: VoxelCoord = tuple(
-                np.asarray([MRSI_x, MRSI_y, MRSI_slice_idx]).astype(int)
-            )
-            update_spectra(voxel_location)
-            update_voxel_marker(voxel_location)
-        fig.canvas.draw_idle()
+    def render(slice_idx: int) -> bytes:
+        a = anat.to_rgba(t1_images[:, :, slice_idx], bytes=True)
+        o = over.to_rgba(mrsi_images[:, :, slice_idx], bytes=True)
+        # Reproduce matplotlib's compositing of the second `imshow(alpha=0.5)`
+        # over the first: the 0.5 is scaled by the overlay's own per-pixel
+        # alpha, so voxels the colormap marks "bad" (NaN, alpha 0) let the T1
+        # through untouched instead of being blended toward the bad colour.
+        w = (o[..., 3:4].astype(np.uint16) * 128) // 255
+        rgb = ((a[..., :3] * (255 - w) + o[..., :3] * w) // 255).astype(np.uint8)
+        buf = io.BytesIO()
+        PIL.Image.fromarray(rgb).save(buf, format="webp", quality=quality, method=2)
+        return buf.getvalue()
 
-    fig.canvas.mpl_connect("key_press_event", on_key)
-    fig.canvas.mpl_connect("button_press_event", onclick)
-
-    update_voxel_marker(mrsi_voxel_location)
-    update_spectra(mrsi_voxel_location)
-
-    slider = widgets.IntSlider(value=slice_idx, min=0, max=t1_images.shape[2] - 1)
-    slider.observe(update, names="value")
-    return widgets.VBox([slider, fig.canvas])
+    logger.debug(f"Rendering {len(slice_indices)} frames on {max_workers} threads")
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return list(pool.map(render, slice_indices))
 
 
 class VoxelOverlayParams(TypedDict, total=False):
@@ -1007,16 +1166,10 @@ def draw_voxel_overlays_on_ax(
 
     if isinstance(voxel_kwargs, list):
         if len(voxel_kwargs) != len(voxel_coords):
-            raise ValueError(
-                "Length of voxel_kwargs list must match the number of voxels."
-            )
-        resolved_voxel_kwargs = [
-            default_voxel_kwargs | single for single in voxel_kwargs
-        ]
+            raise ValueError("Length of voxel_kwargs list must match the number of voxels.")
+        resolved_voxel_kwargs = [default_voxel_kwargs | single for single in voxel_kwargs]
     else:
-        resolved_voxel_kwargs = [default_voxel_kwargs | (voxel_kwargs or {})] * len(
-            voxel_coords
-        )
+        resolved_voxel_kwargs = [default_voxel_kwargs | (voxel_kwargs or {})] * len(voxel_coords)
 
     # In-plane corner offsets around the voxel centre (index +/- 0.5 on axes 0, 1).
     corner_offsets = np.array(
@@ -1178,9 +1331,7 @@ def overlay_voxel_on_T1(
             origin="upper",
             **overlay_kwargs,
         )
-        logger.trace(
-            f"Sum of MRSI image slice: {np.nansum(mrsi_images[:, :, slice_idx])}"
-        )
+        logger.trace(f"Sum of MRSI image slice: {np.nansum(mrsi_images[:, :, slice_idx])}")
 
     draw_voxel_overlays_on_ax(
         ax=ax,

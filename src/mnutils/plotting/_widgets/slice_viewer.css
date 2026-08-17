@@ -1,0 +1,38 @@
+.mnutils-slice-viewer {
+  margin-top: 1em;
+}
+
+.mnutils-slice-viewer-bar {
+  justify-content: flex-start;
+  border-bottom: 1px solid var(--mnu-border-soft);
+}
+
+.mnutils-slice-viewer-bar .mnu-lbl,
+.mnutils-slice-viewer-bar .mnu-readout {
+  font-size: 1.1em;
+}
+
+.mnutils-slice-viewer-bar .mnu-readout {
+  font-family: inherit;
+  font-weight: 700;
+  line-height: inherit;
+  min-width: 0;
+  color: var(--mnu-fg-strong);
+}
+
+.mnutils-slice-viewer-bar .mnu-slider {
+  flex: none;
+  width: min(100%, 320px);
+  height: 1.3em;
+}
+
+.mnutils-slice-viewer-panel {
+  display: flex;
+  justify-content: center;
+  border-bottom: none;
+}
+
+.mnutils-slice-viewer-image {
+  max-width: 100%;
+  height: auto;
+}

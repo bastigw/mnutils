@@ -1268,13 +1268,12 @@ class MRSISeries(RawMRISeries):
         **kwargs,
     ):
         """Display the fitted metabolite map for metabolite_name."""
-        fig, ax = plotting.images.display_images(
+        plotting.images.display_images(
             self.fitted_metabolite_maps[metabolite_name],
             title=f"Fitted Metabolite Map: {metabolite_name}",
             colorbar=True,
             **kwargs,
         )
-        return fig, ax
 
     def visualize_goodness_of_fit_map(
         self,
@@ -1282,13 +1281,12 @@ class MRSISeries(RawMRISeries):
         **kwargs,
     ):
         """Display the goodness-of-fit map for metric_name."""
-        fig, ax = plotting.images.display_images(
+        plotting.images.display_images(
             self.goodness_of_fit_maps[metric_name],
             title=f"Goodness of Fit Map: {metric_name}",
             colorbar=True,
             **kwargs,
         )
-        return fig, ax
 
     def visualize_fitted_values(self):
         """Not yet implemented."""

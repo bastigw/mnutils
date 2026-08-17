@@ -1,0 +1,376 @@
+.mnutils-mrsi-inspector {
+  /* Both panels give their middle element exactly this height, which is what
+     makes the anatomical frame and the spectrum plot line up top and bottom.
+     Clamped rather than fixed so it still adapts to short viewports, but never
+     grows into a full-screen-tall plot on a large one. */
+  --mnu-mrsi-media-h: clamp(200px, 40vh, 380px);
+
+  /* Every slider in the widget -- the native slice input and both nouislider
+     ones -- is drawn from these two, so the tracks stay the same weight and
+     the handle offsets below can be derived rather than hand-tuned per
+     orientation.
+
+     Sized in `em` so the controls follow the host's type rather than a fixed
+     pixel target: the same 22px thumb that reads as comfortable in a VS Code
+     notebook (13px base) is oversized on the docs site (16px+). The clamps keep
+     it a real pointing target at the small end and stop it turning into a knob
+     at the large one. */
+  --mnu-mrsi-track: clamp(5px, 0.4em, 8px);
+  --mnu-mrsi-thumb: clamp(13px, 1.15em, 18px);
+
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 1em;
+  padding: 0.7em;
+  outline: none;
+  box-shadow: none;
+  border: none;
+}
+
+.mnutils-mrsi-left-panel,
+.mnutils-mrsi-right-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  min-width: 0;
+}
+
+/* One third image, two thirds spectrum: the anatomical frame is a square the
+   reader only needs big enough to aim at, while the spectrum is where the
+   detail is. `flex-basis: 0` makes the 1:2 grow ratio govern the split
+   outright, instead of being applied to whatever is left over after two
+   different content-derived basis widths. `flex-wrap` on the container still
+   stacks them at narrow widths, once min-width kicks in.
+
+   The two min-widths also decide *when* the panels stop sharing a row: each is
+   the narrowest its panel still reads at -- a spectrum needs far more room than
+   a head, hence the asymmetry. Set this way the layout stacks while there is
+   still space to spare, instead of squeezing both until the ppm handles merge
+   and the slice readout is pushed out of its panel. Below their sum the widget
+   is one column and every control gets the full width.
+
+   Wrapped in `min(..., 100%)` so the floor never exceeds what the widget
+   actually has: on a phone the 480px panel is wider than the screen, and a
+   plain min-width would push the ppm bar off the side instead of stacking. */
+.mnutils-mrsi-left-panel {
+  flex: 1 1 0;
+  min-width: min(320px, 100%);
+}
+
+.mnutils-mrsi-right-panel {
+  flex: 2 1 0;
+  min-width: min(480px, 100%);
+}
+
+/* The fixed-height row both panels hang their main content in. The image is
+   centred inside it rather than stretched: the frame keeps its aspect ratio
+   and the leftover width stays empty, which is cheaper to read than a squashed
+   head. */
+.mnutils-mrsi-media {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  height: var(--mnu-mrsi-media-h);
+  min-height: 0;
+}
+
+/* Sized by the frame's own aspect ratio (`--mnu-mrsi-ar`, set inline from the
+   payload's image_width/image_height -- square for the usual T1 grid), so the
+   image is never distorted: the box is as tall as the media row allows, unless
+   that would make it wider than the panel, in which case the width caps and
+   the height follows it down. Setting `height: 100%` and capping `max-width`
+   instead is what squashed the frame -- the width shrank and the height didn't.
+
+   The wrapper also has to be exactly the image box, because the SVG overlay is
+   positioned against it (inset: 0); any letterboxing between the two would
+   offset the voxel outline from the voxel it marks. */
+.mnutils-mrsi-image-wrap {
+  --mnu-mrsi-ar: 1;
+
+  position: relative;
+  flex: 0 0 auto;
+  width: min(100%, calc(var(--mnu-mrsi-media-h) * var(--mnu-mrsi-ar)));
+  aspect-ratio: var(--mnu-mrsi-ar);
+  background: var(--mnu-panel);
+  border: 1px solid var(--mnu-border);
+  border-radius: 6px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.mnutils-mrsi-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+/* Purely a drawing surface: the voxel outline sits on top of the frame, but
+   the click handler lives on the <img> underneath it. Without this the SVG --
+   a full-size absolutely positioned box, painted last -- wins every hit test
+   over the image and swallows the clicks the voxel picker exists to receive.
+   Inherited by the polygons, which have nothing to handle either. */
+.mnutils-mrsi-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Two stacked polygons, not one: over a T1 the box crosses both black
+   background and bright tissue, and a single accent stroke disappears into
+   whichever of the two happens to sit under it. The halo is drawn first
+   (wider, dark, semi-transparent) so the accent line always has contrast, and
+   a faint fill marks the selected cell without hiding the MRSI colour under
+   it. */
+.mnutils-mrsi-voxel-box {
+  fill: color-mix(in srgb, var(--mnu-accent) 12%, transparent);
+  stroke: var(--mnu-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.mnutils-mrsi-voxel-box-halo {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 4;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Fixed line box, not just centred text: the two titles are what sits above the
+   two media boxes, so they have to occupy the same height or the image and the
+   plot start at different y positions. */
+.mnutils-mrsi-slice-title,
+.mnutils-mrsi-spectrum-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 1.05em;
+  min-height: 2.2em;
+  line-height: 1.25;
+}
+
+.mnutils-mrsi-spectrum-container {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0.4em;
+  box-sizing: border-box;
+  background: var(--mnu-panel);
+  border: 1px solid var(--mnu-border);
+  border-radius: 6px;
+}
+
+.mnutils-mrsi-spectrum-container > canvas {
+  display: block;
+}
+
+/* Both control rows read as one component: a bordered strip under the media
+   box, rather than a bare slider floating on the widget background. */
+.mnutils-mrsi-control-bar {
+  gap: 0.7em;
+  padding: 0.45em 0.7em;
+  background: var(--mnu-panel);
+  border: 1px solid var(--mnu-border);
+  border-radius: 6px;
+}
+
+.mnutils-mrsi-range-bar {
+  gap: 0.8em;
+}
+
+/* The shared bar text is sized for the slice viewer's compact strip; next to a
+   full-height plot and thumbs this size it reads as fine print. Bumped here
+   rather than in theme.css so the other widgets keep their own proportions.
+   The readout also gets more room -- it carries two signed ppm values. */
+.mnutils-mrsi-inspector .mnu-lbl,
+.mnutils-mrsi-inspector .mnu-readout {
+  font-size: 0.95em;
+}
+
+/* Never the part that gives way when the bar tightens: the readout is the only
+   place the numeric value appears, so it holds its content width and the track
+   absorbs the loss. */
+.mnutils-mrsi-inspector .mnu-lbl {
+  flex: 0 0 auto;
+}
+
+.mnutils-mrsi-inspector .mnu-readout {
+  flex: 0 0 auto;
+  min-width: 5.5em;
+  white-space: nowrap;
+}
+
+/* Native range inputs are styled per-browser and next to nouislider's flat
+   track the default one looks like a different control; match the two.
+
+   `min-width: 0` is what keeps the bar intact when the panel narrows: a range
+   input carries an intrinsic width (~129px in Chromium) that `flex: 1` alone
+   will not shrink past, so the row grew wider than its panel and shoved the
+   readout out of sight rather than giving up track. */
+.mnutils-mrsi-inspector .mnu-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  height: var(--mnu-mrsi-track);
+  border-radius: 999px;
+  background: var(--mnu-border);
+  cursor: pointer;
+}
+
+.mnutils-mrsi-inspector .mnu-slider:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mnutils-mrsi-inspector .mnu-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--mnu-mrsi-thumb);
+  height: var(--mnu-mrsi-thumb);
+  border: 1px solid var(--mnu-border);
+  border-radius: 50%;
+  background: var(--mnu-accent);
+  cursor: grab;
+}
+
+.mnutils-mrsi-inspector .mnu-slider::-moz-range-thumb {
+  width: var(--mnu-mrsi-thumb);
+  height: var(--mnu-mrsi-thumb);
+  border: 1px solid var(--mnu-border);
+  border-radius: 50%;
+  background: var(--mnu-accent);
+  cursor: grab;
+}
+
+/* Sits under the ppm bar as a secondary control, so keep it visually
+   subordinate to it: a self-shrinking pill rather than a full-width row, muted
+   until hovered or checked. */
+.mnutils-mrsi-ylim-toggle {
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: 0.45em;
+  margin-top: 0.1em;
+  padding: 0.35em 0.8em;
+  border: 1px solid var(--mnu-border);
+  border-radius: 999px;
+  background: var(--mnu-panel);
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--mnu-label);
+  line-height: 1.4;
+  opacity: 0.75;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    opacity 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.mnutils-mrsi-ylim-toggle:hover,
+.mnutils-mrsi-ylim-toggle:focus-within {
+  opacity: 1;
+}
+
+.mnutils-mrsi-ylim-toggle:has(input:checked) {
+  opacity: 1;
+  border-color: var(--mnu-accent);
+}
+
+.mnutils-mrsi-ylim-toggle input {
+  width: 1.1em;
+  height: 1.1em;
+  accent-color: var(--mnu-accent);
+  cursor: pointer;
+  margin: 0;
+}
+
+/* Theme nouislider (the ppm dual-range and the y-limit one) to match the rest
+   of the widget's accent/border tokens instead of its default blue skin. */
+.mnutils-mrsi-slider.noUi-target {
+  background: var(--mnu-border);
+  border: none;
+  box-shadow: none;
+}
+
+.mnutils-mrsi-slider .noUi-connect {
+  background: var(--mnu-accent);
+}
+
+.mnutils-mrsi-slider .noUi-handle {
+  width: var(--mnu-mrsi-thumb);
+  height: var(--mnu-mrsi-thumb);
+  border-color: var(--mnu-border);
+  border-radius: 50%;
+  box-shadow: none;
+  background: var(--mnu-accent);
+  cursor: grab;
+}
+
+/* Centre the handle on the track, whichever way the track runs: the cross-axis
+   offset is half the difference between the two, the along-axis one half a
+   handle. Both derive from the size tokens, so resizing the target needs no
+   re-tuning here. nouislider stamps the orientation class on the target itself.
+
+   The two orientations anchor the handle to opposite edges of its origin
+   element -- `right` + `top` horizontally, `right` + *`bottom`* vertically --
+   because a vertical origin marks its value at its bottom edge. Overriding
+   `top` on a vertical handle therefore doesn't nudge it, it re-anchors it to
+   the far end of the track: both handles ended up a full track-length from the
+   values they stood for, off the side of the panel. Reset the edge the
+   stylesheet used, don't just add to it. */
+.mnutils-mrsi-slider.noUi-horizontal .noUi-handle {
+  top: calc((var(--mnu-mrsi-track) - var(--mnu-mrsi-thumb)) / 2);
+  bottom: auto;
+  right: calc(var(--mnu-mrsi-thumb) / -2);
+}
+
+.mnutils-mrsi-slider.noUi-vertical .noUi-handle {
+  top: auto;
+  bottom: calc(var(--mnu-mrsi-thumb) / -2);
+  right: calc((var(--mnu-mrsi-track) - var(--mnu-mrsi-thumb)) / 2);
+}
+
+.mnutils-mrsi-slider .noUi-handle:focus-visible {
+  outline: 2px solid var(--mnu-focus-ring);
+  outline-offset: 2px;
+}
+
+.mnutils-mrsi-slider .noUi-active {
+  background: var(--mnu-accent-strong);
+  cursor: grabbing;
+}
+
+.mnutils-mrsi-slider .noUi-handle::before,
+.mnutils-mrsi-slider .noUi-handle::after {
+  display: none;
+}
+
+.mnutils-mrsi-ppm-slider {
+  flex: 1;
+  height: var(--mnu-mrsi-track);
+  margin: 0 0.6em;
+}
+
+/* Sits inside the media row, left of the chart, and is sized off the row's own
+   height rather than stretched: nouislider needs a resolved height at create
+   time, and the 3em trimmed off the bottom is roughly the strip Chart.js gives
+   the x axis and its title, which keeps the track spanning the plot area
+   rather than the whole canvas. */
+.mnutils-mrsi-slider.mnutils-mrsi-ylim-slider {
+  flex: 0 0 auto;
+  width: var(--mnu-mrsi-track);
+  height: calc(var(--mnu-mrsi-media-h) - 3em);
+  align-self: flex-start;
+  /* Room for the thumb, which overhangs the track by half its width on every
+     side: without it the handles graze the plot panel and the topmost one
+     clips out of the media row. */
+  margin: 0.9em 0.5em 0 0.4em;
+}
