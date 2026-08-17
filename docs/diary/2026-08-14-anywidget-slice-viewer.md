@@ -1,7 +1,7 @@
 (diary-anywidget-slice-viewer)=
 # The slice slider dies the moment the docs stop running
 
-<span style="color: gray; font-size: 0.9em;">Last edited: 2026-08-17</span>
+<span style="color: gray; font-size: 0.9em;">Last edited: 2026-08-17 · PR #12</span>
 
 `display_images()`, `overlay_image_data_on_T1()` and `inspect_MRSI_spectra()` once scrubbed
 through slices with `ipywidgets.interact()`, redrawn live by the `ipympl` matplotlib backend.
@@ -30,7 +30,7 @@ against `tests/datasets/HeVo-18` says:
 | `application/vnd.jupyter.widget-state+json` | **0** |
 | `application/vnd.jupyter.widget-view+json` | 1, containing only `{"model_id": "dc405eee…"}` |
 | `Exception opening new comm` in build stderr | once per widget-displaying cell |
-| self-contained HTML widgets written | 3 of 3, 12.8 MB each |
+| self-contained HTML widgets written | 3 of 3 |
 
 mystmd's execution engine registers no `jupyter.widget` comm target, so `comm_open` throws and
 the state channel carrying the frames and spectra never opens. A model ID with nothing behind it
@@ -39,10 +39,8 @@ interaction doesn't need a live kernel round-trip** — none of these three ever
 
 The `anywidget` backend was kept for a while as a control that kept the claim falsifiable. It has
 since been deleted, along with the `backend=` argument, the traitlets adapter and the
-transport-tagging fields (`transport`, `frame_mime`, `spectra_encoding`) the frontend needed to
-tell the two apart. Once the measurement had been made once and written down here, keeping a
-second backend alive meant every widget change had to be made twice; the numbers below are the
-part worth keeping, not the code that produced them.
+transport-tagging fields the frontend needed to tell the two apart: once the measurement had been
+made and written down here, a second backend meant making every widget change twice.
 
 ## What the frames actually cost
 
@@ -90,6 +88,50 @@ Worst per-voxel error is 0.039% of that voxel's own peak. The browser inflates i
 built-in `DecompressionStream` — no JS dependency — and converts only the selected voxel's points
 rather than the whole grid.
 
+What travels is the **whole acquired sweep**. Cropping to ±20 ppm first (a 2H sweep at 3 T spans
+~255 ppm, of which that window is a sixth) shipped for a while and did what it promised — 1.1 MB
+of buffer against 6.7 on `HeVo-18` — but it fixed the reachable ppm range at call time, so no
+slider position could ever show a sample the caller hadn't anticipated. At a 12.2 MB page that
+trade stopped being worth it, and `ppm_range` is gone; `_encode_spectra` still warns past 32 MB
+of float32, which is where a grid genuinely gets unwieldy.
+
+## Who owns the y axis
+
+Reading one voxel wants the axis scaled to that voxel. Comparing two wants it held still.
+Chasing a small peak beside a huge one wants neither. Three modes, and the question is how a
+reader moves between them without a settings panel:
+
+```{mermaid}
+%%{init: {'flowchart': {'htmlLabels': false}}}%%
+flowchart LR
+    A["Per-voxel autoscale<br>(default)"] -- "tick the box" --> B["Whole-grid envelope"]
+    A -- "grab the y slider" --> C["Manual limits"]
+    B -- "grab the y slider" --> C
+    B -- "untick" --> A
+    C -- "untick" --> A
+```
+
+Taking hold of the vertical slider ticks the fixed-y box itself: hand-set limits mean nothing on
+an axis that keeps rescaling under them. Unticking is the one way back, and it drops the manual
+limits with the envelope. With no manual limits the slider reads as **fully open** rather than
+tracking the automatic bounds — tracking them is tidier right up to the first quiet voxel, whose
+window is a couple of percent of the grid's amplitude range, putting both handles inside the same
+handful of pixels where they read as one.
+
+:::{warning}
+Two ways this widget went quietly dead, both worth recognising elsewhere:
+
+- **A library's setter can look like a user.** nouislider fires `update` on programmatic `set()`
+  as well — `set(v, false)` suppresses only the `set` event — and once more on create. Syncing
+  props in on `update` therefore hands every value straight back out as if it had been dragged,
+  which pinned the y axis from mount and re-pinned it the instant it was cleared. `slide` fires
+  only for drags, taps and keyboard steps.
+- **A drawing surface still hit-tests.** The voxel outline is an `<svg>` over the frame at
+  `inset: 0`; an `<svg>` hit-tests as an ordinary replaced box, so it swallowed every click meant
+  for the `<img>` beneath it and the voxel picker simply never fired. Anything that only draws
+  needs `pointer-events: none`.
+:::
+
 :::{dropdown} Why float16 and not int16?
 int16 with a global scale compresses slightly better, but the grid spans 0.15 to 6 × 10⁷, so a
 single scale leaves a weak voxel with ~9% error. float16 holds ~0.1% *relative* precision at every
@@ -123,3 +165,6 @@ outline in JS keeps it at one frame per slice.
 - Native-resolution frames were expected to be a free improvement. They aren't free: 512² is
   1.64× the pixels of the dpi-derived 400², so resolution had to be chosen deliberately and paid
   for with a better codec rather than inherited.
+- The ppm crop was, briefly, a shipped default rather than a plan assumption: the sweep was
+  expected to be too expensive to embed whole. Once the buffer was float16 + zlib it wasn't, and
+  a knob that quietly limits what the reader can look at is a worse cost than 5 MB.
