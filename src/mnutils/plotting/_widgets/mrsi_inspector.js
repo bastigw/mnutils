@@ -441,7 +441,9 @@ function MRSIInspector({ data }) {
           ${data.slice_titles[sliceIdx]}
         </div>
         <div className="mnutils-mrsi-media">
-          <div className="mnutils-mrsi-image-wrap">
+          <div
+            className="mnutils-mrsi-image-wrap"
+            style="--mnu-mrsi-ar: ${data.image_width / data.image_height}">
             <img
               className="mnutils-mrsi-image"
               src=${data.frame_urls[sliceIdx]}

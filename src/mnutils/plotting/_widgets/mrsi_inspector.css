@@ -50,13 +50,23 @@
   min-height: 0;
 }
 
-/* Shrink-wraps the image exactly, because the SVG overlay is positioned
-   against *this* box (inset: 0) -- any padding or letterboxing between the two
-   would offset the voxel outline from the voxel it marks. */
+/* Sized by the frame's own aspect ratio (`--mnu-mrsi-ar`, set inline from the
+   payload's image_width/image_height -- square for the usual T1 grid), so the
+   image is never distorted: the box is as tall as the media row allows, unless
+   that would make it wider than the panel, in which case the width caps and
+   the height follows it down. Setting `height: 100%` and capping `max-width`
+   instead is what squashed the frame -- the width shrank and the height didn't.
+
+   The wrapper also has to be exactly the image box, because the SVG overlay is
+   positioned against it (inset: 0); any letterboxing between the two would
+   offset the voxel outline from the voxel it marks. */
 .mnutils-mrsi-image-wrap {
+  --mnu-mrsi-ar: 1;
+
   position: relative;
-  height: 100%;
-  max-width: 100%;
+  flex: 0 0 auto;
+  width: min(100%, calc(var(--mnu-mrsi-media-h) * var(--mnu-mrsi-ar)));
+  aspect-ratio: var(--mnu-mrsi-ar);
   background: var(--mnu-panel);
   border: 1px solid var(--mnu-border);
   border-radius: 6px;
@@ -66,9 +76,8 @@
 
 .mnutils-mrsi-image {
   display: block;
+  width: 100%;
   height: 100%;
-  width: auto;
-  max-width: 100%;
   cursor: crosshair;
 }
 
