@@ -249,6 +249,15 @@ function MRSIInspector({ data }) {
   const ppmStep =
     data.npts > 1 ? Math.abs(data.ppm[1] - data.ppm[0]) || 0.01 : 0.01
 
+  // The chart's x axis is reversed (NMR convention: high ppm left), so the
+  // slider has to run the same way or dragging the left thumb moves the right
+  // edge of the window. nouislider's own `direction: 'rtl'` also reverses
+  // handle order in every get/set payload; mirroring the value about the
+  // midpoint of the data range instead keeps the slider a plain ascending
+  // ltr one and confines the flip to this single involution (mirror(mirror(p))
+  // === p, so the same helper converts both ways).
+  const mirrorPpm = (p) => ppmDataMin + ppmDataMax - p
+
   // Default to the conventional 10 to -2 ppm display window (matches
   // plotting/spectra.py's default xlim), clamped to what the data covers.
   const [ppmRange, setPpmRange] = useState({
@@ -374,6 +383,10 @@ function MRSIInspector({ data }) {
     })
   }
 
+  // The fixed-y toggle renders *above* the plot, not below it: both panels are
+  // equal-height flex columns whose middle element (image / chart) absorbs the
+  // slack, so an extra row under the chart pushed the ppm slider one row lower
+  // than the slice slider on the left.
   const specI = dimsI - 1 - voxel.y
   const specJ = dimsJ - 1 - voxel.x
 
@@ -398,6 +411,9 @@ function MRSIInspector({ data }) {
             className="mnutils-mrsi-overlay"
             viewBox="-0.5 -0.5 ${data.image_width} ${data.image_height}">
             <polygon
+              className="mnutils-mrsi-voxel-box-halo"
+              points=${voxelPolygonPoints} />
+            <polygon
               className="mnutils-mrsi-voxel-box"
               points=${voxelPolygonPoints} />
           </svg>
@@ -419,6 +435,13 @@ function MRSIInspector({ data }) {
           Spectrum at voxel (i:${specI}, j:${specJ},
           slice:${voxel.mrsiSliceIdx})
         </div>
+        <label className="mnutils-mrsi-ylim-toggle">
+          <input
+            type="checkbox"
+            checked=${fixedY}
+            onChange=${(e) => setFixedY(e.target.checked)} />
+          <span>Fixed y-axis (max over all voxels)</span>
+        </label>
         <div className="mnutils-mrsi-spectrum-container">
           <${SpectrumPlot}
             ppm=${data.ppm}
@@ -434,21 +457,13 @@ function MRSIInspector({ data }) {
             min=${ppmDataMin}
             max=${ppmDataMax}
             step=${ppmStep}
-            valueMin=${ppmRange.min}
-            valueMax=${ppmRange.max}
-            onChange=${(min, max) => setPpmRange({ min, max })} />
+            valueMin=${mirrorPpm(ppmRange.max)}
+            valueMax=${mirrorPpm(ppmRange.min)}
+            onChange=${(lo, hi) =>
+              setPpmRange({ min: mirrorPpm(hi), max: mirrorPpm(lo) })} />
           <span className="mnu-readout"
-            >${ppmRange.min.toFixed(2)} – ${ppmRange.max.toFixed(2)}</span
+            >${ppmRange.max.toFixed(2)} – ${ppmRange.min.toFixed(2)}</span
           >
-        </div>
-        <div className="mnu-bar mnutils-mrsi-ylim-bar">
-          <label className="mnu-lbl mnutils-mrsi-ylim-toggle">
-            <input
-              type="checkbox"
-              checked=${fixedY}
-              onChange=${(e) => setFixedY(e.target.checked)} />
-            Fixed y-axis (all voxels)
-          </label>
         </div>
       </div>
     </div>

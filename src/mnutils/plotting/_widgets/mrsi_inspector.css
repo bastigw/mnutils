@@ -38,10 +38,25 @@
   height: 100%;
 }
 
+/* Two stacked polygons, not one: over a T1 the box crosses both black
+   background and bright tissue, and a single accent stroke disappears into
+   whichever of the two happens to sit under it. The halo is drawn first
+   (wider, dark, semi-transparent) so the accent line always has contrast, and
+   a faint fill marks the selected cell without hiding the MRSI colour under
+   it. */
 .mnutils-mrsi-voxel-box {
-  fill: none;
+  fill: color-mix(in srgb, var(--mnu-accent) 12%, transparent);
   stroke: var(--mnu-accent);
   stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.mnutils-mrsi-voxel-box-halo {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 4;
+  stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
@@ -67,15 +82,43 @@
   gap: 0.8em;
 }
 
+/* Sits directly under the spectrum title, so keep it visually subordinate to
+   it: a self-shrinking pill rather than a full-width row, muted until hovered
+   or checked. */
 .mnutils-mrsi-ylim-toggle {
-  display: flex;
+  display: inline-flex;
+  align-self: center;
   align-items: center;
-  gap: 0.4em;
+  gap: 0.45em;
+  padding: 0.2em 0.6em;
+  border: 1px solid var(--mnu-border);
+  border-radius: 999px;
+  background: var(--mnu-panel);
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--mnu-label);
+  line-height: 1.4;
+  opacity: 0.75;
   cursor: pointer;
   user-select: none;
+  transition:
+    opacity 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.mnutils-mrsi-ylim-toggle:hover,
+.mnutils-mrsi-ylim-toggle:focus-within {
+  opacity: 1;
+}
+
+.mnutils-mrsi-ylim-toggle:has(input:checked) {
+  opacity: 1;
+  border-color: var(--mnu-accent);
 }
 
 .mnutils-mrsi-ylim-toggle input {
+  width: 0.95em;
+  height: 0.95em;
   accent-color: var(--mnu-accent);
   cursor: pointer;
   margin: 0;
