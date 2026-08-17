@@ -13,7 +13,22 @@
   display: flex;
   flex-direction: column;
   gap: 0.4em;
-  flex: 1 1 320px;
+  min-width: 0;
+}
+
+/* One third image, two thirds spectrum: the anatomical frame is a square the
+   reader only needs big enough to aim at, while the spectrum is where the
+   detail is. `flex-basis: 0` makes the 1:2 grow ratio govern the split
+   outright, instead of being applied to whatever is left over after two
+   different content-derived basis widths. `flex-wrap` on the container still
+   stacks them at narrow widths, once min-width kicks in. */
+.mnutils-mrsi-left-panel {
+  flex: 1 1 0;
+  min-width: 200px;
+}
+
+.mnutils-mrsi-right-panel {
+  flex: 2 1 0;
   min-width: 260px;
 }
 

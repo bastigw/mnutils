@@ -51,6 +51,7 @@ function applyAffine(affine, point) {
 function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
   const containerRef = useRef(null)
   const sliderRef = useRef(null)
+  const draggingRef = useRef(false)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
 
@@ -67,9 +68,28 @@ function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
     })
     sliderRef.current = slider
 
+    // 'update' fires on every mousemove, not once per step, so the same
+    // snapped pair arrives dozens of times per drag. Forwarding each one cost
+    // a re-render, a Chart.js repaint and (via the sync effect below) a
+    // nouislider `set` that reads geometry back -- i.e. a forced reflow of the
+    // whole panel per mouse event, which is what made dragging feel sticky.
+    let lastLo = null
+    let lastHi = null
     slider.on('update', (values) => {
       const [lo, hi] = values.map(Number)
+      if (lo === lastLo && hi === lastHi) return
+      lastLo = lo
+      lastHi = hi
       onChangeRef.current(lo, hi)
+    })
+
+    // While the user drags, nouislider's own handle positions are already
+    // authoritative; writing them back mid-gesture only thrashes layout.
+    slider.on('start', () => {
+      draggingRef.current = true
+    })
+    slider.on('end', () => {
+      draggingRef.current = false
     })
 
     return () => {
@@ -82,6 +102,7 @@ function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
   }, [min, max, step])
 
   useEffect(() => {
+    if (draggingRef.current) return
     sliderRef.current?.set([valueMin, valueMax], false)
   }, [valueMin, valueMax])
 
@@ -246,23 +267,40 @@ function MRSIInspector({ data }) {
 
   const ppmDataMin = Math.min(data.ppm[0], data.ppm[data.npts - 1])
   const ppmDataMax = Math.max(data.ppm[0], data.ppm[data.npts - 1])
-  const ppmStep =
-    data.npts > 1 ? Math.abs(data.ppm[1] - data.ppm[0]) || 0.01 : 0.01
+
+  // Whole-ppm steps only: a window is something you read off in ppm ("2 to 8"),
+  // and stepping by the sample spacing (~0.02 ppm) gave the slider hundreds of
+  // indistinguishable positions. The bounds move inwards to the nearest
+  // integers so the steps actually land on round numbers rather than on
+  // `ppmDataMin + k`. Data spanning less than 1 ppm has no integer grid to
+  // snap to, so it keeps the sample spacing.
+  const ppmIntMin = Math.ceil(ppmDataMin)
+  const ppmIntMax = Math.floor(ppmDataMax)
+  const wholePpmSteps = ppmIntMax > ppmIntMin
+  const ppmSliderMin = wholePpmSteps ? ppmIntMin : ppmDataMin
+  const ppmSliderMax = wholePpmSteps ? ppmIntMax : ppmDataMax
+  const ppmStep = wholePpmSteps
+    ? 1
+    : data.npts > 1
+      ? Math.abs(data.ppm[1] - data.ppm[0]) || 0.01
+      : 0.01
 
   // The chart's x axis is reversed (NMR convention: high ppm left), so the
   // slider has to run the same way or dragging the left thumb moves the right
   // edge of the window. nouislider's own `direction: 'rtl'` also reverses
   // handle order in every get/set payload; mirroring the value about the
-  // midpoint of the data range instead keeps the slider a plain ascending
+  // midpoint of the slider range instead keeps the slider a plain ascending
   // ltr one and confines the flip to this single involution (mirror(mirror(p))
-  // === p, so the same helper converts both ways).
-  const mirrorPpm = (p) => ppmDataMin + ppmDataMax - p
+  // === p, so the same helper converts both ways). Mirroring about the
+  // *slider* bounds, not the data bounds, is what keeps integers integral.
+  const mirrorPpm = (p) => ppmSliderMin + ppmSliderMax - p
+  const ppmDecimals = wholePpmSteps ? 0 : 2
 
   // Default to the conventional 10 to -2 ppm display window (matches
   // plotting/spectra.py's default xlim), clamped to what the data covers.
   const [ppmRange, setPpmRange] = useState({
-    min: clamp(-2, ppmDataMin, ppmDataMax),
-    max: clamp(10, ppmDataMin, ppmDataMax),
+    min: clamp(-2, ppmSliderMin, ppmSliderMax),
+    max: clamp(10, ppmSliderMin, ppmSliderMax),
   })
 
   // `data.spectra` is a Uint16Array of raw float16 bit patterns and
@@ -454,15 +492,16 @@ function MRSIInspector({ data }) {
         <div className="mnu-bar mnutils-mrsi-range-bar">
           <span className="mnu-lbl">ppm:</span>
           <${DualRangeSlider}
-            min=${ppmDataMin}
-            max=${ppmDataMax}
+            min=${ppmSliderMin}
+            max=${ppmSliderMax}
             step=${ppmStep}
             valueMin=${mirrorPpm(ppmRange.max)}
             valueMax=${mirrorPpm(ppmRange.min)}
             onChange=${(lo, hi) =>
               setPpmRange({ min: mirrorPpm(hi), max: mirrorPpm(lo) })} />
           <span className="mnu-readout"
-            >${ppmRange.max.toFixed(2)} – ${ppmRange.min.toFixed(2)}</span
+            >${ppmRange.max.toFixed(ppmDecimals)} –
+            ${ppmRange.min.toFixed(ppmDecimals)}</span
           >
         </div>
       </div>
