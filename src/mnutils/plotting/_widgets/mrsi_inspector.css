@@ -67,6 +67,20 @@
   gap: 0.8em;
 }
 
+.mnutils-mrsi-ylim-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mnutils-mrsi-ylim-toggle input {
+  accent-color: var(--mnu-accent);
+  cursor: pointer;
+  margin: 0;
+}
+
 /* Theme nouislider (used for the ppm dual-range) to match the rest of the
    widget's accent/border tokens instead of its default blue skin. */
 .mnutils-mrsi-ppm-slider {

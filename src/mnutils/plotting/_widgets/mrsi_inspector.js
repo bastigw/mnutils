@@ -100,7 +100,7 @@ function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
 // Chart.js spectrum plot. The chart instance is created once (empty deps
 // effect) and mutated in place on every voxel/range change rather than
 // recreated, so panning/zooming/voxel-picking stays cheap.
-function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label }) {
+function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label, yEnvelope }) {
   const canvasRef = useRef(null)
   const chartRef = useRef(null)
 
@@ -118,6 +118,12 @@ function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label }) {
     [ppm, spectrumData],
   )
 
+  // With `yEnvelope` given (fixed-y mode) the bounds come from the whole
+  // grid's per-point min/max instead of this one voxel, so the axis stops
+  // moving as you step between voxels and their amplitudes stay comparable.
+  // It's still restricted to the ppm window: "fixed" means independent of the
+  // voxel, not of the zoom -- a window-wide axis would flatten every peak
+  // whenever one voxel somewhere has a huge off-window artefact.
   const yBounds = useMemo(() => {
     const lo = Math.min(ppmMin, ppmMax)
     const hi = Math.max(ppmMin, ppmMax)
@@ -125,9 +131,10 @@ function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label }) {
     let max = -Infinity
     for (let i = 0; i < ppm.length; i++) {
       if (ppm[i] < lo || ppm[i] > hi) continue
-      const v = spectrumData[i]
-      if (v < min) min = v
-      if (v > max) max = v
+      const vLo = yEnvelope ? yEnvelope.min[i] : spectrumData[i]
+      const vHi = yEnvelope ? yEnvelope.max[i] : spectrumData[i]
+      if (vLo < min) min = vLo
+      if (vHi > max) max = vHi
     }
     // A window narrower than one ppm step can contain no sample at all, which
     // leaves min/max at +/-Infinity -- widening those by 1 keeps them infinite
@@ -141,7 +148,7 @@ function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label }) {
     }
     const pad = (max - min) * 0.05
     return { min: min - pad, max: max + pad }
-  }, [ppm, spectrumData, ppmMin, ppmMax])
+  }, [ppm, spectrumData, ppmMin, ppmMax, yEnvelope])
 
   useEffect(() => {
     if (!canvasRef.current) return undefined
@@ -264,6 +271,33 @@ function MRSIInspector({ data }) {
     }
     return out
   }, [voxel, data.spectra, data.spectra_scale, ny, nMrsiSlices, data.npts])
+
+  // Per-point min/max across *every* voxel, computed once on first use and
+  // cached: the fixed-y axis has to cover the loudest voxel anywhere in the
+  // grid, and recomputing that on each ppm-slider step (2.9M half-float
+  // conversions for a 16^3 grid at 700 points) would stall the drag. Reducing
+  // to two length-`npts` envelopes up front makes every later window change an
+  // O(npts) scan in `SpectrumPlot`.
+  const [fixedY, setFixedY] = useState(false)
+  const envelopeRef = useRef(null)
+  const yEnvelope = useMemo(() => {
+    if (!fixedY) return null
+    if (envelopeRef.current?.source === data.spectra) return envelopeRef.current
+    const { npts, spectra, spectra_scale } = data
+    const min = new Float64Array(npts).fill(Infinity)
+    const max = new Float64Array(npts).fill(-Infinity)
+    const nVoxels = Math.floor(spectra.length / npts)
+    for (let v = 0; v < nVoxels; v++) {
+      const offset = v * npts
+      for (let i = 0; i < npts; i++) {
+        const val = halfToFloat(spectra[offset + i]) * spectra_scale
+        if (val < min[i]) min[i] = val
+        if (val > max[i]) max[i] = val
+      }
+    }
+    envelopeRef.current = { min, max, source: spectra }
+    return envelopeRef.current
+  }, [fixedY, data.spectra, data.spectra_scale, data.npts])
 
   const voxelPolygonPoints = useMemo(() => {
     const cornerOffsets = [
@@ -391,7 +425,8 @@ function MRSIInspector({ data }) {
             spectrumData=${currentSpectrum}
             ppmMin=${ppmRange.min}
             ppmMax=${ppmRange.max}
-            label=${data.spectrum_label} />
+            label=${data.spectrum_label}
+            yEnvelope=${yEnvelope} />
         </div>
         <div className="mnu-bar mnutils-mrsi-range-bar">
           <span className="mnu-lbl">ppm:</span>
@@ -405,6 +440,15 @@ function MRSIInspector({ data }) {
           <span className="mnu-readout"
             >${ppmRange.min.toFixed(2)} – ${ppmRange.max.toFixed(2)}</span
           >
+        </div>
+        <div className="mnu-bar mnutils-mrsi-ylim-bar">
+          <label className="mnu-lbl mnutils-mrsi-ylim-toggle">
+            <input
+              type="checkbox"
+              checked=${fixedY}
+              onChange=${(e) => setFixedY(e.target.checked)} />
+            Fixed y-axis (all voxels)
+          </label>
         </div>
       </div>
     </div>
