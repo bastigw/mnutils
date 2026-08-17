@@ -257,15 +257,25 @@
 }
 
 /* Centre the 16px handle on the 6px track, whichever way the track runs.
-   nouislider stamps the orientation class on the target itself. */
+   nouislider stamps the orientation class on the target itself.
+
+   The two orientations anchor the handle to opposite edges of its origin
+   element -- `right` + `top` horizontally, `right` + *`bottom`* vertically --
+   because a vertical origin marks its value at its bottom edge. Overriding
+   `top` on a vertical handle therefore doesn't nudge it, it re-anchors it to
+   the far end of the track: both handles ended up a full track-length from the
+   values they stood for, off the side of the panel. Reset the edge the
+   stylesheet used, don't just add to it. */
 .mnutils-mrsi-slider.noUi-horizontal .noUi-handle {
   top: -5px;
+  bottom: auto;
   right: -8px;
 }
 
 .mnutils-mrsi-slider.noUi-vertical .noUi-handle {
+  top: auto;
+  bottom: -8px;
   right: -5px;
-  top: -8px;
 }
 
 .mnutils-mrsi-slider .noUi-handle:focus-visible {
@@ -294,7 +304,7 @@
    time, and the 3em trimmed off the bottom is roughly the strip Chart.js gives
    the x axis and its title, which keeps the track spanning the plot area
    rather than the whole canvas. */
-.mnutils-mrsi-ylim-slider {
+.mnutils-mrsi-slider.mnutils-mrsi-ylim-slider {
   flex: 0 0 auto;
   width: 6px;
   height: calc(var(--mnu-mrsi-media-h) - 3em);

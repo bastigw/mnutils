@@ -45,11 +45,10 @@ function applyAffine(affine, point) {
 // library) instead of the two-overlaid-native-inputs hack. Used twice: the
 // horizontal ppm window under the chart, and the vertical y-limit slider
 // beside it. The instance is created once and driven imperatively thereafter:
-// external prop changes go through `.set(values, false)` (suppresses events)
-// so they don't loop back into `onChange`, while user drags fire nouislider's
-// 'update' event (also covers programmatic-less internal moves during a drag)
-// into `onChange`. `onStart` fires once per gesture, before any value moves --
-// the y slider uses it to claim the axis on the first touch.
+// external prop changes go through `.set()`, while user gestures come back out
+// through nouislider's 'slide' event (see the listener below for why that one).
+// `onStart` fires once per gesture, before any value moves -- the y slider uses
+// it to claim the axis on the first touch.
 function DualRangeSlider({
   min,
   max,
@@ -86,14 +85,20 @@ function DualRangeSlider({
     })
     sliderRef.current = slider
 
-    // 'update' fires on every mousemove, not once per step, so the same
+    // 'slide', not 'update': nouislider fires 'update' on programmatic `set`
+    // as well (unconditionally, ahead of the `fireSetEvent` guard), and once
+    // more on create -- so listening to it turns the sync effect below into a
+    // feedback loop that writes every externally-driven value straight back
+    // into `onChange`. 'slide' fires only for drags, taps and keyboard steps.
+    //
+    // It still fires on every mousemove rather than once per step, so the same
     // snapped pair arrives dozens of times per drag. Forwarding each one cost
     // a re-render, a Chart.js repaint and (via the sync effect below) a
     // nouislider `set` that reads geometry back -- i.e. a forced reflow of the
     // whole panel per mouse event, which is what made dragging feel sticky.
     let lastLo = null
     let lastHi = null
-    slider.on('update', (values) => {
+    slider.on('slide', (values) => {
       const [lo, hi] = values.map(Number)
       if (lo === lastLo && hi === lastHi) return
       lastLo = lo
@@ -388,6 +393,27 @@ function MRSIInspector({ data }) {
   // midpoint, an involution that converts in both directions.
   const mirrorY = (v) => yDataMin + yDataMax - v
 
+  // With no manual limits set the slider sits fully open rather than tracking
+  // the automatic bounds. Tracking them looks tidier but is unusable: a quiet
+  // voxel's window is a couple of percent of the grid's amplitude range, so
+  // both handles land inside the same 16 px and read as a single one. Fully
+  // open also says the right thing -- nothing is being clamped yet.
+  const ySliderLo = yLim
+    ? clamp(mirrorY(yLim.max), yDataMin, yDataMax)
+    : yDataMin
+  const ySliderHi = yLim
+    ? clamp(mirrorY(yLim.min), yDataMin, yDataMax)
+    : yDataMax
+
+  // Taking hold of the slider claims the axis: hand-set limits only mean
+  // anything if it stops rescaling itself. The limits start at what the handles
+  // already show (the full range), so the axis matches the control from the
+  // first frame of the gesture instead of jumping to it on the first step.
+  const claimYAxis = () => {
+    setFixedY(true)
+    setYLim((prev) => prev ?? { min: yDataMin, max: yDataMax })
+  }
+
   const voxelPolygonPoints = useMemo(() => {
     const cornerOffsets = [
       [-0.5, -0.5, 0],
@@ -531,11 +557,15 @@ function MRSIInspector({ data }) {
             min=${yDataMin}
             max=${yDataMax}
             step=${yStep}
-            valueMin=${clamp(mirrorY(yBounds.max), yDataMin, yDataMax)}
-            valueMax=${clamp(mirrorY(yBounds.min), yDataMin, yDataMax)}
-            onStart=${() => setFixedY(true)}
-            onChange=${(lo, hi) =>
-              setYLim({ min: mirrorY(hi), max: mirrorY(lo) })} />
+            valueMin=${ySliderLo}
+            valueMax=${ySliderHi}
+            onStart=${claimYAxis}
+            onChange=${(lo, hi) => {
+              // Also here, not just in `onStart`: a tap on the track moves a
+              // handle without a preceding drag gesture on some inputs.
+              claimYAxis()
+              setYLim({ min: mirrorY(hi), max: mirrorY(lo) })
+            }} />
           <div className="mnutils-mrsi-spectrum-container">
             <${SpectrumPlot}
               ppm=${data.ppm}
