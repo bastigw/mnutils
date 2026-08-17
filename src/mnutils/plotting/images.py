@@ -35,6 +35,12 @@ MRSI_FRAME_QUALITY = 92
 # the browser. 32000 leaves an octave of headroom under the limit.
 _F16_TARGET_MAX = 32000.0
 
+# Spectra are cropped to this ppm window before being embedded in the widget.
+# Nothing outside it is ever looked at in an inspector, and for a wide sweep it
+# dominates the payload -- a 2H acquisition at 3 T spans ~255 ppm, of which this
+# window is 16%.
+DEFAULT_MRSI_PPM_RANGE = (-20.0, 20.0)
+
 # Warn past this uncompressed spectra size -- a big grid can otherwise silently
 # produce a notebook hundreds of MB wide.
 _SPECTRA_WARN_BYTES = 32 * 1024**2
@@ -815,6 +821,7 @@ def inspect_MRSI_spectra(
     blocky: bool = True,
     magnitude: bool = False,
     autophase: bool = True,
+    ppm_range: tuple[float, float] | None = DEFAULT_MRSI_PPM_RANGE,
     backend: Literal["html", "anywidget"] = "html",
 ) -> None:
     """Display an interactive widget to inspect MRSI spectra over a T1 image.
@@ -838,8 +845,14 @@ def inspect_MRSI_spectra(
     magnitude : bool, optional
         If True, display the magnitude spectrum, by default False.
     autophase : bool, optional
-        If True (and `magnitude` is False), autophase the spectrum before
-        display, by default True.
+        If True (and `magnitude` is False), phase each voxel independently
+        before display, by default True. See `mrsi_spectra_for_display` for
+        why this is done per voxel rather than through a single global fit.
+    ppm_range : tuple of float, or None, optional
+        Embed only the samples inside this inclusive ppm window, by default
+        `DEFAULT_MRSI_PPM_RANGE`. Pass `None` to embed the full sweep — the
+        spectra buffer scales directly with this, and nothing outside the
+        window can be reached from the widget's ppm slider.
     backend : {"html", "anywidget"}, optional
         How the widget reaches the browser, by default `"html"`.
 
@@ -911,30 +924,10 @@ def inspect_MRSI_spectra(
 
     logger.debug("Starting rendering of spectra array")
 
-    npts = MRSI.ppm.values.size
-    spectral_dim = MRSI.spec.dims[0]
-    # `autophase()` finds one phase correction from the single voxel with the
-    # global-max signal and applies it to the whole grid in one call, instead
-    # of an independent (and far slower) optimization per voxel -- see
-    # docs/diary/2026-08-14-anywidget-slice-viewer.md for the per-voxel
-    # timing that motivated this.
-    if magnitude:
-        spectra_array = np.abs(MRSI.spec)
-    elif autophase:
-        phased = MRSI.spec.xmr.to_hz().xmr.autophase()
-        spectral_dim = (set(phased.dims) - {"i", "j", "k"}).pop()
-        spectra_array = phased.real
-    else:
-        spectra_array = MRSI.spec.real
-    # Top left of the image is (0, 0); the MRSI grid's coordinate system
-    # starts bottom-right, so the array is reversed along i/j and the (x, y)
-    # voxel axes read from (j, i) rather than (i, j) -- matches the mapping
-    # `overlay_voxel_on_T1`/the widget's client-side voxel picker expect.
-    spectra_array = (
-        spectra_array.isel(i=slice(None, None, -1), j=slice(None, None, -1))
-        .transpose("j", "i", "k", spectral_dim)
-        .values
+    ppm_axis, spectra_array = mrsi_spectra_for_display(
+        MRSI, magnitude=magnitude, autophase=autophase, ppm_range=ppm_range
     )
+    npts = ppm_axis.size
     spectra_bytes, spectra_scale = _encode_spectra(spectra_array)
 
     if magnitude:
@@ -958,7 +951,7 @@ def inspect_MRSI_spectra(
         grid_shape=(nx, ny, n_mrsi_slices),
         mrsi_dims=(int(MRSI.dims[0]), int(MRSI.dims[1])),
         initial_voxel=initial_voxel,
-        ppm=MRSI.ppm.values.astype(float).tolist(),
+        ppm=ppm_axis.tolist(),
         spectra_bytes=spectra_bytes,
         spectra_scale=spectra_scale,
         npts=npts,
@@ -974,6 +967,86 @@ def inspect_MRSI_spectra(
         ipy_display(MRSIVoxelInspectorAnyWidget(**payload))
     else:
         ipy_display(MRSIVoxelInspectorWidget(**payload))
+
+
+def mrsi_spectra_for_display(
+    MRSI: GESeries.MRSISeries,
+    *,
+    magnitude: bool = False,
+    autophase: bool = True,
+    ppm_range: tuple[float, float] | None = DEFAULT_MRSI_PPM_RANGE,
+) -> tuple[npt.NDArray, npt.NDArray]:
+    """Build the exact ppm axis and spectra grid `inspect_MRSI_spectra` displays.
+
+    Split out of the widget so the displayed numbers can be inspected directly
+    — the inspector ships precisely this array, so plotting `spectra[x, y, z]`
+    against `ppm` reproduces a voxel's panel exactly:
+
+    >>> ppm, spectra = mrsi_spectra_for_display(mrsi)  # doctest: +SKIP
+    >>> plt.plot(ppm, spectra[8, 8, 8])                # doctest: +SKIP
+
+    Parameters
+    ----------
+    MRSI : GESeries.MRSISeries
+        The MRSI series to read spectra from.
+    magnitude : bool, optional
+        If True, return the magnitude spectrum, by default False.
+    autophase : bool, optional
+        If True (and `magnitude` is False), phase each voxel independently,
+        by default True.
+    ppm_range : tuple of float, or None, optional
+        Keep only samples within this inclusive ppm window, by default
+        `DEFAULT_MRSI_PPM_RANGE`. `None` keeps the full sweep.
+
+    Returns
+    -------
+    ppm : ndarray
+        1-D ppm axis, cropped to `ppm_range`.
+    spectra : ndarray
+        Real-valued grid indexed `[x, y, mrsi_slice, point]`, matching the
+        voxel coordinates the widget's picker reports.
+    """
+    ppm = np.asarray(MRSI.ppm.values, dtype=float)
+    spectral_dim = MRSI.spec.dims[0]
+    # Top left of the image is (0, 0); the MRSI grid's coordinate system
+    # starts bottom-right, so the array is reversed along i/j and the (x, y)
+    # voxel axes read from (j, i) rather than (i, j) -- matches the mapping
+    # `overlay_voxel_on_T1`/the widget's client-side voxel picker expect.
+    grid = (
+        MRSI.spec.isel(i=slice(None, None, -1), j=slice(None, None, -1))
+        .transpose("j", "i", "k", spectral_dim)
+        .values
+    )
+
+    if ppm_range is not None:
+        lo, hi = min(ppm_range), max(ppm_range)
+        keep = (ppm >= lo) & (ppm <= hi)
+        if not keep.any():
+            raise ValueError(
+                f"ppm_range {ppm_range} selects no samples; the spectra span "
+                f"{ppm.min():.2f} to {ppm.max():.2f} ppm."
+            )
+        logger.debug(f"Cropping spectra to {lo}..{hi} ppm: {keep.sum()} of {ppm.size} points")
+        ppm, grid = ppm[keep], grid[..., keep]
+
+    if magnitude:
+        return ppm, np.abs(grid)
+    if not autophase:
+        return ppm, grid.real
+    # Phase every voxel by its own peak instead of applying one global
+    # correction to all of them. xmris' `autophase(mode="single")` derives a
+    # single zero-order phase from the grid's strongest voxel; on real data
+    # that leaves the median voxel only ~0.52 absorptive and outright inverts
+    # ~29% of them, which reads as corrupted spectra. Rotating each voxel by
+    # the argument of its own largest point makes every peak absorptive and
+    # positive, is one complex multiply (~0.02 s for a 16x16x16 grid, against
+    # ~0.85 s for the global fit), and is display-only -- no fitting decision
+    # is taken here. `mode="all"` upstream would be the real home for this;
+    # it currently raises NotImplementedError.
+    peak = np.abs(grid).argmax(axis=-1)
+    xs, ys, zs = np.indices(peak.shape)
+    phi = np.angle(grid[xs, ys, zs, peak])
+    return ppm, (grid * np.exp(-1j * phi)[..., None]).real
 
 
 def _encode_spectra(spectra_array: npt.NDArray) -> tuple[bytes, float]:
