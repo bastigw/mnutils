@@ -14,6 +14,7 @@ dependencies = [
     "matplotlib>=3.10.7",
     "nibabel>=5.3.2",
     "nmrglue>=0.11",
+    "pillow>=12.3.0",
     "scipy>=1.15.3",
     "seaborn>=0.13.2",
     "tailwind-colors>=1.4.1",
@@ -53,6 +54,7 @@ dev = [
     "griffe<0.40.0",            # Explicit pin to fix quartodoc parsing bug
     "jupyter-server>=2.17.0",   # Required for rendering docs
     "jupytext>=1.19.1",
+    "anywidget>=0.11.0",        # `backend="anywidget"` comparison only, never a runtime dep
 ]
 
 [tool.pytest.ini_options]

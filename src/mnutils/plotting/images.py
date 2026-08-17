@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import io
-from typing import Any, TypedDict, Unpack
+import zlib
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Literal, TypedDict, Unpack
 
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
+import PIL.Image
 from IPython.display import display as ipy_display
 from loguru import logger
 from matplotlib import patches
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
 from matplotlib.contour import QuadContourSet
 from matplotlib.figure import Figure
 from matplotlib.image import AxesImage
@@ -18,6 +23,21 @@ from nibabel import affines, spatialimages
 
 from .. import GESeries, utils
 from ._widgets import MRSIVoxelInspectorWidget, SliceViewerWidget
+
+# WebP quality for the MRSI inspector's anatomical frames. These are display
+# rasters -- already normalised, colormapped and alpha-blended to 8-bit -- not
+# data, so lossy encoding costs nothing measurable: q92 holds ~41 dB PSNR
+# against the exact composite while being ~7x smaller than the PNG equivalent.
+MRSI_FRAME_QUALITY = 92
+
+# float16 tops out at 65504, and raw spectra routinely exceed that, so the
+# buffer is divided by a scale factor before the cast and multiplied back in
+# the browser. 32000 leaves an octave of headroom under the limit.
+_F16_TARGET_MAX = 32000.0
+
+# Warn past this uncompressed spectra size -- a big grid can otherwise silently
+# produce a notebook hundreds of MB wide.
+_SPECTRA_WARN_BYTES = 32 * 1024**2
 
 DEFAULT_IMAGE_AX_PARAMS = {
     "xlabel": "",
@@ -795,6 +815,7 @@ def inspect_MRSI_spectra(
     blocky: bool = True,
     magnitude: bool = False,
     autophase: bool = True,
+    backend: Literal["html", "anywidget"] = "html",
 ) -> None:
     """Display an interactive widget to inspect MRSI spectra over a T1 image.
 
@@ -819,6 +840,18 @@ def inspect_MRSI_spectra(
     autophase : bool, optional
         If True (and `magnitude` is False), autophase the spectrum before
         display, by default True.
+    backend : {"html", "anywidget"}, optional
+        How the widget reaches the browser, by default `"html"`.
+
+        `"html"` emits one self-contained `text/html` output with the data
+        baked in, which renders identically under a live kernel, `myst start`
+        and a static `myst build --html` page.
+
+        `"anywidget"` uses the Jupyter widget protocol instead, shipping the
+        frames and spectra as binary comm buffers rather than base64. It needs
+        the dev-group `anywidget` dependency and a live kernel, so it cannot
+        survive into a static docs page; it exists to be measured against the
+        default. See `docs/diary/2026-08-14-anywidget-slice-viewer.md`.
     """
     t1_images = T1.images()
     if blocky:
@@ -900,8 +933,9 @@ def inspect_MRSI_spectra(
     spectra_array = (
         spectra_array.isel(i=slice(None, None, -1), j=slice(None, None, -1))
         .transpose("j", "i", "k", spectral_dim)
-        .values.astype(np.float32)
+        .values
     )
+    spectra_bytes, spectra_scale = _encode_spectra(spectra_array)
 
     if magnitude:
         spectrum_label = "Magnitude Spectrum"
@@ -912,25 +946,69 @@ def inspect_MRSI_spectra(
 
     logger.debug("Ready to display")
 
-    ipy_display(
-        MRSIVoxelInspectorWidget(
-            left_frames=left_frames,
-            slice_titles=slice_titles,
-            n_anat_slices=n_anat_slices,
-            initial_slice=initial_slice,
-            image_width=t1_images.shape[1],
-            image_height=t1_images.shape[0],
-            mrsi_to_display_affine=mrsi_to_display.flatten().tolist(),
-            display_to_mrsi_affine=display_to_mrsi.flatten().tolist(),
-            grid_shape=(nx, ny, n_mrsi_slices),
-            mrsi_dims=(int(MRSI.dims[0]), int(MRSI.dims[1])),
-            initial_voxel=initial_voxel,
-            ppm=MRSI.ppm.values.astype(float).tolist(),
-            spectra_bytes=spectra_array.tobytes(),
-            npts=npts,
-            spectrum_label=spectrum_label,
-        )
+    payload = dict(
+        left_frames=left_frames,
+        slice_titles=slice_titles,
+        n_anat_slices=n_anat_slices,
+        initial_slice=initial_slice,
+        image_width=t1_images.shape[1],
+        image_height=t1_images.shape[0],
+        mrsi_to_display_affine=mrsi_to_display.flatten().tolist(),
+        display_to_mrsi_affine=display_to_mrsi.flatten().tolist(),
+        grid_shape=(nx, ny, n_mrsi_slices),
+        mrsi_dims=(int(MRSI.dims[0]), int(MRSI.dims[1])),
+        initial_voxel=initial_voxel,
+        ppm=MRSI.ppm.values.astype(float).tolist(),
+        spectra_bytes=spectra_bytes,
+        spectra_scale=spectra_scale,
+        npts=npts,
+        spectrum_label=spectrum_label,
     )
+
+    if backend == "anywidget":
+        # Imported here, not at module scope: `anywidget` is a dev-group
+        # dependency (this backend exists to be compared against, not shipped),
+        # and a bare `uv sync` must still be able to import this module.
+        from ._widgets.mrsi_inspector_anywidget import MRSIVoxelInspectorAnyWidget
+
+        ipy_display(MRSIVoxelInspectorAnyWidget(**payload))
+    else:
+        ipy_display(MRSIVoxelInspectorWidget(**payload))
+
+
+def _encode_spectra(spectra_array: npt.NDArray) -> tuple[bytes, float]:
+    """Pack the per-voxel spectra grid into a compact wire buffer.
+
+    Returns the zlib-compressed float16 buffer and the scale factor needed to
+    recover the original values (`value = stored * scale`).
+
+    Two reductions over the obvious `astype(np.float32).tobytes()`, which for a
+    16x16x16 grid at 700 points is 11.5 MB before base64 inflates it to 15.3:
+
+    - **float16 halves it.** This buffer only ever feeds a line plot, so the
+      ~3 significant digits it keeps are far inside display precision. Raw
+      spectra do overflow float16's 65504 limit, though, so the grid is scaled
+      into range first and the factor travels with it.
+    - **zlib then takes another ~8x**, because neighbouring points in a
+      spectrum are highly correlated. The browser inflates it with the built-in
+      `DecompressionStream`, so this costs no JS dependency.
+    """
+    nbytes = spectra_array.size * 4
+    if nbytes > _SPECTRA_WARN_BYTES:
+        logger.warning(
+            f"MRSI spectra buffer is large ({nbytes / 1024**2:.0f} MB as float32 for a "
+            f"{'x'.join(str(d) for d in spectra_array.shape)} grid). The widget embeds it in "
+            "its output, so the notebook and any built docs page will grow accordingly."
+        )
+    peak = float(np.nanmax(np.abs(spectra_array))) if spectra_array.size else 0.0
+    # A power of two, not `peak / target`: scaling by one shifts every value's
+    # exponent and leaves its mantissa bits untouched, so it is both exact (no
+    # rounding on top of the float16 cast) and keeps the buffer as compressible
+    # as it was. An arbitrary divisor perturbs every mantissa and cost ~4x on
+    # the compressed size when measured.
+    scale = 2.0 ** np.ceil(np.log2(peak / _F16_TARGET_MAX)) if peak > _F16_TARGET_MAX else 1.0
+    scaled = (spectra_array / scale) if scale != 1.0 else spectra_array
+    return zlib.compress(scaled.astype(np.float16).tobytes(), 6), float(scale)
 
 
 def _render_mrsi_left_frames(
@@ -942,48 +1020,49 @@ def _render_mrsi_left_frames(
     anat_vmax: float,
     mrsi_vmin: float,
     mrsi_vmax: float,
+    quality: int = MRSI_FRAME_QUALITY,
+    max_workers: int = 8,
 ) -> list[bytes]:
-    """Render a batch of T1+MRSI-overlay anatomical slices, one PNG per slice.
+    """Render a batch of T1+MRSI-overlay anatomical slices, one WebP per slice.
 
-    The axes fills the entire figure with no ticks/labels/margin and uses
-    `aspect="auto"`, so each saved PNG's content area maps linearly onto the
-    image's (ncols, nrows) data extent -- required for the widget's
-    client-side voxel-outline overlay to align with the image. Since vmin/
-    vmax are fixed across all slices, one Figure/axes/imshow pair is built
-    for the whole batch and each slice just updates the image data in place.
+    These frames are pure raster: no ticks, labels, titles, colorbar or
+    contours, just a grayscale T1 with a half-transparent magma overlay
+    filling the whole image. Going through a matplotlib `Figure`/Agg canvas
+    to produce that costs ~130 ms per slice, almost all of it rasterization
+    and PNG encoding, for arithmetic that is really only `cmap(norm(arr))`
+    plus an alpha blend. So the Figure is gone: matplotlib still *supplies*
+    the colormaps (via `ScalarMappable`, so nothing is reimplemented and the
+    two can't drift), and the blend and encode are done directly.
+
+    Frames come out at the volume's native (nrows, ncols) rather than a
+    dpi-derived size. The client side is resolution-independent -- the SVG
+    voxel overlay is sized by a data-coordinate `viewBox` and clicks are
+    mapped through the rendered `rect.width` -- so this is purely sharper.
+
+    WebP rather than PNG: at native resolution these frames are ~318 kB each
+    as PNG but ~42 kB as WebP q92 (41 dB PSNR against the exact composite),
+    which is what keeps the widget's payload manageable. Encoding releases
+    the GIL, so slices are encoded on a thread pool.
     """
-    nrows, ncols = t1_images.shape[:2]
-    fig = Figure(figsize=(4, 4 * nrows / ncols))
-    FigureCanvasAgg(fig)
-    ax = fig.add_axes((0, 0, 1, 1))
-    im_anat = ax.imshow(
-        t1_images[:, :, slice_indices[0]],
-        cmap="gray",
-        origin="upper",
-        vmin=anat_vmin,
-        vmax=anat_vmax,
-    )
-    im_mrsi = ax.imshow(
-        mrsi_images[:, :, slice_indices[0]],
-        cmap="magma",
-        alpha=0.5,
-        origin="upper",
-        vmin=mrsi_vmin,
-        vmax=mrsi_vmax,
-    )
-    ax.set_aspect("auto")
-    ax.axis("off")
+    anat = ScalarMappable(Normalize(anat_vmin, anat_vmax), "gray")
+    over = ScalarMappable(Normalize(mrsi_vmin, mrsi_vmax), "magma")
 
-    frames = []
-    for i, slice_idx in enumerate(slice_indices):
-        logger.debug(f"Rendering slice {slice_idx} ({i + 1}/{len(slice_indices)})")
-        if i:
-            im_anat.set_data(t1_images[:, :, slice_idx])
-            im_mrsi.set_data(mrsi_images[:, :, slice_idx])
+    def render(slice_idx: int) -> bytes:
+        a = anat.to_rgba(t1_images[:, :, slice_idx], bytes=True)
+        o = over.to_rgba(mrsi_images[:, :, slice_idx], bytes=True)
+        # Reproduce matplotlib's compositing of the second `imshow(alpha=0.5)`
+        # over the first: the 0.5 is scaled by the overlay's own per-pixel
+        # alpha, so voxels the colormap marks "bad" (NaN, alpha 0) let the T1
+        # through untouched instead of being blended toward the bad colour.
+        w = (o[..., 3:4].astype(np.uint16) * 128) // 255
+        rgb = ((a[..., :3] * (255 - w) + o[..., :3] * w) // 255).astype(np.uint8)
         buf = io.BytesIO()
-        fig.savefig(buf, format="png")
-        frames.append(buf.getvalue())
-    return frames
+        PIL.Image.fromarray(rgb).save(buf, format="webp", quality=quality, method=2)
+        return buf.getvalue()
+
+    logger.debug(f"Rendering {len(slice_indices)} frames on {max_workers} threads")
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return list(pool.map(render, slice_indices))
 
 
 class VoxelOverlayParams(TypedDict, total=False):

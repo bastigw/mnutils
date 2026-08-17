@@ -16,8 +16,9 @@ def render_html(js: str, css: str, data: dict[str, Any]) -> str:
     has no such dependency: it works identically in a live kernel, in myst's
     live preview, and in a static `myst build --html` site.
 
-    `js` must export a default function `(data, el) => void` and read every
-    value it needs directly from `data`.
+    `js` must define a function `renderWidget(data, el)` in module scope --
+    called directly by the trailing line below, so no `export` is involved --
+    and read every value it needs from `data`.
     """
     container_id = f"mnutils-widget-{uuid.uuid4().hex}"
     # `</script>` inside the JSON payload would terminate the script block early.

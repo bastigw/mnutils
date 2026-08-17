@@ -55,9 +55,6 @@ def _repo_root(start: Path = Path.cwd()) -> Path:
 
 
 hevo18_data = _repo_root() / "tests" / "datasets" / "HeVo-18" / "data"
-hevo18_data = (
-    Path("/home/sbauer/Projects/Coding/FOSS/MNUtils") / "tests" / "datasets" / "HeVo-18" / "data"
-)
 ```
 
 (plotting-mrsi-inspector-load)=
@@ -83,18 +80,6 @@ actually measured. `autophase=True` (also the default) autophases each voxel's s
 display; pass `magnitude=True` for the magnitude spectrum instead.
 
 ```{code-cell} ipython3
-mrsi.spec.xmr.autophase()
-```
-
-```{code-cell} ipython3
-import sys
-
-logger.remove()
-logger.add(sys.stdout, level="DEBUG")
-```
-
-```{code-cell} ipython3
-%prun
 inspect_MRSI_spectra(t1, mrsi)
 ```
 
@@ -136,6 +121,7 @@ _kwargs = dict(
     initial_voxel=(0, 0, 0),
     ppm=[0.0],
     spectra_bytes=b"\x00" * 4,
+    spectra_scale=1.0,
     npts=1,
 )
 for _label in ("Magnitude Spectrum", "Autophased Spectrum", "Real Spectrum"):
@@ -155,6 +141,31 @@ inspect_MRSI_spectra(t1, mrsi, autophase=False)
 Passing both `magnitude=True` and `autophase=True` logs a warning and silently ignores
 `autophase` — magnitude spectra have no phase left to correct. Leave `autophase` at its default
 unless you're explicitly asking for the real-part spectrum.
+:::
+
+(plotting-mrsi-inspector-backend)=
+
+## 4. When the widget has a kernel to talk to
+
+Everything above is built to survive without one. That costs something: the frames and the
+spectra have to be spelled out as text inside the page, and base64 is 33% bigger than the bytes
+it encodes. A widget that *can* assume a live kernel doesn't pay that — the Jupyter widget
+protocol carries binary buffers as binary. `backend="anywidget"` does exactly that, driving the
+same frontend component over a comm instead of baking it into the output:
+
+```{code-cell} ipython3
+inspect_MRSI_spectra(t1, mrsi, backend="anywidget")
+```
+
+For this dataset that moves 12.8 MB of base64 down to 9.5 MB of buffers. The catch is the
+assumption itself — a comm needs something on the other end, so this widget goes blank the moment
+the kernel does, including in a statically built copy of this very page. If you are reading this
+on the rendered site, the inspector above this section works and the one in this cell is the
+control that shows why the default is what it is.
+
+:::{seealso}
+[The slice slider dies the moment the docs stop running](#diary-anywidget-slice-viewer) records
+how the two backends were measured against each other and why `"html"` is the default.
 :::
 
 :::{seealso}

@@ -15,21 +15,31 @@ import pathlib
 _SHARED = pathlib.Path(__file__).parent
 
 
-def load_esm(widget_js: pathlib.Path) -> str:
+def load_esm(widget_js: pathlib.Path, adapter: pathlib.Path | None = None) -> str:
     """Return the shared JS helpers concatenated ahead of a widget's own JS.
 
     Parameters
     ----------
     widget_js : pathlib.Path
         Path to the widget's ``<name>.js`` (owns the `export default renderWidget`).
+    adapter : pathlib.Path, optional
+        A backend adapter appended *after* the widget module, so it can call
+        into `renderWidget` and provide its own ``export default``. This is how
+        the anywidget backend reuses the widget component unchanged instead of
+        forking it; the ``export`` in ``widget_js`` is harmless alongside it.
 
     Returns
     -------
     str
-        Combined ESM source: ``dom.js`` followed by the widget's module.
+        Combined ESM source: ``dom.js``, the widget's module, then any adapter.
     """
-    shared = (_SHARED / "dom.js").read_text(encoding="utf-8")
-    return shared + "\n" + widget_js.read_text(encoding="utf-8")
+    parts = [
+        (_SHARED / "dom.js").read_text(encoding="utf-8"),
+        widget_js.read_text(encoding="utf-8"),
+    ]
+    if adapter is not None:
+        parts.append(adapter.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 def load_css(widget_css: pathlib.Path) -> str:

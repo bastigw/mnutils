@@ -215,16 +215,21 @@ function MRSIInspector({ data }) {
     max: clamp(10, ppmDataMin, ppmDataMax),
   });
 
-  const spectraBuf = useMemo(
-    () => new Float32Array(b64ToBytes(data.spectra_bytes).buffer),
-    [data.spectra_bytes],
-  );
-
+  // `data.spectra` is a Uint16Array of raw float16 bit patterns and
+  // `data.spectra_scale` undoes the range scaling applied before the cast --
+  // both prepared by `renderWidget` below, which owns the async decode.
   const currentSpectrum = useMemo(() => {
     const { x, y, mrsiSliceIdx } = voxel;
     const offset = ((x * ny + y) * nMrsiSlices + mrsiSliceIdx) * data.npts;
-    return Array.from(spectraBuf.subarray(offset, offset + data.npts));
-  }, [voxel, spectraBuf, ny, nMrsiSlices, data.npts]);
+    // Only this voxel's points are converted, not the whole grid: a 16x16x16
+    // grid at 700 points is 2.9M values, and all but `npts` of them would be
+    // thrown away on every voxel change.
+    const out = new Array(data.npts);
+    for (let i = 0; i < data.npts; i++) {
+      out[i] = halfToFloat(data.spectra[offset + i]) * data.spectra_scale;
+    }
+    return out;
+  }, [voxel, data.spectra, data.spectra_scale, ny, nMrsiSlices, data.npts]);
 
   const voxelPolygonPoints = useMemo(() => {
     const cornerOffsets = [
@@ -307,7 +312,7 @@ function MRSIInspector({ data }) {
         <div className="mnu-panel mnutils-mrsi-image-wrap">
           <img
             className="mnutils-mrsi-image"
-            src="data:image/png;base64,${data.left_frames[sliceIdx]}"
+            src=${data.frame_urls[sliceIdx]}
             onClick=${handleImageClick}
             title="Click to select voxel" />
           <svg
@@ -356,6 +361,45 @@ function MRSIInspector({ data }) {
   `;
 }
 
-export default function renderWidget(data, el) {
-  render(html`<${MRSIInspector} data=${data} />`, el);
+/**
+ * Turn a backend's raw payload into the shape `MRSIInspector` consumes.
+ *
+ * Both backends deliver the same fields, differing only in how the two heavy
+ * ones travel (base64 text vs. comm buffers), so `toBytes` absorbs that and
+ * everything downstream -- the whole component -- is backend-agnostic. Frames
+ * become blob: URLs rather than data: URLs so the browser holds one copy of
+ * each frame instead of a base64 string plus its decoded form.
+ */
+async function decodePayload(data) {
+  const mime = data.frame_mime || "image/webp";
+  const frame_urls = data.left_frames.map((frame) =>
+    URL.createObjectURL(new Blob([toBytes(frame)], { type: mime })),
+  );
+  const raw = toBytes(data.spectra_bytes);
+  const inflated = data.spectra_encoding === "zlib-float16" ? await inflate(raw) : raw;
+  // Copy through a fresh buffer: the inflated bytes are not guaranteed to sit
+  // at a 2-byte-aligned offset, which a Uint16Array view requires.
+  const spectra = new Uint16Array(
+    inflated.byteOffset % 2 === 0
+      ? inflated.buffer.slice(inflated.byteOffset, inflated.byteOffset + inflated.byteLength)
+      : Uint8Array.from(inflated).buffer,
+  );
+  return { ...data, frame_urls, spectra, spectra_scale: data.spectra_scale ?? 1 };
+}
+
+// Deliberately not exported: `render_html` calls this directly from the same
+// module scope, and the anywidget adapter (concatenated after this file) owns
+// the module's single `export default`. Two default exports would not parse.
+function renderWidget(data, el) {
+  el.textContent = "Loading MRSI inspector…";
+  decodePayload(data).then(
+    (decoded) => {
+      el.textContent = "";
+      render(html`<${MRSIInspector} data=${decoded} />`, el);
+    },
+    (err) => {
+      el.textContent = `Failed to decode MRSI inspector data: ${err}`;
+      throw err;
+    },
+  );
 }

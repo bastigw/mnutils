@@ -1854,6 +1854,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "nibabel" },
     { name = "nmrglue" },
+    { name = "pillow" },
     { name = "scipy" },
     { name = "seaborn" },
     { name = "tailwind-colors" },
@@ -1871,6 +1872,7 @@ bet = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "anywidget" },
     { name = "griffe" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
@@ -1899,6 +1901,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "nibabel", specifier = ">=5.3.2" },
     { name = "nmrglue", specifier = ">=0.11" },
+    { name = "pillow", specifier = ">=12.3.0" },
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "seaborn", specifier = ">=0.13.2" },
     { name = "tailwind-colors", specifier = ">=1.4.1" },
@@ -1909,6 +1912,7 @@ provides-extras = ["2025a", "bet"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "anywidget", specifier = ">=0.11.0" },
     { name = "griffe", specifier = "<0.40.0" },
     { name = "ipykernel", specifier = ">=7.1.0" },
     { name = "ipywidgets", specifier = ">=8.1.7" },
