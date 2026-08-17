@@ -88,6 +88,24 @@ by one voxel, or drag the slider below the image to change the anatomical slice 
 shown updates to whichever one that anatomical slice actually falls inside, and the spectrum panel
 on the right always reflects the currently selected voxel.
 
+The spectrum panel carries its own two range sliders: the horizontal one under the plot sets the
+ppm window (the whole acquired sweep is embedded, so it reaches every sample), and the vertical one
+beside it sets the y limits. Touching the vertical slider ticks *Fixed y-axis* for you — an axis
+you dialled in by hand only stays meaningful if it stops rescaling itself — and unticking the box
+hands the axis back to the automatic per-voxel scaling. Leaving the box ticked without touching the
+slider instead scales the axis to the loudest voxel anywhere in the grid, so amplitudes stay
+comparable as you step from voxel to voxel.
+
+:::{dropdown} What embedding the whole sweep costs
+The widget used to crop the spectra to a ppm window before embedding them, on the assumption that a
+wide sweep would make the payload unwieldy — a 2H acquisition at 3 T spans ~255 ppm, of which the
+interesting ±20 ppm is a sixth. In practice the compressed buffer is small enough either way: for
+the 16×16×16 grid at 700 points on this page it is ~6.7 MB embedded against ~1.1 MB cropped, and
+the widget stays responsive. Not cropping is what lets the ppm slider reach every acquired sample
+instead of a window fixed at call time, so the crop (and its `ppm_range` argument) is gone.
+Grids large enough to matter still log a warning while encoding.
+:::
+
 :::{note}
 `inspect_MRSI_spectra()` returns `None`, the same convention
 [`display_images()`](#plotting-images-scrub) uses once it hands off to an interactive widget —
@@ -122,6 +140,8 @@ _kwargs = dict(
     ppm=[0.0],
     spectra_bytes=b"\x00" * 4,
     spectra_scale=1.0,
+    spectra_min=0.0,
+    spectra_max=1.0,
     npts=1,
 )
 for _label in ("Magnitude Spectrum", "Autophased Spectrum", "Real Spectrum"):

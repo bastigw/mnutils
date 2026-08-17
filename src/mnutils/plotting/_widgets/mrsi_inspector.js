@@ -41,19 +41,33 @@ function applyAffine(affine, point) {
   ]
 }
 
-// Dual-thumb ppm range slider, backed by nouislider (dedicated dual-handle
-// range library) instead of the two-overlaid-native-inputs hack. The
-// instance is created once and driven imperatively thereafter: external prop
-// changes go through `.set(values, false)` (suppresses events) so they don't
-// loop back into `onChange`, while user drags fire nouislider's 'update'
-// event (also covers programmatic-less internal moves during a drag) into
-// `onChange`.
-function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
+// Dual-thumb range slider, backed by nouislider (dedicated dual-handle range
+// library) instead of the two-overlaid-native-inputs hack. Used twice: the
+// horizontal ppm window under the chart, and the vertical y-limit slider
+// beside it. The instance is created once and driven imperatively thereafter:
+// external prop changes go through `.set(values, false)` (suppresses events)
+// so they don't loop back into `onChange`, while user drags fire nouislider's
+// 'update' event (also covers programmatic-less internal moves during a drag)
+// into `onChange`. `onStart` fires once per gesture, before any value moves --
+// the y slider uses it to claim the axis on the first touch.
+function DualRangeSlider({
+  min,
+  max,
+  step,
+  valueMin,
+  valueMax,
+  onChange,
+  onStart,
+  orientation = 'horizontal',
+  className = 'mnutils-mrsi-ppm-slider',
+}) {
   const containerRef = useRef(null)
   const sliderRef = useRef(null)
   const draggingRef = useRef(false)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  const onStartRef = useRef(onStart)
+  onStartRef.current = onStart
 
   useEffect(() => {
     ensureNoUiSliderCss()
@@ -62,8 +76,12 @@ function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
     const slider = noUiSlider.create(containerRef.current, {
       start: [valueMin, valueMax],
       connect: true,
-      range: { min, max },
+      // nouislider throws on a zero-width range (a degenerate dataset: one ppm
+      // point, or a grid of constant amplitude). Widen it here and let the
+      // disable effect below make the control inert instead.
+      range: { min, max: max > min ? max : min + 1 },
       step,
+      orientation,
       behaviour: 'drag',
     })
     sliderRef.current = slider
@@ -87,6 +105,7 @@ function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
     // authoritative; writing them back mid-gesture only thrashes layout.
     slider.on('start', () => {
       draggingRef.current = true
+      onStartRef.current?.()
     })
     slider.on('end', () => {
       draggingRef.current = false
@@ -99,7 +118,7 @@ function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
     // Range bounds/step come from the dataset and never change after mount;
     // only valueMin/valueMax move thereafter, synced imperatively below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [min, max, step])
+  }, [min, max, step, orientation])
 
   useEffect(() => {
     if (draggingRef.current) return
@@ -115,19 +134,16 @@ function DualRangeSlider({ min, max, step, valueMin, valueMax, onChange }) {
 
   return html`<div
     ref=${containerRef}
-    className="mnutils-mrsi-ppm-slider"></div>`
+    className="mnutils-mrsi-slider ${className}"></div>`
 }
 
 // Chart.js spectrum plot. The chart instance is created once (empty deps
 // effect) and mutated in place on every voxel/range change rather than
 // recreated, so panning/zooming/voxel-picking stays cheap.
-function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label, yEnvelope }) {
+function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label, yBounds }) {
   const canvasRef = useRef(null)
   const chartRef = useRef(null)
 
-  // Rescale the y-axis to whatever's actually visible in [ppmMin, ppmMax],
-  // not the full spectrum's amplitude range -- otherwise zooming the ppm
-  // window in doesn't reveal any more vertical detail.
   // {x, y} points against a linear x scale, NOT scalars against `labels`.
   // With `labels` + scalar data Chart.js picks a *category* scale, where
   // `scales.x.min/max` are category indices rather than data values -- so a
@@ -138,38 +154,6 @@ function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label, yEnvelope }) {
     () => ppm.map((p, i) => ({ x: p, y: spectrumData[i] })),
     [ppm, spectrumData],
   )
-
-  // With `yEnvelope` given (fixed-y mode) the bounds come from the whole
-  // grid's per-point min/max instead of this one voxel, so the axis stops
-  // moving as you step between voxels and their amplitudes stay comparable.
-  // It's still restricted to the ppm window: "fixed" means independent of the
-  // voxel, not of the zoom -- a window-wide axis would flatten every peak
-  // whenever one voxel somewhere has a huge off-window artefact.
-  const yBounds = useMemo(() => {
-    const lo = Math.min(ppmMin, ppmMax)
-    const hi = Math.max(ppmMin, ppmMax)
-    let min = Infinity
-    let max = -Infinity
-    for (let i = 0; i < ppm.length; i++) {
-      if (ppm[i] < lo || ppm[i] > hi) continue
-      const vLo = yEnvelope ? yEnvelope.min[i] : spectrumData[i]
-      const vHi = yEnvelope ? yEnvelope.max[i] : spectrumData[i]
-      if (vLo < min) min = vLo
-      if (vHi > max) max = vHi
-    }
-    // A window narrower than one ppm step can contain no sample at all, which
-    // leaves min/max at +/-Infinity -- widening those by 1 keeps them infinite
-    // and hands Chart.js an unrenderable y axis. Fall back to a finite range.
-    if (!Number.isFinite(min) || !Number.isFinite(max)) {
-      return { min: 0, max: 1 }
-    }
-    if (!(min < max)) {
-      min -= 1
-      max += 1
-    }
-    const pad = (max - min) * 0.05
-    return { min: min - pad, max: max + pad }
-  }, [ppm, spectrumData, ppmMin, ppmMax, yEnvelope])
 
   useEffect(() => {
     if (!canvasRef.current) return undefined
@@ -346,6 +330,64 @@ function MRSIInspector({ data }) {
     return envelopeRef.current
   }, [fixedY, data.spectra, data.spectra_scale, data.npts])
 
+  // Manual y limits, set by dragging the vertical slider; `null` means the
+  // axis is still derived from the data (per voxel, or -- with `fixedY` --
+  // from the whole-grid envelope).
+  const [yLim, setYLim] = useState(null)
+
+  // Bounds of whatever is visible in [ppmMin, ppmMax], not of the full sweep:
+  // otherwise zooming the ppm window in doesn't reveal any more vertical
+  // detail. With `yEnvelope` given (fixed-y mode) they come from the whole
+  // grid's per-point min/max instead of this one voxel, so the axis stops
+  // moving as you step between voxels and their amplitudes stay comparable.
+  // Still restricted to the ppm window: "fixed" means independent of the
+  // voxel, not of the zoom -- a window-wide axis would flatten every peak
+  // whenever one voxel somewhere has a huge off-window artefact.
+  const autoYBounds = useMemo(() => {
+    const ppm = data.ppm
+    const lo = Math.min(ppmRange.min, ppmRange.max)
+    const hi = Math.max(ppmRange.min, ppmRange.max)
+    let min = Infinity
+    let max = -Infinity
+    for (let i = 0; i < ppm.length; i++) {
+      if (ppm[i] < lo || ppm[i] > hi) continue
+      const vLo = yEnvelope ? yEnvelope.min[i] : currentSpectrum[i]
+      const vHi = yEnvelope ? yEnvelope.max[i] : currentSpectrum[i]
+      if (vLo < min) min = vLo
+      if (vHi > max) max = vHi
+    }
+    // A window narrower than one ppm step can contain no sample at all, which
+    // leaves min/max at +/-Infinity -- widening those by 1 keeps them infinite
+    // and hands Chart.js an unrenderable y axis. Fall back to a finite range.
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      return { min: 0, max: 1 }
+    }
+    if (!(min < max)) {
+      min -= 1
+      max += 1
+    }
+    const pad = (max - min) * 0.05
+    return { min: min - pad, max: max + pad }
+  }, [data.ppm, currentSpectrum, ppmRange.min, ppmRange.max, yEnvelope])
+
+  // Manual limits win outright -- no 5% padding on top of them, since they are
+  // the numbers the user dialled in.
+  const yBounds = yLim ?? autoYBounds
+
+  // The y slider travels over the grid's full amplitude range, which Python
+  // measured while encoding the buffer: the browser would otherwise have to
+  // scan every voxel before it could draw the control. 400 steps is finer than
+  // the track is wide in pixels, so the thumb never feels notched.
+  const yDataMin = data.spectra_min
+  const yDataMax = data.spectra_max
+  const yStep = (yDataMax - yDataMin) / 400 || 1
+
+  // Vertical nouislider runs top-down (lowest value at the top) under
+  // `direction: 'ltr'`, the opposite of a y axis. Same fix as the ppm slider:
+  // keep the slider plain-ascending and mirror the values about the range
+  // midpoint, an involution that converts in both directions.
+  const mirrorY = (v) => yDataMin + yDataMax - v
+
   const voxelPolygonPoints = useMemo(() => {
     const cornerOffsets = [
       [-0.5, -0.5, 0],
@@ -483,6 +525,17 @@ function MRSIInspector({ data }) {
           slice:${voxel.mrsiSliceIdx})
         </div>
         <div className="mnutils-mrsi-media">
+          <${DualRangeSlider}
+            orientation="vertical"
+            className="mnutils-mrsi-ylim-slider"
+            min=${yDataMin}
+            max=${yDataMax}
+            step=${yStep}
+            valueMin=${clamp(mirrorY(yBounds.max), yDataMin, yDataMax)}
+            valueMax=${clamp(mirrorY(yBounds.min), yDataMin, yDataMax)}
+            onStart=${() => setFixedY(true)}
+            onChange=${(lo, hi) =>
+              setYLim({ min: mirrorY(hi), max: mirrorY(lo) })} />
           <div className="mnutils-mrsi-spectrum-container">
             <${SpectrumPlot}
               ppm=${data.ppm}
@@ -490,10 +543,11 @@ function MRSIInspector({ data }) {
               ppmMin=${ppmRange.min}
               ppmMax=${ppmRange.max}
               label=${data.spectrum_label}
-              yEnvelope=${yEnvelope} />
+              yBounds=${yBounds} />
           </div>
         </div>
-        <div className="mnu-bar mnutils-mrsi-control-bar mnutils-mrsi-range-bar">
+        <div
+          className="mnu-bar mnutils-mrsi-control-bar mnutils-mrsi-range-bar">
           <span className="mnu-lbl">ppm:</span>
           <${DualRangeSlider}
             min=${ppmSliderMin}
@@ -512,8 +566,17 @@ function MRSIInspector({ data }) {
           <input
             type="checkbox"
             checked=${fixedY}
-            onChange=${(e) => setFixedY(e.target.checked)} />
-          <span>Fixed y-axis (max over all voxels)</span>
+            onChange=${(e) => {
+              setFixedY(e.target.checked)
+              // Unticking is the only way back to the per-voxel autoscale, so
+              // it has to drop any manual limits as well -- they would
+              // otherwise keep the axis pinned with the box unticked.
+              if (!e.target.checked) setYLim(null)
+            }} />
+          <span
+            >Fixed y-axis
+            (${yLim ? 'manual limits' : 'max over all voxels'})</span
+          >
         </label>
       </div>
     </div>

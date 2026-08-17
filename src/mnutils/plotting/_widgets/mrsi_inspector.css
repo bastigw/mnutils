@@ -46,6 +46,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4em;
   height: var(--mnu-mrsi-media-h);
   min-height: 0;
 }
@@ -126,7 +127,8 @@
 
 .mnutils-mrsi-spectrum-container {
   position: relative;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   height: 100%;
   padding: 0.4em;
   box-sizing: border-box;
@@ -232,29 +234,21 @@
   margin: 0;
 }
 
-/* Theme nouislider (used for the ppm dual-range) to match the rest of the
-   widget's accent/border tokens instead of its default blue skin. */
-.mnutils-mrsi-ppm-slider {
-  flex: 1;
-  height: 6px;
-  margin: 0 0.6em;
-}
-
-.mnutils-mrsi-ppm-slider.noUi-target {
+/* Theme nouislider (the ppm dual-range and the y-limit one) to match the rest
+   of the widget's accent/border tokens instead of its default blue skin. */
+.mnutils-mrsi-slider.noUi-target {
   background: var(--mnu-border);
   border: none;
   box-shadow: none;
 }
 
-.mnutils-mrsi-ppm-slider .noUi-connect {
+.mnutils-mrsi-slider .noUi-connect {
   background: var(--mnu-accent);
 }
 
-.mnutils-mrsi-ppm-slider .noUi-handle {
+.mnutils-mrsi-slider .noUi-handle {
   width: 16px;
   height: 16px;
-  top: -5px;
-  right: -8px;
   border-color: var(--mnu-border);
   border-radius: 50%;
   box-shadow: none;
@@ -262,17 +256,48 @@
   cursor: grab;
 }
 
-.mnutils-mrsi-ppm-slider .noUi-handle:focus-visible {
+/* Centre the 16px handle on the 6px track, whichever way the track runs.
+   nouislider stamps the orientation class on the target itself. */
+.mnutils-mrsi-slider.noUi-horizontal .noUi-handle {
+  top: -5px;
+  right: -8px;
+}
+
+.mnutils-mrsi-slider.noUi-vertical .noUi-handle {
+  right: -5px;
+  top: -8px;
+}
+
+.mnutils-mrsi-slider .noUi-handle:focus-visible {
   outline: 2px solid var(--mnu-focus-ring);
   outline-offset: 2px;
 }
 
-.mnutils-mrsi-ppm-slider .noUi-active {
+.mnutils-mrsi-slider .noUi-active {
   background: var(--mnu-accent-strong);
   cursor: grabbing;
 }
 
-.mnutils-mrsi-ppm-slider .noUi-handle::before,
-.mnutils-mrsi-ppm-slider .noUi-handle::after {
+.mnutils-mrsi-slider .noUi-handle::before,
+.mnutils-mrsi-slider .noUi-handle::after {
   display: none;
+}
+
+.mnutils-mrsi-ppm-slider {
+  flex: 1;
+  height: 6px;
+  margin: 0 0.6em;
+}
+
+/* Sits inside the media row, left of the chart, and is sized off the row's own
+   height rather than stretched: nouislider needs a resolved height at create
+   time, and the 3em trimmed off the bottom is roughly the strip Chart.js gives
+   the x axis and its title, which keeps the track spanning the plot area
+   rather than the whole canvas. */
+.mnutils-mrsi-ylim-slider {
+  flex: 0 0 auto;
+  width: 6px;
+  height: calc(var(--mnu-mrsi-media-h) - 3em);
+  align-self: flex-start;
+  margin: 0.5em 0.2em 0 0.2em;
 }

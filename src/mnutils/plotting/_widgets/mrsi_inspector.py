@@ -40,6 +40,8 @@ class MRSIVoxelInspectorWidget:
         ppm: list[float],
         spectra_bytes: bytes,
         spectra_scale: float,
+        spectra_min: float,
+        spectra_max: float,
         npts: int,
         spectrum_label: str = "Spectrum",
     ) -> None:
@@ -58,6 +60,8 @@ class MRSIVoxelInspectorWidget:
             "ppm": ppm,
             "spectra_bytes": base64.b64encode(spectra_bytes).decode("ascii"),
             "spectra_scale": spectra_scale,
+            "spectra_min": spectra_min,
+            "spectra_max": spectra_max,
             "npts": npts,
             "spectrum_label": spectrum_label,
         }

@@ -35,12 +35,6 @@ MRSI_FRAME_QUALITY = 92
 # the browser. 32000 leaves an octave of headroom under the limit.
 _F16_TARGET_MAX = 32000.0
 
-# Spectra are cropped to this ppm window before being embedded in the widget.
-# Nothing outside it is ever looked at in an inspector, and for a wide sweep it
-# dominates the payload -- a 2H acquisition at 3 T spans ~255 ppm, of which this
-# window is 16%.
-DEFAULT_MRSI_PPM_RANGE = (-20.0, 20.0)
-
 # Warn past this uncompressed spectra size -- a big grid can otherwise silently
 # produce a notebook hundreds of MB wide.
 _SPECTRA_WARN_BYTES = 32 * 1024**2
@@ -822,7 +816,6 @@ def inspect_MRSI_spectra(
     blocky: bool = True,
     magnitude: bool = False,
     autophase: bool = True,
-    ppm_range: tuple[float, float] | None = DEFAULT_MRSI_PPM_RANGE,
 ) -> None:
     """Display an interactive widget to inspect MRSI spectra over a T1 image.
 
@@ -848,11 +841,6 @@ def inspect_MRSI_spectra(
         If True (and `magnitude` is False), phase each voxel independently
         before display, by default True. See `mrsi_spectra_for_display` for
         why this is done per voxel rather than through a single global fit.
-    ppm_range : tuple of float, or None, optional
-        Embed only the samples inside this inclusive ppm window, by default
-        `DEFAULT_MRSI_PPM_RANGE`. Pass `None` to embed the full sweep — the
-        spectra buffer scales directly with this, and nothing outside the
-        window can be reached from the widget's ppm slider.
     """
     t1_images = T1.images()
     if blocky:
@@ -913,10 +901,15 @@ def inspect_MRSI_spectra(
     logger.debug("Starting rendering of spectra array")
 
     ppm_axis, spectra_array = mrsi_spectra_for_display(
-        MRSI, magnitude=magnitude, autophase=autophase, ppm_range=ppm_range
+        MRSI, magnitude=magnitude, autophase=autophase
     )
     npts = ppm_axis.size
     spectra_bytes, spectra_scale = _encode_spectra(spectra_array)
+    # Bounds over the whole grid, computed here rather than in the browser:
+    # they set the travel of the widget's manual y-limit slider, which has to
+    # be drawable before anything has scanned the 2.9M-value buffer.
+    spectra_min = float(np.nanmin(spectra_array)) if spectra_array.size else 0.0
+    spectra_max = float(np.nanmax(spectra_array)) if spectra_array.size else 1.0
 
     if magnitude:
         spectrum_label = "Magnitude Spectrum"
@@ -943,6 +936,8 @@ def inspect_MRSI_spectra(
             ppm=ppm_axis.tolist(),
             spectra_bytes=spectra_bytes,
             spectra_scale=spectra_scale,
+            spectra_min=spectra_min,
+            spectra_max=spectra_max,
             npts=npts,
             spectrum_label=spectrum_label,
         )
@@ -954,7 +949,6 @@ def mrsi_spectra_for_display(
     *,
     magnitude: bool = False,
     autophase: bool = True,
-    ppm_range: tuple[float, float] | None = DEFAULT_MRSI_PPM_RANGE,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """Build the exact ppm axis and spectra grid `inspect_MRSI_spectra` displays.
 
@@ -974,14 +968,11 @@ def mrsi_spectra_for_display(
     autophase : bool, optional
         If True (and `magnitude` is False), phase each voxel independently,
         by default True.
-    ppm_range : tuple of float, or None, optional
-        Keep only samples within this inclusive ppm window, by default
-        `DEFAULT_MRSI_PPM_RANGE`. `None` keeps the full sweep.
 
     Returns
     -------
     ppm : ndarray
-        1-D ppm axis, cropped to `ppm_range`.
+        1-D ppm axis, spanning the full acquired sweep.
     spectra : ndarray
         Real-valued grid indexed `[x, y, mrsi_slice, point]`, matching the
         voxel coordinates the widget's picker reports.
@@ -997,17 +988,6 @@ def mrsi_spectra_for_display(
         .transpose("j", "i", "k", spectral_dim)
         .values
     )
-
-    if ppm_range is not None:
-        lo, hi = min(ppm_range), max(ppm_range)
-        keep = (ppm >= lo) & (ppm <= hi)
-        if not keep.any():
-            raise ValueError(
-                f"ppm_range {ppm_range} selects no samples; the spectra span "
-                f"{ppm.min():.2f} to {ppm.max():.2f} ppm."
-            )
-        logger.debug(f"Cropping spectra to {lo}..{hi} ppm: {keep.sum()} of {ppm.size} points")
-        ppm, grid = ppm[keep], grid[..., keep]
 
     if magnitude:
         return ppm, np.abs(grid)
