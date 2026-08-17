@@ -421,10 +421,11 @@ function MRSIInspector({ data }) {
     })
   }
 
-  // The fixed-y toggle renders *above* the plot, not below it: both panels are
-  // equal-height flex columns whose middle element (image / chart) absorbs the
-  // slack, so an extra row under the chart pushed the ppm slider one row lower
-  // than the slice slider on the left.
+  // Image and chart share one fixed-height media row (`--mnu-mrsi-media-h`, set
+  // in CSS) so they line up top and bottom regardless of the frame's aspect
+  // ratio. That only holds if nothing but the title sits above either of them,
+  // which is why the fixed-y toggle renders under the ppm bar rather than
+  // between the title and the chart.
   const specI = dimsI - 1 - voxel.y
   const specJ = dimsJ - 1 - voxel.x
 
@@ -439,24 +440,27 @@ function MRSIInspector({ data }) {
         <div className="mnu-lbl mnutils-mrsi-slice-title">
           ${data.slice_titles[sliceIdx]}
         </div>
-        <div className="mnu-panel mnutils-mrsi-image-wrap">
-          <img
-            className="mnutils-mrsi-image"
-            src=${data.frame_urls[sliceIdx]}
-            onClick=${handleImageClick}
-            title="Click to select voxel" />
-          <svg
-            className="mnutils-mrsi-overlay"
-            viewBox="-0.5 -0.5 ${data.image_width} ${data.image_height}">
-            <polygon
-              className="mnutils-mrsi-voxel-box-halo"
-              points=${voxelPolygonPoints} />
-            <polygon
-              className="mnutils-mrsi-voxel-box"
-              points=${voxelPolygonPoints} />
-          </svg>
+        <div className="mnutils-mrsi-media">
+          <div className="mnutils-mrsi-image-wrap">
+            <img
+              className="mnutils-mrsi-image"
+              src=${data.frame_urls[sliceIdx]}
+              onClick=${handleImageClick}
+              title="Click to select voxel" />
+            <svg
+              className="mnutils-mrsi-overlay"
+              viewBox="-0.5 -0.5 ${data.image_width} ${data.image_height}">
+              <polygon
+                className="mnutils-mrsi-voxel-box-halo"
+                points=${voxelPolygonPoints} />
+              <polygon
+                className="mnutils-mrsi-voxel-box"
+                points=${voxelPolygonPoints} />
+            </svg>
+          </div>
         </div>
-        <div className="mnu-bar">
+        <div className="mnu-bar mnutils-mrsi-control-bar">
+          <span className="mnu-lbl">slice:</span>
           <input
             type="range"
             className="mnu-slider"
@@ -465,6 +469,9 @@ function MRSIInspector({ data }) {
             value=${sliceIdx}
             disabled=${data.n_anat_slices <= 1}
             onInput=${(e) => handleSliceChange(Number(e.target.value))} />
+          <span className="mnu-readout"
+            >${sliceIdx + 1} / ${data.n_anat_slices}</span
+          >
         </div>
       </div>
 
@@ -473,23 +480,18 @@ function MRSIInspector({ data }) {
           Spectrum at voxel (i:${specI}, j:${specJ},
           slice:${voxel.mrsiSliceIdx})
         </div>
-        <label className="mnutils-mrsi-ylim-toggle">
-          <input
-            type="checkbox"
-            checked=${fixedY}
-            onChange=${(e) => setFixedY(e.target.checked)} />
-          <span>Fixed y-axis (max over all voxels)</span>
-        </label>
-        <div className="mnutils-mrsi-spectrum-container">
-          <${SpectrumPlot}
-            ppm=${data.ppm}
-            spectrumData=${currentSpectrum}
-            ppmMin=${ppmRange.min}
-            ppmMax=${ppmRange.max}
-            label=${data.spectrum_label}
-            yEnvelope=${yEnvelope} />
+        <div className="mnutils-mrsi-media">
+          <div className="mnutils-mrsi-spectrum-container">
+            <${SpectrumPlot}
+              ppm=${data.ppm}
+              spectrumData=${currentSpectrum}
+              ppmMin=${ppmRange.min}
+              ppmMax=${ppmRange.max}
+              label=${data.spectrum_label}
+              yEnvelope=${yEnvelope} />
+          </div>
         </div>
-        <div className="mnu-bar mnutils-mrsi-range-bar">
+        <div className="mnu-bar mnutils-mrsi-control-bar mnutils-mrsi-range-bar">
           <span className="mnu-lbl">ppm:</span>
           <${DualRangeSlider}
             min=${ppmSliderMin}
@@ -504,6 +506,13 @@ function MRSIInspector({ data }) {
             ${ppmRange.min.toFixed(ppmDecimals)}</span
           >
         </div>
+        <label className="mnutils-mrsi-ylim-toggle">
+          <input
+            type="checkbox"
+            checked=${fixedY}
+            onChange=${(e) => setFixedY(e.target.checked)} />
+          <span>Fixed y-axis (max over all voxels)</span>
+        </label>
       </div>
     </div>
   `
