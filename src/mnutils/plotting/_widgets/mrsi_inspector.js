@@ -15,6 +15,9 @@ import {
 
 const html = htm.bind(h)
 
+// Plot width (px) under which the spectrum drops its y-axis labels.
+const Y_AXIS_MIN_WIDTH = 480
+
 const NOUISLIDER_CSS_HREF =
   'https://cdn.jsdelivr.net/npm/nouislider@15.8.1/dist/nouislider.min.css'
 
@@ -160,6 +163,22 @@ function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label, yBounds }) {
     [ppm, spectrumData],
   )
 
+  // Below this the y ticks and their title are dropped: on a phone they eat
+  // most of the plot to label an axis whose units are arbitrary anyway, and
+  // the shape of the spectrum is what the reader came for. Measured on the
+  // plot box rather than the viewport, so a narrow VS Code panel gets the same
+  // treatment as a narrow screen.
+  const [compactY, setCompactY] = useState(false)
+  useEffect(() => {
+    const box = canvasRef.current?.parentElement
+    if (!box || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(([entry]) =>
+      setCompactY(entry.contentRect.width < Y_AXIS_MIN_WIDTH),
+    )
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
+
   useEffect(() => {
     if (!canvasRef.current) return undefined
     const ctx = canvasRef.current.getContext('2d')
@@ -204,8 +223,11 @@ function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label, yBounds }) {
           y: {
             min: yBounds.min,
             max: yBounds.max,
-            title: { display: true, text: 'Intensity (a.u.)' },
-            ticks: { callback: (val) => val.toExponential(1) },
+            title: { display: !compactY, text: 'Intensity (a.u.)' },
+            ticks: {
+              display: !compactY,
+              callback: (val) => val.toExponential(1),
+            },
           },
         },
         plugins: {
@@ -235,8 +257,10 @@ function SpectrumPlot({ ppm, spectrumData, ppmMin, ppmMax, label, yBounds }) {
     chart.options.scales.x.max = Math.max(ppmMin, ppmMax)
     chart.options.scales.y.min = yBounds.min
     chart.options.scales.y.max = yBounds.max
+    chart.options.scales.y.ticks.display = !compactY
+    chart.options.scales.y.title.display = !compactY
     chart.update('none') // instant, no animation overhead
-  }, [points, ppmMin, ppmMax, yBounds])
+  }, [points, ppmMin, ppmMax, yBounds, compactY])
 
   return html`<canvas ref=${canvasRef}></canvas>`
 }

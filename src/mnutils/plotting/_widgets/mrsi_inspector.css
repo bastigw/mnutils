@@ -5,6 +5,19 @@
      grows into a full-screen-tall plot on a large one. */
   --mnu-mrsi-media-h: clamp(200px, 40vh, 380px);
 
+  /* Every slider in the widget -- the native slice input and both nouislider
+     ones -- is drawn from these two, so the tracks stay the same weight and
+     the handle offsets below can be derived rather than hand-tuned per
+     orientation.
+
+     Sized in `em` so the controls follow the host's type rather than a fixed
+     pixel target: the same 22px thumb that reads as comfortable in a VS Code
+     notebook (13px base) is oversized on the docs site (16px+). The clamps keep
+     it a real pointing target at the small end and stop it turning into a knob
+     at the large one. */
+  --mnu-mrsi-track: clamp(5px, 0.4em, 8px);
+  --mnu-mrsi-thumb: clamp(13px, 1.15em, 18px);
+
   flex-direction: row;
   flex-wrap: wrap;
   gap: 1em;
@@ -27,15 +40,26 @@
    detail is. `flex-basis: 0` makes the 1:2 grow ratio govern the split
    outright, instead of being applied to whatever is left over after two
    different content-derived basis widths. `flex-wrap` on the container still
-   stacks them at narrow widths, once min-width kicks in. */
+   stacks them at narrow widths, once min-width kicks in.
+
+   The two min-widths also decide *when* the panels stop sharing a row: each is
+   the narrowest its panel still reads at -- a spectrum needs far more room than
+   a head, hence the asymmetry. Set this way the layout stacks while there is
+   still space to spare, instead of squeezing both until the ppm handles merge
+   and the slice readout is pushed out of its panel. Below their sum the widget
+   is one column and every control gets the full width.
+
+   Wrapped in `min(..., 100%)` so the floor never exceeds what the widget
+   actually has: on a phone the 480px panel is wider than the screen, and a
+   plain min-width would push the ppm bar off the side instead of stacking. */
 .mnutils-mrsi-left-panel {
   flex: 1 1 0;
-  min-width: 200px;
+  min-width: min(320px, 100%);
 }
 
 .mnutils-mrsi-right-panel {
   flex: 2 1 0;
-  min-width: 260px;
+  min-width: min(480px, 100%);
 }
 
 /* The fixed-height row both panels hang their main content in. The image is
@@ -155,12 +179,40 @@
   gap: 0.8em;
 }
 
+/* The shared bar text is sized for the slice viewer's compact strip; next to a
+   full-height plot and thumbs this size it reads as fine print. Bumped here
+   rather than in theme.css so the other widgets keep their own proportions.
+   The readout also gets more room -- it carries two signed ppm values. */
+.mnutils-mrsi-inspector .mnu-lbl,
+.mnutils-mrsi-inspector .mnu-readout {
+  font-size: 0.95em;
+}
+
+/* Never the part that gives way when the bar tightens: the readout is the only
+   place the numeric value appears, so it holds its content width and the track
+   absorbs the loss. */
+.mnutils-mrsi-inspector .mnu-lbl {
+  flex: 0 0 auto;
+}
+
+.mnutils-mrsi-inspector .mnu-readout {
+  flex: 0 0 auto;
+  min-width: 5.5em;
+  white-space: nowrap;
+}
+
 /* Native range inputs are styled per-browser and next to nouislider's flat
-   track the default one looks like a different control; match the two. */
+   track the default one looks like a different control; match the two.
+
+   `min-width: 0` is what keeps the bar intact when the panel narrows: a range
+   input carries an intrinsic width (~129px in Chromium) that `flex: 1` alone
+   will not shrink past, so the row grew wider than its panel and shoved the
+   readout out of sight rather than giving up track. */
 .mnutils-mrsi-inspector .mnu-slider {
   -webkit-appearance: none;
   appearance: none;
-  height: 6px;
+  min-width: 0;
+  height: var(--mnu-mrsi-track);
   border-radius: 999px;
   background: var(--mnu-border);
   cursor: pointer;
@@ -174,8 +226,8 @@
 .mnutils-mrsi-inspector .mnu-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: var(--mnu-mrsi-thumb);
+  height: var(--mnu-mrsi-thumb);
   border: 1px solid var(--mnu-border);
   border-radius: 50%;
   background: var(--mnu-accent);
@@ -183,8 +235,8 @@
 }
 
 .mnutils-mrsi-inspector .mnu-slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: var(--mnu-mrsi-thumb);
+  height: var(--mnu-mrsi-thumb);
   border: 1px solid var(--mnu-border);
   border-radius: 50%;
   background: var(--mnu-accent);
@@ -200,11 +252,11 @@
   align-items: center;
   gap: 0.45em;
   margin-top: 0.1em;
-  padding: 0.25em 0.7em;
+  padding: 0.35em 0.8em;
   border: 1px solid var(--mnu-border);
   border-radius: 999px;
   background: var(--mnu-panel);
-  font-size: 0.8em;
+  font-size: 0.95em;
   font-weight: 600;
   color: var(--mnu-label);
   line-height: 1.4;
@@ -227,8 +279,8 @@
 }
 
 .mnutils-mrsi-ylim-toggle input {
-  width: 0.95em;
-  height: 0.95em;
+  width: 1.1em;
+  height: 1.1em;
   accent-color: var(--mnu-accent);
   cursor: pointer;
   margin: 0;
@@ -247,8 +299,8 @@
 }
 
 .mnutils-mrsi-slider .noUi-handle {
-  width: 16px;
-  height: 16px;
+  width: var(--mnu-mrsi-thumb);
+  height: var(--mnu-mrsi-thumb);
   border-color: var(--mnu-border);
   border-radius: 50%;
   box-shadow: none;
@@ -256,8 +308,10 @@
   cursor: grab;
 }
 
-/* Centre the 16px handle on the 6px track, whichever way the track runs.
-   nouislider stamps the orientation class on the target itself.
+/* Centre the handle on the track, whichever way the track runs: the cross-axis
+   offset is half the difference between the two, the along-axis one half a
+   handle. Both derive from the size tokens, so resizing the target needs no
+   re-tuning here. nouislider stamps the orientation class on the target itself.
 
    The two orientations anchor the handle to opposite edges of its origin
    element -- `right` + `top` horizontally, `right` + *`bottom`* vertically --
@@ -267,15 +321,15 @@
    values they stood for, off the side of the panel. Reset the edge the
    stylesheet used, don't just add to it. */
 .mnutils-mrsi-slider.noUi-horizontal .noUi-handle {
-  top: -5px;
+  top: calc((var(--mnu-mrsi-track) - var(--mnu-mrsi-thumb)) / 2);
   bottom: auto;
-  right: -8px;
+  right: calc(var(--mnu-mrsi-thumb) / -2);
 }
 
 .mnutils-mrsi-slider.noUi-vertical .noUi-handle {
   top: auto;
-  bottom: -8px;
-  right: -5px;
+  bottom: calc(var(--mnu-mrsi-thumb) / -2);
+  right: calc((var(--mnu-mrsi-track) - var(--mnu-mrsi-thumb)) / 2);
 }
 
 .mnutils-mrsi-slider .noUi-handle:focus-visible {
@@ -295,7 +349,7 @@
 
 .mnutils-mrsi-ppm-slider {
   flex: 1;
-  height: 6px;
+  height: var(--mnu-mrsi-track);
   margin: 0 0.6em;
 }
 
@@ -306,8 +360,11 @@
    rather than the whole canvas. */
 .mnutils-mrsi-slider.mnutils-mrsi-ylim-slider {
   flex: 0 0 auto;
-  width: 6px;
+  width: var(--mnu-mrsi-track);
   height: calc(var(--mnu-mrsi-media-h) - 3em);
   align-self: flex-start;
-  margin: 0.5em 0.2em 0 0.2em;
+  /* Room for the thumb, which overhangs the track by half its width on every
+     side: without it the handles graze the plot panel and the topmost one
+     clips out of the media row. */
+  margin: 0.9em 0.5em 0 0.4em;
 }
