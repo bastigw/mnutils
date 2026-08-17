@@ -60,13 +60,6 @@ class MRSIVoxelInspectorWidget:
             "spectra_scale": spectra_scale,
             "npts": npts,
             "spectrum_label": spectrum_label,
-            # Tells the shared frontend how to decode what it just received.
-            # The anywidget backend renders the same component with the same
-            # keys but sets `transport` to "binary", where the two heavy fields
-            # arrive as ArrayBuffers over the comm instead of base64 strings.
-            "transport": "base64",
-            "frame_mime": "image/webp",
-            "spectra_encoding": "zlib-float16",
         }
 
     def _repr_html_(self) -> str:

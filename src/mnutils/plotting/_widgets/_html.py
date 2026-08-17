@@ -14,7 +14,8 @@ def render_html(js: str, css: str, data: dict[str, Any]) -> str:
     target, so `widget-state+json` never gets captured into a static build,
     only a dangling `widget-view+json` reference). A plain HTML/JS output
     has no such dependency: it works identically in a live kernel, in myst's
-    live preview, and in a static `myst build --html` site.
+    live preview, and in a static `myst build --html` site. See
+    `docs/diary/2026-08-14-anywidget-slice-viewer.md` for the measurements.
 
     `js` must define a function `renderWidget(data, el)` in module scope --
     called directly by the trailing line below, so no `export` is involved --

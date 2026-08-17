@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import zlib
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Literal, TypedDict, Unpack
+from typing import Any, TypedDict, Unpack
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -606,7 +606,8 @@ def overlay_image_data_on_T1(
         slice_idx = t1_images.shape[2] // 2
 
     # `mask_contour` only draws a contour when it's `True` (reuse `mask`); an
-    # explicit array is not applied here (matches the pre-anywidget behavior).
+    # explicit array is not applied here (matches this function's long-standing
+    # behavior; `overlay_image_data_on_T1_on_ax` is the one that honours it).
     resolved_mask_contour = mask if mask_contour is True else None
     contour_kwargs = DEFAULT_MASK_PARAMS.copy()
     if mask_kwargs is not None:
@@ -822,7 +823,6 @@ def inspect_MRSI_spectra(
     magnitude: bool = False,
     autophase: bool = True,
     ppm_range: tuple[float, float] | None = DEFAULT_MRSI_PPM_RANGE,
-    backend: Literal["html", "anywidget"] = "html",
 ) -> None:
     """Display an interactive widget to inspect MRSI spectra over a T1 image.
 
@@ -853,18 +853,6 @@ def inspect_MRSI_spectra(
         `DEFAULT_MRSI_PPM_RANGE`. Pass `None` to embed the full sweep — the
         spectra buffer scales directly with this, and nothing outside the
         window can be reached from the widget's ppm slider.
-    backend : {"html", "anywidget"}, optional
-        How the widget reaches the browser, by default `"html"`.
-
-        `"html"` emits one self-contained `text/html` output with the data
-        baked in, which renders identically under a live kernel, `myst start`
-        and a static `myst build --html` page.
-
-        `"anywidget"` uses the Jupyter widget protocol instead, shipping the
-        frames and spectra as binary comm buffers rather than base64. It needs
-        the dev-group `anywidget` dependency and a live kernel, so it cannot
-        survive into a static docs page; it exists to be measured against the
-        default. See `docs/diary/2026-08-14-anywidget-slice-viewer.md`.
     """
     t1_images = T1.images()
     if blocky:
@@ -939,34 +927,26 @@ def inspect_MRSI_spectra(
 
     logger.debug("Ready to display")
 
-    payload = dict(
-        left_frames=left_frames,
-        slice_titles=slice_titles,
-        n_anat_slices=n_anat_slices,
-        initial_slice=initial_slice,
-        image_width=t1_images.shape[1],
-        image_height=t1_images.shape[0],
-        mrsi_to_display_affine=mrsi_to_display.flatten().tolist(),
-        display_to_mrsi_affine=display_to_mrsi.flatten().tolist(),
-        grid_shape=(nx, ny, n_mrsi_slices),
-        mrsi_dims=(int(MRSI.dims[0]), int(MRSI.dims[1])),
-        initial_voxel=initial_voxel,
-        ppm=ppm_axis.tolist(),
-        spectra_bytes=spectra_bytes,
-        spectra_scale=spectra_scale,
-        npts=npts,
-        spectrum_label=spectrum_label,
+    ipy_display(
+        MRSIVoxelInspectorWidget(
+            left_frames=left_frames,
+            slice_titles=slice_titles,
+            n_anat_slices=n_anat_slices,
+            initial_slice=initial_slice,
+            image_width=t1_images.shape[1],
+            image_height=t1_images.shape[0],
+            mrsi_to_display_affine=mrsi_to_display.flatten().tolist(),
+            display_to_mrsi_affine=display_to_mrsi.flatten().tolist(),
+            grid_shape=(nx, ny, n_mrsi_slices),
+            mrsi_dims=(int(MRSI.dims[0]), int(MRSI.dims[1])),
+            initial_voxel=initial_voxel,
+            ppm=ppm_axis.tolist(),
+            spectra_bytes=spectra_bytes,
+            spectra_scale=spectra_scale,
+            npts=npts,
+            spectrum_label=spectrum_label,
+        )
     )
-
-    if backend == "anywidget":
-        # Imported here, not at module scope: `anywidget` is a dev-group
-        # dependency (this backend exists to be compared against, not shipped),
-        # and a bare `uv sync` must still be able to import this module.
-        from ._widgets.mrsi_inspector_anywidget import MRSIVoxelInspectorAnyWidget
-
-        ipy_display(MRSIVoxelInspectorAnyWidget(**payload))
-    else:
-        ipy_display(MRSIVoxelInspectorWidget(**payload))
 
 
 def mrsi_spectra_for_display(

@@ -143,31 +143,6 @@ Passing both `magnitude=True` and `autophase=True` logs a warning and silently i
 unless you're explicitly asking for the real-part spectrum.
 :::
 
-(plotting-mrsi-inspector-backend)=
-
-## 4. When the widget has a kernel to talk to
-
-Everything above is built to survive without one. That costs something: the frames and the
-spectra have to be spelled out as text inside the page, and base64 is 33% bigger than the bytes
-it encodes. A widget that *can* assume a live kernel doesn't pay that — the Jupyter widget
-protocol carries binary buffers as binary. `backend="anywidget"` does exactly that, driving the
-same frontend component over a comm instead of baking it into the output:
-
-```{code-cell} ipython3
-inspect_MRSI_spectra(t1, mrsi, backend="anywidget")
-```
-
-For this dataset that moves 12.8 MB of base64 down to 9.5 MB of buffers. The catch is the
-assumption itself — a comm needs something on the other end, so this widget goes blank the moment
-the kernel does, including in a statically built copy of this very page. If you are reading this
-on the rendered site, the inspector above this section works and the one in this cell is the
-control that shows why the default is what it is.
-
-:::{seealso}
-[The slice slider dies the moment the docs stop running](#diary-anywidget-slice-viewer) records
-how the two backends were measured against each other and why `"html"` is the default.
-:::
-
 :::{seealso}
 [Drawing an MRSI voxel on an anatomical slice](#nifti-voxel-overlay) covers the affine math this
 widget's client-side voxel picker relies on — `mrsi_to_display_affine` and its inverse are built

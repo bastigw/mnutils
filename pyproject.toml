@@ -54,7 +54,6 @@ dev = [
     "griffe<0.40.0",            # Explicit pin to fix quartodoc parsing bug
     "jupyter-server>=2.17.0",   # Required for rendering docs
     "jupytext>=1.19.1",
-    "anywidget>=0.11.0",        # `backend="anywidget"` comparison only, never a runtime dep
 ]
 
 [tool.pytest.ini_options]

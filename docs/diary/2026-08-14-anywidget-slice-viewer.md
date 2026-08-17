@@ -22,8 +22,8 @@ in preview, and in a static build — no widget protocol anywhere.
 The first attempt used `anywidget`, on the theory that mystmd's handling of the
 `widget-state+json` / `widget-view+json` MIME types would keep a built page interactive.
 Recognising an output type turns out not to be the same as supporting the protocol that produces
-it. Both backends now exist side by side — `backend="anywidget"` is kept precisely so this stays
-checkable — and a real `myst build --html --execute` against `tests/datasets/HeVo-18` says:
+it. Both backends were built and measured side by side, and a real `myst build --html --execute`
+against `tests/datasets/HeVo-18` says:
 
 | Evidence in the built page | Result |
 |---|---|
@@ -36,6 +36,13 @@ mystmd's execution engine registers no `jupyter.widget` comm target, so `comm_op
 the state channel carrying the frames and spectra never opens. A model ID with nothing behind it
 reaches the page. The rule that generalises: **ship interactivity as `text/html` whenever the
 interaction doesn't need a live kernel round-trip** — none of these three ever did.
+
+The `anywidget` backend was kept for a while as a control that kept the claim falsifiable. It has
+since been deleted, along with the `backend=` argument, the traitlets adapter and the
+transport-tagging fields (`transport`, `frame_mime`, `spectra_encoding`) the frontend needed to
+tell the two apart. Once the measurement had been made once and written down here, keeping a
+second backend alive meant every widget change had to be made twice; the numbers below are the
+part worth keeping, not the code that produced them.
 
 ## What the frames actually cost
 
@@ -107,9 +114,9 @@ outline in JS keeps it at one frame per slice.
 
 - The plan assumed mystmd's recognition of the widget MIME types would make an `anywidget` build
   "just work". It doesn't, and the entry above now carries the measured evidence rather than the
-  assumption. `backend="anywidget"` survives as the control that keeps the claim falsifiable — it
-  does ship the payload as binary comm buffers (9.5 MB against 12.8 MB of base64, the 33% base64
-  tax made visible), which is real, and useless without a kernel.
+  assumption. The `anywidget` backend did ship the payload as binary comm buffers (9.5 MB against
+  12.8 MB of base64, the 33% base64 tax made visible) — real, and useless without a kernel, which
+  is why it was measured, recorded here, and then removed.
 - The payload risk this entry previously left open — flagged because the original work had no
   access to `tests/datasets/` — is now closed with real numbers, and it was justified: the
   un-tuned payload really was 41.9 MB for one grid.

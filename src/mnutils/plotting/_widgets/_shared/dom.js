@@ -3,31 +3,13 @@
  *
  * This module intentionally uses NO `import`/`export` statements: the Python
  * asset loader (`_shared/__init__.py::load_esm`) concatenates it *ahead* of a
- * widget's own `<name>.js`, and the widget module owns the single
- * `export default renderWidget`. Keeping these helpers export-free lets them
- * live in the same module scope as `renderWidget` in every widget.
+ * widget's own `<name>.js`, so both end up in one module scope and every
+ * widget can call these helpers directly.
  */
 
 /** Decode a base64 string (as produced by Python's base64.b64encode) to bytes. */
 function b64ToBytes(b64) {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-}
-
-/**
- * Coerce whatever a backend handed us for a binary field into a Uint8Array.
- *
- * The HTML backend bakes these fields in as base64 strings; the anywidget
- * backend ships the same fields as comm buffers, which surface as ArrayBuffer
- * or DataView depending on the ipywidgets version. Normalising here is what
- * lets both backends drive one unmodified component.
- */
-function toBytes(value) {
-  if (typeof value === "string") return b64ToBytes(value);
-  if (value instanceof Uint8Array) return value;
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  }
-  return new Uint8Array(value);
 }
 
 /**

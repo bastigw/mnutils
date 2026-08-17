@@ -521,22 +521,19 @@ function MRSIInspector({ data }) {
 }
 
 /**
- * Turn a backend's raw payload into the shape `MRSIInspector` consumes.
+ * Turn the raw payload baked in by `mrsi_inspector.py` into the shape
+ * `MRSIInspector` consumes.
  *
- * Both backends deliver the same fields, differing only in how the two heavy
- * ones travel (base64 text vs. comm buffers), so `toBytes` absorbs that and
- * everything downstream -- the whole component -- is backend-agnostic. Frames
- * become blob: URLs rather than data: URLs so the browser holds one copy of
- * each frame instead of a base64 string plus its decoded form.
+ * The two heavy fields arrive base64-encoded: WebP frames, and the spectra as
+ * a zlib-compressed block of float16 bit patterns. Frames become blob: URLs
+ * rather than data: URLs so the browser holds one copy of each frame instead
+ * of a base64 string plus its decoded form.
  */
 async function decodePayload(data) {
-  const mime = data.frame_mime || 'image/webp'
   const frame_urls = data.left_frames.map((frame) =>
-    URL.createObjectURL(new Blob([toBytes(frame)], { type: mime })),
+    URL.createObjectURL(new Blob([b64ToBytes(frame)], { type: 'image/webp' })),
   )
-  const raw = toBytes(data.spectra_bytes)
-  const inflated =
-    data.spectra_encoding === 'zlib-float16' ? await inflate(raw) : raw
+  const inflated = await inflate(b64ToBytes(data.spectra_bytes))
   // Copy through a fresh buffer: the inflated bytes are not guaranteed to sit
   // at a 2-byte-aligned offset, which a Uint16Array view requires.
   const spectra = new Uint16Array(
@@ -547,17 +544,11 @@ async function decodePayload(data) {
         )
       : Uint8Array.from(inflated).buffer,
   )
-  return {
-    ...data,
-    frame_urls,
-    spectra,
-    spectra_scale: data.spectra_scale ?? 1,
-  }
+  return { ...data, frame_urls, spectra }
 }
 
 // Deliberately not exported: `render_html` calls this directly from the same
-// module scope, and the anywidget adapter (concatenated after this file) owns
-// the module's single `export default`. Two default exports would not parse.
+// module scope.
 function renderWidget(data, el) {
   el.textContent = 'Loading MRSI inspector…'
   decodePayload(data).then(
