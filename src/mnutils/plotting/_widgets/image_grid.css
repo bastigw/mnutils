@@ -33,8 +33,9 @@
     calc(var(--mnu-panel-min-h) * var(--mnu-aspect, 1))
   );
   --mnu-grid-w-cap: calc(
-    var(--mnu-grid-cols, 1) * var(--mnu-panel-w-cap) + (var(--mnu-grid-cols, 1) - 1) *
-      var(--mnu-grid-gap) + 2 * var(--mnu-panel-pad)
+    var(--mnu-grid-cols, 1) * var(--mnu-panel-w-cap) +
+      (var(--mnu-grid-cols, 1) - 1) * var(--mnu-grid-gap) + 2 *
+      var(--mnu-panel-pad)
   );
 
   margin: 1em 0 0 1em;
@@ -94,7 +95,7 @@
   border-bottom: none;
   max-height: var(--mnu-grid-max-h);
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
   scrollbar-gutter: stable;
 }
 
@@ -108,7 +109,10 @@
    than a single panel. */
 .mnutils-image-grid-cells {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(var(--mnu-panel-min-w-eff), 100%), 1fr));
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(var(--mnu-panel-min-w-eff), 100%), 1fr)
+  );
   gap: var(--mnu-grid-gap);
   align-items: start;
   justify-items: start;
