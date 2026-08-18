@@ -44,6 +44,9 @@ GRID_FRAME_QUALITY = 92
 # a 700-panel grid) to fix artifacts nobody can see at that scale.
 GRID_LOSSLESS_MAX_PIXELS = 64 * 64
 
+# Panels per row in a `display_images` grid, before it wraps to a new one.
+GRID_MAX_COLS = 5
+
 # float16 tops out at 65504, and raw spectra routinely exceed that, so the
 # buffer is divided by a scale factor before the cast and multiplied back in
 # the browser. 32000 leaves an octave of headroom under the limit.
@@ -244,10 +247,11 @@ def display_images(
         images = images[:, :, :, np.newaxis]
     elif original_dims == 4:
         num_images = images.shape[3]
-        # Add four images per row
-        num_cols = min(4, num_images)
+        # Nominal columns per row. The widget wraps to fewer when the pane is
+        # too narrow for them, so this is the *most* a row will ever hold.
+        num_cols = min(GRID_MAX_COLS, num_images)
         slice_idx = images.shape[2] // 2
-        num_rows = (num_images + 3) // 4
+        num_rows = -(-num_images // GRID_MAX_COLS)
         logger.debug(f"Displaying {num_images} images in a {num_rows}x{num_cols} grid.")
         # Check that 3rd dimension is the same for all images
         for i in range(1, num_images):

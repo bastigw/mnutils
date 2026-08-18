@@ -172,8 +172,19 @@ function renderWidget(data, el) {
   };
   showSlice(initialIndex);
 
-  // A single-slice stack has nothing to scrub: no bar at all, rather than a
-  // disabled slider whose only honest readout is "0 of 0".
+  // A panel's edge is invisible wherever the data is NaN, since those pixels
+  // are transparent -- which makes a mostly-masked image look like it has an
+  // arbitrary shape. The border draws the frame's real extent back in, off by
+  // default because it is clutter on an image that fills its own bounds.
+  const { toggle } = makeToggle({
+    label: "Border",
+    checked: false,
+    onChange: (on) => grid.classList.toggle("is-bordered", on),
+  });
+
+  // A single-slice stack has nothing to scrub, so it gets a bar with just the
+  // toggle rather than a disabled slider whose only honest readout is "0 of 0".
+  const controls = [];
   if (nSlices > 1) {
     const { lbl, slider, readout } = makeSliceSlider({
       min: 0,
@@ -183,10 +194,11 @@ function renderWidget(data, el) {
       formatReadout: (idx) => String(idx),
       onInput: showSlice,
     });
-    const bar = makeBar(makeGroup(lbl, readout), slider);
-    bar.classList.add("mnutils-image-grid-bar");
-    viewer.append(bar);
+    controls.push(makeGroup(lbl, readout), slider);
   }
+  const bar = makeBar(...controls, toggle);
+  bar.classList.add("mnutils-image-grid-bar");
+  viewer.append(bar);
 
   viewer.append(panel);
   el.append(viewer);

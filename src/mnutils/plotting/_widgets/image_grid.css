@@ -128,6 +128,14 @@
   image-rendering: var(--mnu-image-rendering, auto);
 }
 
+/* Toggled by the bar's "Border" checkbox. `border-box` keeps the outline
+   inside the column the panel already occupies, so ticking it doesn't reflow
+   the grid. */
+.mnutils-image-grid-cells.is-bordered .mnutils-image-grid-image {
+  box-sizing: border-box;
+  border: 1px solid var(--mnu-border);
+}
+
 .mnutils-image-grid-caption {
   font-size: 0.85em;
   text-align: center;

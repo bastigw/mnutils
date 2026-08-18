@@ -74,7 +74,7 @@ volume_4d = np.clip(pattern + noise, -10, 20)
 - **2D** `(H, W)` — one image.
 - **3D** `(H, W, S)` — still **one image**: the _middle slice_ along the last axis, `S // 2`. Not
   a grid of `S` images.
-- **4D** `(H, W, S, N)` — a **grid of `N` images**, laid out up to 4 per row. Each of the `N` still
+- **4D** `(H, W, S, N)` — a **grid of `N` images**, laid out up to 5 per row. Each of the `N` still
   only shows _its own_ middle slice along axis 2 — the same "last axis of each sub-array is
   slices, not images" rule applies one level down.
 
@@ -83,7 +83,7 @@ single = volume_4d[:, :, num_z // 2, 1]  # single slice of the 4D volume
 display_images(single)
 ```
 
-A 4D array with one slice per volume is the grid case: seven panels, laid out four per row.
+A 4D array with one slice per volume is the grid case: seven panels, laid out five per row.
 
 ```{code-cell} ipython3
 one_slice_grid = volume_4d[:, :, num_z // 2 : num_z // 2 + 1, :]
@@ -225,7 +225,7 @@ Panels are the array's own pixels, so a non-square array stays non-square — a 
 drawn four times wider than it is tall, not stretched to fill its share of the row:
 
 ```{code-cell} ipython3
-wide = np.stack([volume_4d[30:60, :, num_z // 2, i] for i in range(3)], axis=-1)[:, :, np.newaxis]
+wide = np.stack([volume_4d[30:60, :, num_z // 2, i] for i in range(7)], axis=-1)[:, :, np.newaxis]
 wide.shape  # (30, 90, 1, 3): three wide panels, one slice
 ```
 
@@ -246,8 +246,8 @@ Once there are enough panels, the columns are what give: they wrap at `--mnu-pan
 images scale down to match, so a twelve-panel grid stays inside its pane.
 
 ```{code-cell} ipython3
-many = rng.random((32, 32, 1, 12))
-display_images(many, titles=[f"echo {i}" for i in range(12)])
+many = rng.random((32, 32, 1, 24))
+display_images(many, titles=[f"echo {i}" for i in range(24)])
 ```
 
 (plotting-images-lowres)=
