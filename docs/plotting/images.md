@@ -235,11 +235,13 @@ display_images(wide, titles=["t = 0", "t = 1", "t = 2"], colorbar=True)
 
 :::{note}
 Panels fill their column and the column shrinks with the space available, so a narrow editor pane
-produces smaller panels rather than clipped ones, and `--mnu-panel-min-w` is the width below which
-a row wraps instead of squeezing further. `--mnu-panel-max-h` caps a single panel — raising it is
-what makes the panels bigger on a wide screen — while `--mnu-grid-max-h` caps the *box*: once the
-rows outgrow it the panel area scrolls, so a grid of many images keeps them readable instead of
-shrinking them all to fit.
+produces smaller panels rather than clipped ones — down to a floor. `--mnu-panel-min-h` and
+`--mnu-panel-max-h` bound a single panel's height, `--mnu-panel-min-w` its width, and because a
+panel's height is its width times its aspect ratio the two floors combine: a row wraps once its
+columns would fall below *either*, which is what keeps a row of wide frames from flattening into
+strips. `--mnu-grid-max-h` then caps the *box* rather than the panels: once the rows outgrow it
+the panel area scrolls, so a grid of many images keeps them readable instead of shrinking them all
+to fit. Raising `--mnu-panel-max-h` is what makes the panels bigger on a wide screen.
 :::
 
 Once there are enough panels, the columns wrap at `--mnu-panel-min-w` and the rows that don't fit

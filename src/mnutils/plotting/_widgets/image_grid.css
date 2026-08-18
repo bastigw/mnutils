@@ -10,6 +10,7 @@
   --mnu-grid-max-w: 100%; /* the plot area stops growing here */
   --mnu-grid-max-h: 50vh; /* taller than this, the panel box scrolls */
   --mnu-panel-max-h: 17rem; /* no single panel taller than this */
+  --mnu-panel-min-h: 8rem; /* ...nor shorter than this */
   --mnu-panel-min-w: 9rem; /* narrower than this, the row wraps instead */
   --mnu-grid-gap: 0.7rem;
   --mnu-panel-pad: 0.7rem;
@@ -20,6 +21,17 @@
      is what stops a wide window stretching four 64x64 frames across the whole
      screen -- the columns below would otherwise share out every pixel going. */
   --mnu-panel-w-cap: calc(var(--mnu-panel-max-h) * var(--mnu-aspect, 1));
+
+  /* The floor is the same trade read from the other end. A panel is as tall as
+     its width and aspect ratio make it, so "never shorter than
+     --mnu-panel-min-h" means "never narrower than that height times the aspect
+     ratio" -- for a 5x20 frame that is four times --mnu-panel-min-h. Columns
+     take the wider of that and --mnu-panel-min-w, so a row of wide frames wraps
+     sooner rather than flattening into strips. */
+  --mnu-panel-min-w-eff: max(
+    var(--mnu-panel-min-w),
+    calc(var(--mnu-panel-min-h) * var(--mnu-aspect, 1))
+  );
   --mnu-grid-w-cap: calc(
     var(--mnu-grid-cols, 1) * var(--mnu-panel-w-cap) + (var(--mnu-grid-cols, 1) - 1) *
       var(--mnu-grid-gap) + 2 * var(--mnu-panel-pad)
@@ -86,16 +98,17 @@
   scrollbar-gutter: stable;
 }
 
-/* `auto-fit` + `minmax(--mnu-panel-min-w, 1fr)`: as many columns as fit at a
-   readable width, wrapping to a new row when they don't. The nominal column
-   count (`GRID_MAX_COLS`, five) is enforced from above by the
-   widget's max-width rather than by a fixed track list -- a fixed list is what
-   cut the fourth panel off in a narrow editor pane, since grid columns never
-   wrap. `min(..., 100%)` keeps the minimum itself from overflowing a pane
-   narrower than a single panel. */
+/* `auto-fit` + `minmax(--mnu-panel-min-w-eff, 1fr)`: as many columns as fit at
+   a readable size, wrapping to a new row when they don't -- where "readable"
+   is both floors above, whichever binds. The nominal column count
+   (`GRID_MAX_COLS`, five) is enforced from above by the widget's max-width
+   rather than by a fixed track list -- a fixed list is what cut the fourth
+   panel off in a narrow editor pane, since grid columns never wrap.
+   `min(..., 100%)` keeps the minimum itself from overflowing a pane narrower
+   than a single panel. */
 .mnutils-image-grid-cells {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(var(--mnu-panel-min-w), 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--mnu-panel-min-w-eff), 100%), 1fr));
   gap: var(--mnu-grid-gap);
   align-items: start;
   justify-items: start;
@@ -117,12 +130,18 @@
    render a 512-row volume at full size. How many rows there are no longer
    enters into it: the box above scrolls instead.
 
-   `object-fit: contain` only matters when the height cap bites before the
-   width one -- a very tall frame -- where it letterboxes instead of squashing. */
+   The floor is enforced by the column width above rather than here, so that
+   the panel grows *wider* to reach --mnu-panel-min-h instead of being
+   letterboxed into it. `min-height` stays as a backstop for the one case the
+   columns can't fix -- a pane too narrow for even a single minimum-width
+   column -- and, with `object-fit: contain`, for a frame so tall that the
+   height cap bites before the width one. Either way the frame keeps its
+   aspect ratio; only the padding around it changes. */
 .mnutils-image-grid-image {
   display: block;
   width: 100%;
   height: auto;
+  min-height: var(--mnu-panel-min-h);
   max-height: var(--mnu-panel-max-h);
   object-fit: contain;
   /* Set per image by the JS: `pixelated` whenever the frame is being scaled
