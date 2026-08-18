@@ -35,6 +35,15 @@ MRSI_FRAME_QUALITY = 92
 # since NaN pixels stay transparent so the widget's background shows through.
 GRID_FRAME_QUALITY = 92
 
+# Below this many pixels a panel is encoded losslessly instead. Lossy WebP is
+# tuned for photographs: on a 20x20 mask, where every pixel is a hard-edged
+# block a reader looks *at* rather than through, and which the widget then
+# blows up several times over, its ringing is plainly visible -- while the
+# frame is a couple of kB either way. The threshold stays low because lossless
+# is not free above it: at 90x90 it costs 4.4x the payload (0.85 -> 3.8 MB for
+# a 700-panel grid) to fix artifacts nobody can see at that scale.
+GRID_LOSSLESS_MAX_PIXELS = 64 * 64
+
 # float16 tops out at 65504, and raw spectra routinely exceed that, so the
 # buffer is divided by a scale factor before the cast and multiplied back in
 # the browser. 32000 leaves an octave of headroom under the limit.
@@ -382,6 +391,10 @@ def _render_image_grid_frames(
     the volume's native `(nrows, ncols)` instead of a dpi-derived size, and
     the browser scales them to whatever width the grid column has.
 
+    Small panels are encoded losslessly (see `GRID_LOSSLESS_MAX_PIXELS`);
+    lossy WebP's ringing is invisible on a 512-row anatomical and obvious on a
+    20x20 mask, and at that size the payload argument for lossy disappears.
+
     RGBA rather than RGB: values the colormap marks "bad" (NaN, so also
     everything `zeros_as_nan` masked out) carry alpha 0 and stay transparent,
     which is how they get the panel's background in both light and dark
@@ -402,13 +415,18 @@ def _render_image_grid_frames(
         shared = (low, high) if high > low else (low, low + 1.0)
         bounds = [[shared] * num_images for _ in range(n_slices)]
 
+    lossless = images.shape[0] * images.shape[1] <= GRID_LOSSLESS_MAX_PIXELS
+
     def render(job: tuple[int, int]) -> bytes:
         slice_idx, panel_idx = job
         low, high = bounds[slice_idx][panel_idx]
         mappable = ScalarMappable(Normalize(low, high), cmap)
         rgba = mappable.to_rgba(images[:, :, slice_idx, panel_idx], bytes=True)
         buf = io.BytesIO()
-        PIL.Image.fromarray(rgba, "RGBA").save(buf, format="webp", quality=quality, method=2)
+        if lossless:
+            PIL.Image.fromarray(rgba, "RGBA").save(buf, format="webp", lossless=True, method=4)
+        else:
+            PIL.Image.fromarray(rgba, "RGBA").save(buf, format="webp", quality=quality, method=2)
         return buf.getvalue()
 
     jobs = [(s, p) for s in range(n_slices) for p in range(num_images)]

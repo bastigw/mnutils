@@ -5,10 +5,16 @@
   --mnu-grid-max-w: 54rem; /* the plot area stops growing here */
   --mnu-grid-max-h: 34rem; /* ...and so does its total height */
   --mnu-panel-max-h: 17rem; /* no single panel taller than this */
-  --mnu-panel-min-h: 7rem; /* ...nor shorter, however many rows there are */
+  --mnu-panel-min-h: 12rem; /* ...nor shorter, however many rows there are */
   --mnu-row-extras: 3rem; /* caption + colorbar + gap below each panel */
 
-  margin: 1em auto 0;
+  /* Left-aligned and only as wide as the panels need: the grid's columns are
+     content-sized (see below), so `fit-content` shrinks the whole block --
+     title, slider bar and all -- to the images rather than to the notebook's
+     full column width. --mnu-grid-max-w is the ceiling for wide frames. */
+  margin: 1em 0 0;
+  padding-left: 0.25rem;
+  width: fit-content;
   max-width: var(--mnu-grid-max-w);
 }
 
@@ -16,7 +22,7 @@
   padding: 0.6em 0.7em 0.2em;
   font-size: 1.05em;
   font-weight: 700;
-  text-align: center;
+  text-align: left;
   color: var(--mnu-fg-strong);
 }
 
@@ -64,11 +70,17 @@
    stop, rather than rendering at whatever their native pixel size happens to
    be. When min wins over ideal the grid exceeds --mnu-grid-max-h by design:
    legibility beats the budget. */
+/* Columns are `max-content`, not `1fr`: a fraction column takes its share of
+   whatever width is available, which is what left the panels floating in a
+   wide empty background. Content-sized columns are exactly as wide as the
+   frames in them, and the widget shrinks to fit (see `width: fit-content`
+   above). */
 .mnutils-image-grid-cells {
   display: grid;
   gap: 0.7rem;
   align-items: start;
-  justify-items: center;
+  justify-items: start;
+  justify-content: start;
 }
 
 .mnutils-image-grid-cell {
@@ -85,13 +97,20 @@
   max-width: 100%;
   height: clamp(
     var(--mnu-panel-min-h),
-    calc(var(--mnu-grid-max-h) / var(--mnu-grid-rows, 1) - var(--mnu-row-extras)),
+    calc(
+      var(--mnu-grid-max-h) / var(--mnu-grid-rows, 1) - var(--mnu-row-extras)
+    ),
     var(--mnu-panel-max-h)
   );
   /* A very wide frame in a narrow column hits max-width before its aspect
      ratio is satisfied. `contain` letterboxes it there rather than stretching
      it to two fixed dimensions. */
   object-fit: contain;
+  /* Set per image by the JS: `pixelated` whenever the frame is being scaled
+     up, so a 20x20 array reads as 400 big square pixels instead of a blur,
+     and `auto` when it is being scaled down, where nearest-neighbour would
+     just alias. */
+  image-rendering: var(--mnu-image-rendering, auto);
 }
 
 .mnutils-image-grid-caption {

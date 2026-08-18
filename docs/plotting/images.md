@@ -236,11 +236,63 @@ display_images(wide, titles=["t = 0", "t = 1", "t = 2"], colorbar=True)
 :::{note}
 Panels are sized by *height*, so they grow to use the vertical space available and stop at a
 limit rather than rendering at whatever the array's pixel size happens to be. The limits are
-`rem`-based custom properties on the widget: `--mnu-panel-max-h` (17rem) and `--mnu-panel-min-h`
-(7rem) bound a single panel, `--mnu-grid-max-h` (34rem) is the budget the rows divide between
-them, and `--mnu-grid-max-w` (54rem) stops the plot area spreading across a wide screen. A
-100-slice volume of 512² frames therefore stays readable in a notebook pane instead of filling it.
+`rem`-based custom properties on the widget: `--mnu-panel-max-h` and `--mnu-panel-min-h` bound a
+single panel, `--mnu-grid-max-h` is the budget the rows divide between them, and
+`--mnu-grid-max-w` stops the plot area spreading across a wide screen. The block is only ever as
+wide as the panels themselves need. A 100-slice volume of 512² frames therefore stays readable in
+a notebook pane instead of filling it.
 :::
+
+(plotting-images-lowres)=
+
+## Low-resolution arrays keep their pixels
+
+A `(20, 20)` mask blown up to a few hundred screen pixels is a different problem from a `512²`
+anatomical shrunk to fit: the first wants to look like the twenty-by-twenty grid of values it
+actually is, the second wants smoothing. Both happen automatically — a panel scaled *up* is drawn
+with hard pixel edges, one scaled *down* keeps the browser's smooth default — and small frames are
+encoded losslessly, so no compression ringing creeps in around the blocks.
+
+```{code-cell} ipython3
+tiny = rng.integers(0, 4, size=(8, 8)).astype(float)
+display_images(tiny, colorbar=True)
+```
+
+The same holds for a non-square low-resolution array, and for a grid of them:
+
+```{code-cell} ipython3
+display_images(rng.random((5, 20)))
+```
+
+```{code-cell} ipython3
+masks = np.stack([(rng.random((16, 16)) > 0.5).astype(float) for _ in range(4)], axis=-1)
+display_images(masks[:, :, np.newaxis, :], titles=[f"mask {i}" for i in range(4)])
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: small panels are encoded losslessly, big ones are not.
+from mnutils.plotting.images import GRID_LOSSLESS_MAX_PIXELS
+
+assert 8 * 8 <= GRID_LOSSLESS_MAX_PIXELS
+tiny_frames, _ = _render_image_grid_frames(
+    tiny[:, :, np.newaxis, np.newaxis],
+    num_images=1,
+    cmap="magma",
+    vmin=0,
+    vmax=3,
+    per_panel_bounds=False,
+)
+import io as _io
+
+import PIL.Image as _PILImage
+
+with _PILImage.open(_io.BytesIO(tiny_frames[0][0])) as _im:
+    assert _im.size == (8, 8)  # native resolution, no upscaling baked in
+    # Lossless: every value in an 8x8 of four levels survives the round trip.
+    assert len(set(_im.convert("RGBA").getdata())) == len(np.unique(tiny))
+```
 
 (plotting-images-zeros)=
 

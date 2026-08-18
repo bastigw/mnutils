@@ -88,7 +88,7 @@ function renderWidget(data, el) {
   const grid = document.createElement("div");
   grid.className = "mnutils-image-grid-cells";
   const cols = Math.min(numCols, numPanels);
-  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  grid.style.gridTemplateColumns = `repeat(${cols}, max-content)`;
   // Feeds the second stage of the CSS height cap: the whole-grid limit is
   // divided by the number of rows, so panels shrink as rows are added.
   grid.style.setProperty("--mnu-grid-rows", String(Math.ceil(numPanels / cols)));
@@ -130,6 +130,24 @@ function renderWidget(data, el) {
     colorbars.push(cbar);
     panel.append(cbar.wrap);
   }
+
+  // Low-resolution data should look like the grid of values it is. Once a
+  // frame is drawn wider than its own pixel count the browser's smooth
+  // upscaling turns a 20x20 array into a blur, so those get `pixelated`;
+  // frames being scaled *down* keep the smooth default, where nearest
+  // -neighbour would only alias. Rechecked on resize, since which side of
+  // 1:1 a panel falls on depends on the width it ends up with.
+  const syncPixelation = () => {
+    for (const img of images) {
+      if (!img.naturalWidth) continue;
+      img.style.setProperty(
+        "--mnu-image-rendering",
+        img.getBoundingClientRect().width > img.naturalWidth ? "pixelated" : "auto",
+      );
+    }
+  };
+  for (const img of images) img.addEventListener("load", syncPixelation);
+  if (typeof ResizeObserver === "function") new ResizeObserver(syncPixelation).observe(grid);
 
   const showSlice = (idx) => {
     for (let p = 0; p < numPanels; p++) images[p].src = urls[idx][p];
