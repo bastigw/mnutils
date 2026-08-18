@@ -87,7 +87,11 @@ function renderWidget(data, el) {
 
   const grid = document.createElement("div");
   grid.className = "mnutils-image-grid-cells";
-  grid.style.gridTemplateColumns = `repeat(${Math.min(numCols, numPanels)}, minmax(0, 1fr))`;
+  const cols = Math.min(numCols, numPanels);
+  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  // Feeds the second stage of the CSS height cap: the whole-grid limit is
+  // divided by the number of rows, so panels shrink as rows are added.
+  grid.style.setProperty("--mnu-grid-rows", String(Math.ceil(numPanels / cols)));
 
   const images = [];
   const colorbars = [];

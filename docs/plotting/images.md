@@ -221,6 +221,24 @@ Arguments that only made sense against an `Axes` — `aspect`, `xlabel`, `xticks
 debug-level log line names them when you pass one.
 :::
 
+Panels are the array's own pixels, so a non-square array stays non-square — a `(30, 120)` slice is
+drawn four times wider than it is tall, not stretched to fill its share of the row:
+
+```{code-cell} ipython3
+wide = np.stack([volume_4d[30:60, :, num_z // 2, i] for i in range(3)], axis=-1)[:, :, np.newaxis]
+wide.shape  # (30, 90, 1, 3): three wide panels, one slice
+```
+
+```{code-cell} ipython3
+display_images(wide, titles=["t = 0", "t = 1", "t = 2"], colorbar=True)
+```
+
+:::{note}
+Height is what the widget limits, in two stages: no single panel grows past ~260 px, and the grid
+as a whole stays inside ~70% of the viewport height by shrinking its panels as rows are added. A
+100-slice volume of 512² frames therefore stays readable in a notebook pane instead of filling it.
+:::
+
 (plotting-images-zeros)=
 
 ## Zeros vs. real signal
