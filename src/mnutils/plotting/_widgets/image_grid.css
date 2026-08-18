@@ -1,5 +1,15 @@
+/* Every size that decides how big the plot area gets, in one place and in
+   rem so a reader's font size scales the whole widget together. Override any
+   of them on the widget element to retune a page. */
 .mnutils-image-grid {
-  margin-top: 1em;
+  --mnu-grid-max-w: 54rem; /* the plot area stops growing here */
+  --mnu-grid-max-h: 34rem; /* ...and so does its total height */
+  --mnu-panel-max-h: 17rem; /* no single panel taller than this */
+  --mnu-panel-min-h: 7rem; /* ...nor shorter, however many rows there are */
+  --mnu-row-extras: 3rem; /* caption + colorbar + gap below each panel */
+
+  margin: 1em auto 0;
+  max-width: var(--mnu-grid-max-w);
 }
 
 .mnutils-image-grid-title {
@@ -30,7 +40,7 @@
 
 .mnutils-image-grid-bar .mnu-slider {
   flex: none;
-  width: min(100%, 320px);
+  width: min(100%, 20rem);
   height: 1.3em;
 }
 
@@ -39,23 +49,24 @@
   border-bottom: none;
 }
 
-/* Two stages of size limit, because the frames are native-resolution rasters
-   and a 512-row volume would otherwise render 512 px tall per panel, twice
-   over in a 2-row grid:
-     1. --mnu-panel-max-h caps any single panel;
-     2. --mnu-grid-max-h caps the grid as a whole, divided by the row count
-        (set as --mnu-grid-rows by the JS) so a taller grid shrinks its panels
-        rather than growing past the viewport.
-   Whichever bites first wins, so a 1-row grid is limited by the panel cap and
-   a 3-row grid by the grid cap. --mnu-row-extras is the caption, colorbar and
-   gap that sit below each panel and also count toward the grid's height. */
-.mnutils-image-grid-cells {
-  --mnu-panel-max-h: 260px;
-  --mnu-grid-max-h: 70vh;
-  --mnu-row-extras: 3em;
+/* Panel height is the only dimension driven directly; width follows from the
+   frame's own aspect ratio. That height is a clamp of three numbers:
 
+     min    --mnu-panel-min-h, so a many-row grid can't shrink its panels into
+            unreadable strips;
+     ideal  the whole-grid budget divided by the row count (--mnu-grid-rows is
+            set by the JS), less the caption and colorbar sitting under each
+            row -- this is what makes panels grow to fill the space available;
+     max    --mnu-panel-max-h, so a single-row grid doesn't render a 512-row
+            volume at 512 px.
+
+   Panels therefore take as much vertical space as the budget allows and then
+   stop, rather than rendering at whatever their native pixel size happens to
+   be. When min wins over ideal the grid exceeds --mnu-grid-max-h by design:
+   legibility beats the budget. */
+.mnutils-image-grid-cells {
   display: grid;
-  gap: 0.7em;
+  gap: 0.7rem;
   align-items: start;
   justify-items: center;
 }
@@ -68,19 +79,19 @@
   min-width: 0;
 }
 
-/* The frames are rendered at the volume's native pixel size, so the panel is
-   free to scale. Height is what's capped (see the two stages above) and width
-   follows from the data's own aspect ratio -- a non-square array stays
-   non-square instead of being stretched into its grid column. */
 .mnutils-image-grid-image {
   display: block;
   width: auto;
-  height: auto;
   max-width: 100%;
-  max-height: min(
-    var(--mnu-panel-max-h),
-    calc(var(--mnu-grid-max-h) / var(--mnu-grid-rows, 1) - var(--mnu-row-extras))
+  height: clamp(
+    var(--mnu-panel-min-h),
+    calc(var(--mnu-grid-max-h) / var(--mnu-grid-rows, 1) - var(--mnu-row-extras)),
+    var(--mnu-panel-max-h)
   );
+  /* A very wide frame in a narrow column hits max-width before its aspect
+     ratio is satisfied. `contain` letterboxes it there rather than stretching
+     it to two fixed dimensions. */
+  object-fit: contain;
 }
 
 .mnutils-image-grid-caption {
@@ -96,8 +107,8 @@
 }
 
 .mnutils-image-grid-cbar-shared {
-  margin: 0.7em auto 0;
-  max-width: min(100%, 420px);
+  margin: 0.7rem auto 0;
+  max-width: min(100%, 26rem);
 }
 
 .mnutils-image-grid-cbar-strip {

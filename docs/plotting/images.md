@@ -190,7 +190,7 @@ for comparing differently-shaped images side by side; resize or crop to a common
 
 The panels you see above are plain images, rendered straight from the array at its own pixel size
 — no matplotlib figure is built at any point, which is why nothing is returned to post-process.
-Everything drawn *around* the pixels is HTML instead: `fig_title` becomes a heading, `titles`
+Everything drawn _around_ the pixels is HTML instead: `fig_title` becomes a heading, `titles`
 become captions, and `colorbar=True` becomes a gradient strip labelled with the bounds the panels
 were scaled to.
 
@@ -234,8 +234,11 @@ display_images(wide, titles=["t = 0", "t = 1", "t = 2"], colorbar=True)
 ```
 
 :::{note}
-Height is what the widget limits, in two stages: no single panel grows past ~260 px, and the grid
-as a whole stays inside ~70% of the viewport height by shrinking its panels as rows are added. A
+Panels are sized by *height*, so they grow to use the vertical space available and stop at a
+limit rather than rendering at whatever the array's pixel size happens to be. The limits are
+`rem`-based custom properties on the widget: `--mnu-panel-max-h` (17rem) and `--mnu-panel-min-h`
+(7rem) bound a single panel, `--mnu-grid-max-h` (34rem) is the budget the rows divide between
+them, and `--mnu-grid-max-w` (54rem) stops the plot area spreading across a wide screen. A
 100-slice volume of 512² frames therefore stays readable in a notebook pane instead of filling it.
 :::
 
@@ -254,7 +257,7 @@ mostly_zero[8:12, 8:12] = rng.random((4, 4)) * 100
 display_images(mostly_zero, zeros_as_nan=True, colorbar=True)
 ```
 
-Masked-out voxels are *transparent*, not a colour: the panels are RGBA images, so the background
+Masked-out voxels are _transparent_, not a colour: the panels are RGBA images, so the background
 of the page shows through them in both light and dark themes.
 
 :::{seealso}
