@@ -87,11 +87,12 @@ function renderWidget(data, el) {
 
   const grid = document.createElement("div");
   grid.className = "mnutils-image-grid-cells";
+  // The column count is nominal: the CSS wraps to fewer columns when the pane
+  // is too narrow for them, and caps the widget's width so a wide pane doesn't
+  // fit more. Both numbers feed the height budget, which the rows divide.
   const cols = Math.min(numCols, numPanels);
-  grid.style.gridTemplateColumns = `repeat(${cols}, max-content)`;
-  // Feeds the second stage of the CSS height cap: the whole-grid limit is
-  // divided by the number of rows, so panels shrink as rows are added.
-  grid.style.setProperty("--mnu-grid-rows", String(Math.ceil(numPanels / cols)));
+  viewer.style.setProperty("--mnu-grid-cols", String(cols));
+  viewer.style.setProperty("--mnu-grid-rows", String(Math.ceil(numPanels / cols)));
 
   const images = [];
   const colorbars = [];
@@ -146,7 +147,21 @@ function renderWidget(data, el) {
       );
     }
   };
-  for (const img of images) img.addEventListener("load", syncPixelation);
+
+  // The frames' aspect ratio decides how wide the panels want to be, and so
+  // how wide the whole widget is allowed to grow (see --mnu-panel-w-cap).
+  // Only measurable once a frame has decoded, hence the load handler.
+  const syncAspect = () => {
+    const img = images.find((candidate) => candidate.naturalWidth);
+    if (img) viewer.style.setProperty("--mnu-aspect", String(img.naturalWidth / img.naturalHeight));
+  };
+
+  for (const img of images) {
+    img.addEventListener("load", () => {
+      syncAspect();
+      syncPixelation();
+    });
+  }
   if (typeof ResizeObserver === "function") new ResizeObserver(syncPixelation).observe(grid);
 
   const showSlice = (idx) => {
