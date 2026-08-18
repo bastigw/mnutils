@@ -235,15 +235,16 @@ display_images(wide, titles=["t = 0", "t = 1", "t = 2"], colorbar=True)
 
 :::{note}
 Panels fill their column and the column shrinks with the space available, so a narrow editor pane
-or a grid with many images produces smaller panels rather than clipped ones. Two `rem`-based
-custom properties on the widget set the ceiling — `--mnu-panel-max-h` for one panel and
-`--mnu-grid-max-h` for the height all rows share — and `--mnu-panel-min-w` is the width below
-which a row wraps instead of squeezing. Raising `--mnu-panel-max-h` is what makes the panels
-bigger on a wide screen; `--mnu-grid-max-w` caps the plot area's width.
+produces smaller panels rather than clipped ones, and `--mnu-panel-min-w` is the width below which
+a row wraps instead of squeezing further. `--mnu-panel-max-h` caps a single panel — raising it is
+what makes the panels bigger on a wide screen — while `--mnu-grid-max-h` caps the *box*: once the
+rows outgrow it the panel area scrolls, so a grid of many images keeps them readable instead of
+shrinking them all to fit.
 :::
 
-Once there are enough panels, the columns are what give: they wrap at `--mnu-panel-min-w` and the
-images scale down to match, so a twelve-panel grid stays inside its pane.
+Once there are enough panels, the columns wrap at `--mnu-panel-min-w` and the rows that don't fit
+go behind a scrollbar — the block stays the same size on the page whether it holds three images or
+thirty:
 
 ```{code-cell} ipython3
 many = rng.random((32, 32, 1, 24))
@@ -256,8 +257,8 @@ display_images(many, titles=[f"echo {i}" for i in range(24)])
 
 A `(20, 20)` mask blown up to a few hundred screen pixels is a different problem from a `512²`
 anatomical shrunk to fit: the first wants to look like the twenty-by-twenty grid of values it
-actually is, the second wants smoothing. Both happen automatically — a panel scaled *up* is drawn
-with hard pixel edges, one scaled *down* keeps the browser's smooth default — and small frames are
+actually is, the second wants smoothing. Both happen automatically — a panel scaled _up_ is drawn
+with hard pixel edges, one scaled _down_ keeps the browser's smooth default — and small frames are
 encoded losslessly, so no compression ringing creeps in around the blocks.
 
 ```{code-cell} ipython3

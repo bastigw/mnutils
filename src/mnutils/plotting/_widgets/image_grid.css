@@ -8,10 +8,9 @@
    caps on top of them. */
 .mnutils-image-grid {
   --mnu-grid-max-w: 100%; /* the plot area stops growing here */
-  --mnu-grid-max-h: 50vh; /* ...and so does its total height */
+  --mnu-grid-max-h: 50vh; /* taller than this, the panel box scrolls */
   --mnu-panel-max-h: 17rem; /* no single panel taller than this */
   --mnu-panel-min-w: 9rem; /* narrower than this, the row wraps instead */
-  --mnu-row-extras: 3rem; /* caption + colorbar + gap below each panel */
   --mnu-grid-gap: 0.7rem;
   --mnu-panel-pad: 0.7rem;
 
@@ -70,14 +69,26 @@
   height: 1.3em;
 }
 
+/* --mnu-grid-max-h bounds *this box*, not the panels inside it: past that
+   height the grid scrolls rather than shrinking its images. Twelve 32x32
+   panels are then twelve full-size panels behind a scrollbar, instead of
+   twelve stamps -- past a handful of rows, dividing a fixed budget between
+   them makes every panel unreadable at once.
+   `scrollbar-gutter: stable` reserves the scrollbar's width whether or not it
+   is showing, so the panels don't jump sideways when a slice change is the
+   thing that makes the content overflow. */
 .mnutils-image-grid-panel {
   padding: var(--mnu-panel-pad);
   border-bottom: none;
+  max-height: var(--mnu-grid-max-h);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 /* `auto-fit` + `minmax(--mnu-panel-min-w, 1fr)`: as many columns as fit at a
    readable width, wrapping to a new row when they don't. The nominal column
-   count (4, as the array layout decides) is enforced from above by the
+   count (`GRID_MAX_COLS`, five) is enforced from above by the
    widget's max-width rather than by a fixed track list -- a fixed list is what
    cut the fourth panel off in a narrow editor pane, since grid columns never
    wrap. `min(..., 100%)` keeps the minimum itself from overflowing a pane
@@ -102,24 +113,17 @@
 /* Width-driven, not height-driven: a panel fills its column, and the column is
    what shrinks when the pane narrows or the grid gains images -- so more
    images means smaller images rather than clipped ones. Height follows from
-   the aspect ratio, bounded by the row budget:
+   the aspect ratio, capped by --mnu-panel-max-h so that a single row can't
+   render a 512-row volume at full size. How many rows there are no longer
+   enters into it: the box above scrolls instead.
 
-     ideal  the whole-grid height budget divided by the nominal row count
-            (--mnu-grid-rows, set by the JS), less the caption and colorbar
-            sitting under each row;
-     max    --mnu-panel-max-h, so a single row can't render a 512-row volume
-            at full size.
-
-   `object-fit: contain` only matters when the height bound bites before the
+   `object-fit: contain` only matters when the height cap bites before the
    width one -- a very tall frame -- where it letterboxes instead of squashing. */
 .mnutils-image-grid-image {
   display: block;
   width: 100%;
   height: auto;
-  max-height: min(
-    var(--mnu-panel-max-h),
-    calc(var(--mnu-grid-max-h) / var(--mnu-grid-rows, 1) - var(--mnu-row-extras))
-  );
+  max-height: var(--mnu-panel-max-h);
   object-fit: contain;
   /* Set per image by the JS: `pixelated` whenever the frame is being scaled
      up, so a 20x20 array reads as 400 big square pixels instead of a blur,

@@ -89,10 +89,10 @@ function renderWidget(data, el) {
   grid.className = "mnutils-image-grid-cells";
   // The column count is nominal: the CSS wraps to fewer columns when the pane
   // is too narrow for them, and caps the widget's width so a wide pane doesn't
-  // fit more. Both numbers feed the height budget, which the rows divide.
+  // fit more. Rows are not counted -- however many they come to, the panel box
+  // scrolls once they outgrow it.
   const cols = Math.min(numCols, numPanels);
   viewer.style.setProperty("--mnu-grid-cols", String(cols));
-  viewer.style.setProperty("--mnu-grid-rows", String(Math.ceil(numPanels / cols)));
 
   const images = [];
   const colorbars = [];
