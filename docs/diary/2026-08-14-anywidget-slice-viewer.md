@@ -50,9 +50,10 @@ slices helped, which left `fig.savefig(png)` as ~130 ms of the remaining per-sli
 rasterizing an axes with no ticks, labels, titles, colorbar or contours, only two stacked
 `imshow`s. The entire Agg pipeline was being paid for `cmap(norm(arr))` plus an alpha blend.
 
-So `_render_mrsi_left_frames()` does that arithmetic directly. Matplotlib still *supplies* the
-colormaps through `ScalarMappable`, so nothing is reimplemented and the two cannot drift; only
-the canvas is gone. Frames are WebP q92 (41 dB PSNR against the exact composite, ~7× smaller than
+So the frames are baked with that arithmetic directly — `_render_frames()`, which the image
+grid later came to share (see [the grid entry](2026-08-18-pil-image-grid.md)). Matplotlib still
+*supplies* the colormaps through `ScalarMappable`, so nothing is reimplemented and the two cannot
+drift; only the canvas is gone. Frames are WebP q92 (41 dB PSNR against the exact composite, ~7× smaller than
 PNG) at the volume's native resolution, and encoding releases the GIL so slices go through a
 thread pool.
 

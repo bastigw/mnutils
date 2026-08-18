@@ -24,7 +24,7 @@ titles, figure title and colorbar become DOM in a new grid widget.
 
 ```{mermaid}
 flowchart LR
-  A["images[:, :, slice, panel]"] --> B["ScalarMappable(Normalize, cmap)"]
+  A["images[:, :, slice, panel]"] --> B["_render_frames():<br/>ScalarMappable(Normalize, cmap)"]
   B --> C["RGBA uint8 at native (nrows, ncols)"]
   C --> D["WebP bytes, threaded encode"]
   D --> E["one img per panel per slice"]
@@ -35,9 +35,10 @@ flowchart LR
 
 matplotlib is not gone — it still _supplies_ the colormap through `ScalarMappable`, so the
 colorbar gradient and the pixels come from one source and cannot drift. What it stops doing is
-laying out and rasterising. `_render_image_grid_frames()` returns the frames slice-major together
-with the `(vmin, vmax)` each was normalised with; `_widgets/image_grid.{py,js,css}` turns that into
-the page.
+laying out and rasterising. `_render_frames()` does the rasterising for every widget in the module
+(see [below](#diary-pil-image-grid-one-renderer)); `_render_image_grid_frames()` asks it for one
+frame per panel per slice and returns them slice-major together with the `(vmin, vmax)` each was
+normalised with; `_widgets/image_grid.{py,js,css}` turns that into the page.
 
 | Annotation today                                  | Where it lands                                                       |
 | ------------------------------------------------- | -------------------------------------------------------------------- |
@@ -79,6 +80,38 @@ padded with white margins, ticks and text. Dropping the canvas drops most of the
 Panels now keep their data's own aspect ratio. The old path defaulted `aspect` to
 `ncols / nrows`, which stretched every panel into a square box regardless of shape; a non-square
 array will look different — correct, but different — than it did before.
+:::
+
+(diary-pil-image-grid-one-renderer)=
+
+## The second renderer that shouldn't have been
+
+Porting the grid produced a renderer that was, line for line, the one the MRSI inspector already
+had: normalise, colormap through `ScalarMappable`, encode WebP on a thread pool. They differed
+only in their layers — one opaque panel, against a gray T1 under a half-transparent magma overlay
+— and in which axes an index walked. Two copies of that is how the panels and the inspector drift
+apart later.
+
+So there is one frame renderer, `_render_frames()`, and the difference is data. A `_Layer` names
+a volume, its colormap, its bounds and its alpha; a job is the trailing index, so
+`volume[:, :, *job]` is the image that frame colormaps. Layers composite in order, reproducing what
+`imshow(alpha=…)` does — the layer's alpha scaled by the colormap's own per-pixel alpha, so "bad"
+pixels let the layer below through untouched instead of blending toward the bad colour.
+
+| Caller | Layers | One job is |
+| --- | --- | --- |
+| `display_images()` | one, opaque, RGBA out | `(slice, panel)` |
+| `inspect_MRSI_spectra()` | gray T1, magma overlay at α 0.5, RGB out | `(slice,)` |
+
+`_render_image_grid_frames()` survives, but it no longer renders: it resolves the bounds each
+panel is normalised with — one shared pair, or one per panel and slice under
+`colorbar_kws={"mode": "each"}` — and nests the flat result the way the widget indexes it.
+
+:::{dropdown} Why not fold the overlay slice viewer's renderer in as well?
+`_render_overlay_frames()` draws contours, three titled axes and a mask outline onto a matplotlib
+`Figure`. That is a different mechanism, not a third variant of colormap-and-blend: absorbing it
+would mean reimplementing `contour()`, which is exactly the "matplotlib supplies, we compose"
+line this port was careful not to cross.
 :::
 
 (diary-pil-image-grid-layout)=
@@ -152,6 +185,10 @@ image. Alpha 0 defers it to the page, so masked voxels read correctly in both th
 - Pass 1 assumed the docs page's strict tests could keep asserting on shapes. They can't — there
   is no return value to assert on — so `docs/plotting/images.md` checks the panel count on
   `_render_image_grid_frames()` directly, and says in the cell why it reaches for a private helper.
+- The plan's unit of work was "give the grid a renderer", and that is what shipped first — a
+  second copy of the MRSI inspector's, which stood on the branch for several commits before the
+  duplication was collapsed into `_render_frames()`. Reading the two side by side is what showed
+  the difference was only their layers; neither one read that way alone.
 - The plan treated the widget's layout as a detail of the port. It was most of the work: five
   rounds of it, all driven by the difference between a browser window and a VS Code output pane.
   The lesson is in the warning above — when the host clips instead of scrolling, "looks right
