@@ -2,7 +2,7 @@
 
 # The grid builds a whole Figure just to throw it away
 
-<span style="color: gray; font-size: 0.9em;">Last edited: 2026-08-18</span>
+<span style="color: gray; font-size: 0.9em;">Last edited: 2026-08-18 · #13</span>
 
 `inspect_MRSI_spectra()` stopped going through matplotlib for its anatomical frames and got ~130 ms
 per slice back, plus sharper images at the volume's native resolution — the composite is really
