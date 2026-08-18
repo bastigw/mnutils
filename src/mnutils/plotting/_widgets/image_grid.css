@@ -1,0 +1,94 @@
+.mnutils-image-grid {
+  margin-top: 1em;
+}
+
+.mnutils-image-grid-title {
+  padding: 0.6em 0.7em 0.2em;
+  font-size: 1.05em;
+  font-weight: 700;
+  text-align: center;
+  color: var(--mnu-fg-strong);
+}
+
+.mnutils-image-grid-bar {
+  justify-content: flex-start;
+  border-bottom: 1px solid var(--mnu-border-soft);
+}
+
+.mnutils-image-grid-bar .mnu-lbl,
+.mnutils-image-grid-bar .mnu-readout {
+  font-size: 1.1em;
+}
+
+.mnutils-image-grid-bar .mnu-readout {
+  font-family: inherit;
+  font-weight: 700;
+  line-height: inherit;
+  min-width: 0;
+  color: var(--mnu-fg-strong);
+}
+
+.mnutils-image-grid-bar .mnu-slider {
+  flex: none;
+  width: min(100%, 320px);
+  height: 1.3em;
+}
+
+.mnutils-image-grid-panel {
+  padding: 0.7em;
+  border-bottom: none;
+}
+
+.mnutils-image-grid-cells {
+  display: grid;
+  gap: 0.7em;
+  align-items: start;
+}
+
+.mnutils-image-grid-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin: 0;
+  min-width: 0;
+}
+
+/* The frames are rendered at the volume's native pixel size, so the panel is
+   free to scale: width follows the grid column, height follows the data's own
+   aspect ratio. */
+.mnutils-image-grid-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mnutils-image-grid-caption {
+  font-size: 0.85em;
+  text-align: center;
+  color: var(--mnu-fg);
+}
+
+.mnutils-image-grid-cbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.mnutils-image-grid-cbar-shared {
+  margin: 0.7em auto 0;
+  max-width: min(100%, 420px);
+}
+
+.mnutils-image-grid-cbar-strip {
+  flex: 1;
+  height: 0.55em;
+  border: 1px solid var(--mnu-border);
+  border-radius: 2px;
+}
+
+.mnutils-image-grid-cbar-tick {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.7em;
+  color: var(--mnu-muted);
+  white-space: nowrap;
+}

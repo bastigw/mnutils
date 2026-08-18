@@ -131,8 +131,11 @@ class NiiBase:
         display_plane: nifti.DISPLAY_PLANES | None = None,
         mask: npt.NDArray | NiiBase | None = None,
         **kwargs,
-    ):
-        """Display the image, optionally masked, via plotting.images.display_images."""
+    ) -> None:
+        """Display the image, optionally masked, via plotting.images.display_images.
+
+        Displays an interactive image-grid widget and returns nothing.
+        """
         # Check if orientation or display_plane is provided in kwargs and orient images
         logger.debug(
             f"Displaying NIfTI with orientation {orientation} and display plane {display_plane}."
@@ -145,7 +148,7 @@ class NiiBase:
             except ValueError as e:
                 logger.error(f"Error applying mask: {e}. Displaying unmasked images.")
 
-        return plotting.images.display_images(images, **kwargs)
+        plotting.images.display_images(images, **kwargs)
 
     def overlay_on_T1(
         self,

@@ -22,13 +22,6 @@ picks a sensible layout automatically.
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
-import matplotlib.pyplot as plt
-import matplotlib_inline.backend_inline
-
-# Crisp retina output + sane default DPI for the rendered docs
-matplotlib_inline.backend_inline.set_matplotlib_formats("retina")
-plt.rcParams["figure.dpi"] = 150
-
 from loguru import logger
 
 logger.remove()
@@ -37,7 +30,6 @@ logger.remove()
 ::: {dropdown} Imports & random number seed & 4D volume generation
 
 ```{code-cell} ipython3
-import matplotlib.pyplot as plt
 import numpy as np
 
 from mnutils.plotting.images import display_images
@@ -88,31 +80,43 @@ volume_4d = np.clip(pattern + noise, -10, 20)
 
 ```{code-cell} ipython3
 single = volume_4d[:, :, num_z // 2, 1]  # single slice of the 4D volume
-fig, ax = display_images(single, aspect=1)
-plt.show()
+display_images(single)
+```
+
+A 4D array with one slice per volume is the grid case: seven panels, laid out four per row.
+
+```{code-cell} ipython3
+one_slice_grid = volume_4d[:, :, num_z // 2 : num_z // 2 + 1, :]
+one_slice_grid.shape
 ```
 
 ```{code-cell} ipython3
-volume_4d[:, :, num_z // 2, 1:5].shape
-```
-
-```{code-cell} ipython3
-one_slice_grid = rng.integers(-100, 20, size=(20, 20, 1, 7))
-# fig, ax = display_images(
-#     volume_4d[:, :, num_z // 2, 1:3], aspect=1
-# )  # grid of 7 slices along the 4th dimension
-# plt.show()
-print("4D, one slice (grid of 7):", ax.shape)
+display_images(one_slice_grid, titles=[f"t = {i}" for i in range(num_t)], colorbar=True)
 ```
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
-# STRICT TESTS: display_images axis semantics
-# assert ax.shape == (8,)  # 7 images, padded to a 2x4 grid -- one subplot unused
-# fig, ax_single = display_images(single)
-# plt.close(fig)
-# assert ax_single.shape == (1,)
+# STRICT TESTS: display_images axis semantics.
+# `display_images` only *displays*, so the panel count is checked on the
+# renderer it drives rather than on a return value.
+from mnutils.plotting.images import _render_image_grid_frames
+
+frames, bounds = _render_image_grid_frames(
+    one_slice_grid, num_images=num_t, cmap="magma", vmin=0, vmax=1, per_panel_bounds=False
+)
+assert len(frames) == 1  # one slice
+assert len(frames[0]) == num_t  # seven panels, one per 4th-dimension entry
+
+frames_2d, _ = _render_image_grid_frames(
+    single[:, :, np.newaxis, np.newaxis],
+    num_images=1,
+    cmap="magma",
+    vmin=0,
+    vmax=1,
+    per_panel_bounds=False,
+)
+assert len(frames_2d) == 1 and len(frames_2d[0]) == 1
 ```
 
 A **list** of same-shaped arrays works too — it's stacked along a new last axis before the same
@@ -123,14 +127,12 @@ multi-slice case shows up).
 
 ## But a volume has more than one slice — can I see the rest?
 
-The examples above all used a single slice to keep `ax.shape` checkable. Real volumes don't stop
-at one: a `(H, W, S)` array with `S > 1` still shows only its middle slice by default — so what
-about the other `S - 1`?
+The examples above all used a single slice. Real volumes don't stop at one: a `(H, W, S)` array
+with `S > 1` still shows only its middle slice by default — so what about the other `S - 1`?
 
 `display_images()` shows them too, as a slider, right here on this page — not just in a live
-Jupyter session. Once there's more than one slice, the function displays an interactive
-slice-viewer widget instead of a static image, and returns `None`: there's no `fig`/`axes` to hand
-back, because the "figure" is no longer a single static thing.
+Jupyter session. Every call displays an interactive widget and returns `None`; with more than one
+slice that widget gains a slider, and with exactly one it simply doesn't.
 
 ```{code-cell} ipython3
 display_images(volume_4d[:, :, :, 1])
@@ -161,23 +163,62 @@ A list of _volumes_ (each already 3D) becomes 4D instead — a grid, one per vol
 
 ```{code-cell} ipython3
 list_of_single_slice_volumes = [np.full((10, 10, 1), i, dtype=float) for i in range(4)]
-fig, ax = display_images(list_of_single_slice_volumes)
-plt.show()
+display_images(list_of_single_slice_volumes, titles=[f"volume {i}" for i in range(4)])
 ```
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
 # STRICT TESTS: list input follows np.stack(..., axis=-1), then the same shape rule
-fig, ax_list3d = display_images(list_of_single_slice_volumes)
-plt.close(fig)
-assert ax_list3d.shape == (4,)  # stacked to 4D -> grid of 4
+stacked = np.stack(list_of_single_slice_volumes, axis=-1).astype(np.float32)
+assert stacked.shape == (10, 10, 1, 4)  # stacked to 4D -> grid of 4
+frames_list, _ = _render_image_grid_frames(
+    stacked, num_images=4, cmap="magma", vmin=0, vmax=3, per_panel_bounds=False
+)
+assert len(frames_list) == 1 and len(frames_list[0]) == 4
 ```
 
 :::{warning}
 Every array in a list must share the same shape — `display_images` stacks them with
 `np.stack(images, axis=-1)`, which raises `ValueError` on a mismatch. There's no fallback path
 for comparing differently-shaped images side by side; resize or crop to a common shape first.
+:::
+
+(plotting-images-annotations)=
+
+## Where the titles and the colorbar come from
+
+The panels you see above are plain images, rendered straight from the array at its own pixel size
+— no matplotlib figure is built at any point, which is why nothing is returned to post-process.
+Everything drawn *around* the pixels is HTML instead: `fig_title` becomes a heading, `titles`
+become captions, and `colorbar=True` becomes a gradient strip labelled with the bounds the panels
+were scaled to.
+
+```{code-cell} ipython3
+display_images(
+    volume_4d[:, :, :, :3],
+    fig_title="Three time points, one shared slider",
+    titles=["t = 0", "t = 1", "t = 2"],
+    colorbar=True,
+)
+```
+
+Pass `colorbar_kws={"mode": "each"}` for one bar per panel instead of one for the grid. That mode
+autoscales every panel to its own slice, so the numbers beside each bar change as you scrub:
+
+```{code-cell} ipython3
+display_images(
+    volume_4d[:, :, :, :3],
+    titles=["t = 0", "t = 1", "t = 2"],
+    colorbar=True,
+    colorbar_kws={"mode": "each"},
+)
+```
+
+:::{warning}
+Arguments that only made sense against an `Axes` — `aspect`, `xlabel`, `xticks`, `imshow_kws`,
+`fig_kws` — are still accepted so old call sites don't break, but they no longer do anything. A
+debug-level log line names them when you pass one.
 :::
 
 (plotting-images-zeros)=
@@ -192,9 +233,11 @@ you actually care about. `zeros_as_nan=True` masks them out before scaling:
 mostly_zero = np.zeros((20, 20))
 mostly_zero[8:12, 8:12] = rng.random((4, 4)) * 100
 
-fig, ax = display_images(mostly_zero, zeros_as_nan=True, colorbar=True)
-plt.show()
+display_images(mostly_zero, zeros_as_nan=True, colorbar=True)
 ```
+
+Masked-out voxels are *transparent*, not a colour: the panels are RGBA images, so the background
+of the page shows through them in both light and dark themes.
 
 :::{seealso}
 Overlaying one image on another (anatomical + MRSI) is `GESeries`-level, not a bare-array
