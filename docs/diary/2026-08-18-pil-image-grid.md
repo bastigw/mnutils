@@ -58,8 +58,9 @@ That last line is the breaking part. `display_images()` used to hand back `(Figu
 2D input and `None` for a multi-slice stack; with no Figure anywhere it returns `None` always
 (and so does `display_nifti()`, and `NiiBase.display()`). Callers that post-processed the returned
 axes lose that hook — deliberately, since keeping it means keeping a second full rendering path
-for one input shape. A single-slice input is now the same widget with no slider attached, rather
-than a disabled slider whose only honest readout is "0 of 0".
+for one input shape. A single-slice input is now the same widget with no slider — just the bar's
+**Border** checkbox, which draws each frame's real extent back in, since NaN pixels are
+transparent and a mostly-masked panel otherwise has no visible edge.
 
 The measurement that settled it, on the 90×90×100×7 volume `docs/plotting/images.md` generates —
 700 panels against the old path's 100 whole-grid PNGs:
@@ -79,6 +80,45 @@ Panels now keep their data's own aspect ratio. The old path defaulted `aspect` t
 `ncols / nrows`, which stretched every panel into a square box regardless of shape; a non-square
 array will look different — correct, but different — than it did before.
 :::
+
+(diary-pil-image-grid-layout)=
+
+## Handing the layout to CSS means saying what "too big" means
+
+A `Figure` came with a size. A raster doesn't, so every bound the figure used to imply had to be
+written down — and the useful version of each turned out to be the one expressed in the *other*
+axis from the one it names.
+
+```{mermaid}
+flowchart TD
+  A["frame, at the array's own pixel size"] --> B["column width<br/>(1fr, wraps at --mnu-panel-min-w-eff)"]
+  B --> C["panel height = width ÷ aspect,<br/>capped by --mnu-panel-max-h"]
+  C --> D{"rows outgrow<br/>--mnu-grid-max-h?"}
+  D -->|"no"| E["block sized to content"]
+  D -->|"yes"| F["panel box scrolls"]
+```
+
+Sizing panels by height was the first attempt and it fails in a narrow pane: height is not a thing
+CSS can hold constant while width has to give. So the panel fills its column and the column is
+what yields — and the *floor* becomes a width too, `--mnu-panel-min-h × aspect`, so a row of 5×20
+frames wraps sooner instead of flattening into strips. `--mnu-grid-max-h` likewise bounds the
+scroll box rather than the panels: dividing a fixed height budget between rows made a twelve-panel
+grid twelve stamps, where scrolling keeps twelve readable panels.
+
+:::{warning}
+`.mnu-viewer` sets `overflow: hidden`, so a layout wider than its host pane doesn't scroll — it
+disappears. That is what cut the fourth of seven panels off in a narrow editor pane while the
+same page looked fine in a browser. Grid columns never wrap, so any fixed track list is a bug
+waiting for a narrow pane; `repeat(auto-fit, minmax(…, 1fr))` and a wrapping control bar are the
+fix.
+:::
+
+Two decisions on the raster side follow from the same "the browser is doing the drawing now"
+shift. Frames scaled *up* get `image-rendering: pixelated`, set per image by the JS once it can
+compare `naturalWidth` against the rendered width, so a 20×20 mask reads as 400 square pixels
+rather than a blur — and frames under 64×64 are encoded losslessly, because lossy WebP rings
+around hard edges. The threshold stays low deliberately: at 90×90, lossless costs 4.4× the
+payload to fix artifacts nobody can see at that scale.
 
 :::{dropdown} Why not draw the annotations into the raster with PIL?
 `PIL.ImageDraw` could paint titles and a colorbar strip onto the frame, which keeps the client
@@ -112,3 +152,7 @@ image. Alpha 0 defers it to the page, so masked voxels read correctly in both th
 - Pass 1 assumed the docs page's strict tests could keep asserting on shapes. They can't — there
   is no return value to assert on — so `docs/plotting/images.md` checks the panel count on
   `_render_image_grid_frames()` directly, and says in the cell why it reaches for a private helper.
+- The plan treated the widget's layout as a detail of the port. It was most of the work: five
+  rounds of it, all driven by the difference between a browser window and a VS Code output pane.
+  The lesson is in the warning above — when the host clips instead of scrolling, "looks right
+  here" is not evidence.
