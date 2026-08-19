@@ -17,6 +17,8 @@ embedded alongside an inline `<script type="module">`. Identical behaviour under
 in preview, and in a static build — no widget protocol anywhere.
 :::
 
+(diary-anywidget-slice-viewer-why-not)=
+
 ## Why not the widget protocol
 
 The first attempt used `anywidget`, on the theory that mystmd's handling of the
@@ -41,6 +43,8 @@ The `anywidget` backend was kept for a while as a control that kept the claim fa
 since been deleted, along with the `backend=` argument, the traitlets adapter and the
 transport-tagging fields the frontend needed to tell the two apart: once the measurement had been
 made and written down here, a second backend meant making every widget change twice.
+
+(diary-anywidget-slice-viewer-what-changed)=
 
 ## What the frames actually cost
 
@@ -74,6 +78,8 @@ the colormap marks bad (NaN, alpha 0) have to let the T1 through untouched — a
 the whole anatomy toward the bad colour.
 :::
 
+(diary-anywidget-slice-viewer-spectra)=
+
 ## The spectra buffer
 
 Every voxel's spectrum travels with the widget, which was 11.5 MB of float32 inflating to 15.3 MB
@@ -95,6 +101,8 @@ of buffer against 6.7 on `HeVo-18` — but it fixed the reachable ppm range at c
 slider position could ever show a sample the caller hadn't anticipated. At a 12.2 MB page that
 trade stopped being worth it, and `ppm_range` is gone; `_encode_spectra` still warns past 32 MB
 of float32, which is where a grid genuinely gets unwieldy.
+
+(diary-anywidget-slice-viewer-who-owns-the-y-axis)=
 
 ## Who owns the y axis
 
@@ -152,6 +160,8 @@ Only the voxel outline changes per voxel, not the image under it. For a 16×16 g
 anatomical slices that would be tens of thousands of frames; sending the affine and projecting the
 outline in JS keeps it at one frame per slice.
 :::
+
+(diary-anywidget-slice-viewer-what-changed)=
 
 ## What changed from the plan
 

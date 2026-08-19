@@ -69,7 +69,7 @@ jobs:
           # otherwise every stylesheet and script 404s.
           BASE_URL: ${{ github.event_name == 'pull_request' && format('/mnutils/pr-preview/pr-{0}', github.event.number) || '/mnutils' }}
         run: |
-          uv run docs-api
+          uv run docs-mnutils-api
           cd docs
           uv run myst build --html --execute --strict
 
