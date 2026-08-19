@@ -57,18 +57,21 @@ explains what the diary *is*; dated entries follow it chronologically and carry 
 Package manager is `uv` — never use pip. Add deps with `uv add <pkg>`; sync with
 `uv sync --all-extras --dev`.
 
-- Tests: `uv run test` (regenerates notebook tests from `docs/` via `uv run test-gen`, then runs
-  pytest). Regenerate notebooks only: `uv run test-gen`. There are no `tests/*.py` files —
-  MNUtils's tests **are** its docs pages: any executable page under `docs/basics/`,
-  `data-model/`, `plotting/`, `fitting/`, `nifti/`, `matlab/` (i.e. carrying a jupytext
-  kernelspec) is converted to a notebook under `tests/autogen_notebooks/<chapter>/` (gitignored)
-  and run via nbmake. Single page: `uv run pytest tests/autogen_notebooks/<chapter>/<name>.ipynb`
-  after a `test-gen`.
+- Tests: `uv run test-mnutils` (regenerates notebook tests from `docs/` via
+  `uv run test-mnutils-gen`, then runs pytest). Regenerate notebooks only:
+  `uv run test-mnutils-gen`. There are no `tests/*.py` files — MNUtils's tests **are** its docs
+  pages: any executable page under `docs/basics/`, `data-model/`, `plotting/`, `fitting/`,
+  `nifti/`, `matlab/` (i.e. carrying a jupytext kernelspec) is converted to a notebook under
+  `tests/autogen_notebooks/<chapter>/` (gitignored) and run via nbmake. Single page:
+  `uv run pytest tests/autogen_notebooks/<chapter>/<name>.ipynb` after a `test-mnutils-gen`.
 - Lint: `uv run ruff check .` (`--fix` to auto-fix). Format: `uv run ruff format .`.
-- Docs API stubs: `uv run docs-api`. Check a page renders: `myst build --html` from `docs/` —
-  one-shot, exit 0 (add `--execute` to run notebooks too).
-- `uv run docs` **launches a blocking preview server** (`myst start --execute`) and never exits.
-  It is for a human reading the site — never put it in a verification step.
+- Docs API stubs: `uv run docs-mnutils-api`. Check a page renders: `myst build --html` from
+  `docs/` — one-shot, exit 0 (add `--execute` to run notebooks too).
+- `uv run docs-mnutils` **launches a blocking preview server** (`myst start --execute`) and never
+  exits. It is for a human reading the site — never put it in a verification step.
+- These scripts are prefixed `-mnutils` because `xmris` (a core dependency) ships console
+  scripts of the same bare names (`test`, `docs`, `docs-api`, …) — installed together, the bare
+  names resolve to xmris's, not this package's.
 
 Ruff, when configured for a given file, follows NumPy docstring convention (see
 `.github/copilot-instructions.md` for the current type-hinting standards, kept separate since it

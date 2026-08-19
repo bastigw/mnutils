@@ -1,0 +1,61 @@
+version: 2
+updates:
+  # 1. UV Ecosystem (Python dependencies)
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+
+    # Grouping prevents PR spam by bundling updates into a single PR
+    groups:
+      # Group 1: Bundle all development, testing, and docs tools together
+      dev-tools:
+        patterns:
+          - "pytest*"
+          - "ruff"
+          - "mypy"
+          - "quartodoc"
+          - "mystmd"
+          - "nbmake"
+          - "jupytext"
+          - "ipy*"
+          - "jupyter*"
+
+      # Group 2: Core dependencies (xarray, numpy, joblib, anywidget)
+      core-libs:
+        patterns:
+          - "xarray"
+          - "numpy"
+          - "joblib"
+          - "anywidget"
+          - "matplotlib"
+
+    # Deliberate pins (see pyproject.toml / CLAUDE.md) — do not auto-bump past them.
+    # Revisit by removing the pin AND this ignore together, not via an auto-bump.
+    ignore:
+      - dependency-name: "griffe" # held <0.40 to fix a quartodoc parsing bug
+      - dependency-name: "pytest-cov"
+        versions: [">=7.0"] # held <7 for nbmake subprocess coverage tracking
+      - dependency-name: "ipykernel"
+        versions: [">=7.0"] # held <7: ipykernel 7 hangs myst --execute (vscode-jupyter#17228)
+
+    # Cap future pile-ups if the repo goes idle again.
+    open-pull-requests-limit: 5
+
+  # 2. GitHub Actions Ecosystem
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      actions:
+        patterns:
+          - "*" # Bundles all GitHub Actions updates into one PR

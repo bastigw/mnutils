@@ -26,11 +26,11 @@ dependencies = [
 bet = ["hd-bet>=2.0.1", "torch>=2.10.0"]
 
 [project.scripts]
-docs-api = "mnutils._scripts:docs_api"        # Regenerate quartodoc API stubs
-docs-notebooks = "mnutils._scripts:docs_notebooks"  # Serve tutorials — blocking
-docs = "mnutils._scripts:docs_all"            # API refs, then serve site — blocking
-test-gen = "mnutils._scripts:generate_test_notebooks"  # docs/*.md -> tests/autogen_notebooks/*.ipynb
-test = "mnutils._scripts:run_tests"           # test-gen, then run the full pytest suite
+docs-mnutils-api = "mnutils._scripts:docs_api"        # Regenerate quartodoc API stubs
+docs-mnutils-notebooks = "mnutils._scripts:docs_notebooks"  # Serve tutorials — blocking
+docs-mnutils = "mnutils._scripts:docs_all"            # API refs, then serve site — blocking
+test-mnutils-gen = "mnutils._scripts:generate_test_notebooks"  # docs/*.md -> tests/autogen_notebooks/*.ipynb
+test-mnutils = "mnutils._scripts:run_tests"           # test-gen, then run the full pytest suite
 
 [build-system]
 requires = ["uv_build>=0.8.13,<0.9.0"]

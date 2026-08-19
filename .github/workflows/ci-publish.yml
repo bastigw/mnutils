@@ -1,0 +1,72 @@
+name: Full Tests & Publish
+
+on:
+  push:
+    branches:
+      - "release/**"   # Triggers full matrix to test a release candidate
+    tags:
+      - "v*"           # Triggers matrix AND publishes to PyPI
+  workflow_dispatch:   # Manual run button
+
+jobs:
+  full-test:
+    name: ${{ matrix.os }} / Py ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    # Bound each matrix leg so a hung kernel fails fast, not at GitHub's 6h ceiling.
+    timeout-minutes: 30
+    # macOS used to be `continue-on-error` because official pyamares hard-requires
+    # `hlsvdpro`, which ships no arm64 wheel and no sdist -- so `uv sync` could not
+    # even install on macos-latest. The `fitting` extra now depends on
+    # `pyamares-xmris`, whose PEP 508 marker skips hlsvdpro on arm64 (pyAMARES falls
+    # back to its bundled pure-python HSVD), so macOS is a real, blocking leg again.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Testing all claimed Python versions
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run Tests
+        run: uv run test-mnutils
+
+  publish:
+    name: Build and Publish to PyPI
+    needs: full-test
+    # ONLY run if the trigger was a tag AND tests passed (or were allowed to fail like Mac)
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mnutils
+    permissions:
+      id-token: write # Required for PyPI Trusted Publishing
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      # --no-sources ignores any [tool.uv.sources] redirect, so the wheel's
+      # metadata names registry dependencies and never a local path or git URL.
+      - name: Build package (registry dependencies only)
+        run: uv build --no-sources
+
+      - name: Publish to PyPI
+        run: uv publish
