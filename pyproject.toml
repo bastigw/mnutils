@@ -1,11 +1,30 @@
 [project]
 name = "MNutils"
 version = "1.1.2"
+
+authors = [
+    {name = "Sebastian Bauer", email = "28663646+bastigw@users.noreply.github.com"}
+]
+
 description = "Utility functions for multinuclear MR data processing"
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
+
+keywords = ["mri", "mrs", "xarray", "spectroscopy", "nmr"]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Framework :: Jupyter",
+]
+
 requires-python = ">=3.12"
+
 dependencies = [
     "dcm2niiw>=0.1.5",
     "ipython>=8.0",
@@ -17,7 +36,6 @@ dependencies = [
     "pillow>=12.3.0",
     "scipy>=1.15.3",
     "seaborn>=0.13.2",
-    "tailwind-colors>=1.4.1",
     "xmris[fitting]",
 ]
 

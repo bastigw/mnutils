@@ -3,10 +3,10 @@ name: Full Tests & Publish
 on:
   push:
     branches:
-      - "release/**"   # Triggers full matrix to test a release candidate
+      - 'release/**' # Triggers full matrix to test a release candidate
     tags:
-      - "v*"           # Triggers matrix AND publishes to PyPI
-  workflow_dispatch:   # Manual run button
+      - 'v*' # Triggers matrix AND publishes to PyPI
+  workflow_dispatch: # Manual run button
 
 jobs:
   full-test:
@@ -24,7 +24,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         # Testing all claimed Python versions
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ['3.12', '3.13', '3.14']
 
     steps:
       - name: Checkout code
@@ -34,7 +34,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
+          cache-dependency-glob: '**/pyproject.toml'
 
       - name: Set up Python
         run: uv python install ${{ matrix.python-version }}

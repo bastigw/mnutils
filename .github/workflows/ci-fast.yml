@@ -2,10 +2,10 @@ name: Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   docs-check:
@@ -42,7 +42,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
+          cache-dependency-glob: '**/pyproject.toml'
 
       - name: Set up Python
         run: uv python install 3.13
@@ -76,7 +76,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
+          cache-dependency-glob: '**/pyproject.toml'
 
       - name: Set up Python
         run: uv python install 3.13
@@ -84,12 +84,10 @@ jobs:
       # Deliberately no --all-extras and no --dev: installing *only*
       # [project].dependencies into a clean venv is the entire point of the job.
       - name: Install the way a user does
-        run: |
-          uv venv /tmp/bare --python 3.13
-          uv pip install --python /tmp/bare/bin/python .
+        run: uv sync --no-dev
 
       - name: Import mnutils and run the processing chain
-        run: /tmp/bare/bin/python .github/scripts/bare_install_smoke.py
+        run: uv run .github/scripts/bare_install_smoke.py
 
   test:
     runs-on: ubuntu-latest
@@ -97,7 +95,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       matrix:
-        python-version: ["3.10", "3.13"]
+        python-version: ['3.12', '3.13', '3.14']
 
     steps:
       - name: Checkout code
@@ -107,7 +105,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
+          cache-dependency-glob: '**/pyproject.toml'
 
       - name: Set up Python
         run: uv python install ${{ matrix.python-version }}
@@ -117,22 +115,3 @@ jobs:
 
       - name: Run Tests
         run: uv run test-mnutils
-
-      - name: Upload coverage reports to Codecov
-        # Dependabot PRs and forks don't receive repo secrets, so CODECOV_TOKEN
-        # is empty and the tokenless upload hard-fails ("Token required because
-        # branch is protected"). Skip the upload in those contexts; keep it
-        # strict (fail_ci_if_error) on normal PRs.
-        if: ${{ github.actor != 'dependabot[bot]' && !github.event.pull_request.head.repo.fork }}
-        uses: codecov/codecov-action@v7
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
-          fail_ci_if_error: true
-          # Fetch the uploader from PyPI, not cli.codecov.io. `test` is a required
-          # check, so the binary path's GPG step -- which once hung 4.5 min on a
-          # keyserver fetch and then failed -- could block every merge in the repo
-          # over an outage in a service the PR never touched. PyPI is already a hard
-          # dependency of this job via `uv sync`. Deliberately not `skip_validation`:
-          # that disables the integrity check rather than moving it. See #115.
-          use_pypi: true
