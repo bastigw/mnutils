@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import io
 import zlib
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, TypedDict, Unpack
+from typing import Any, NamedTuple, TypedDict, Unpack
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +12,7 @@ import numpy.typing as npt
 import PIL.Image
 from IPython.display import display as ipy_display
 from loguru import logger
-from matplotlib import patches
+from matplotlib import colormaps, patches
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.cm import ScalarMappable
@@ -22,13 +23,30 @@ from matplotlib.image import AxesImage
 from nibabel import affines, spatialimages
 
 from .. import GESeries, utils
-from ._widgets import MRSIVoxelInspectorWidget, SliceViewerWidget
+from ._widgets import ImageGridWidget, MRSIVoxelInspectorWidget, SliceViewerWidget
 
 # WebP quality for the MRSI inspector's anatomical frames. These are display
 # rasters -- already normalised, colormapped and alpha-blended to 8-bit -- not
 # data, so lossy encoding costs nothing measurable: q92 holds ~41 dB PSNR
 # against the exact composite while being ~7x smaller than the PNG equivalent.
 MRSI_FRAME_QUALITY = 92
+
+# WebP quality for `display_images` panels. Same reasoning as above -- these
+# are colormapped 8-bit display rasters, not data -- but with an alpha channel,
+# since NaN pixels stay transparent so the widget's background shows through.
+GRID_FRAME_QUALITY = 92
+
+# Below this many pixels a panel is encoded losslessly instead. Lossy WebP is
+# tuned for photographs: on a 20x20 mask, where every pixel is a hard-edged
+# block a reader looks *at* rather than through, and which the widget then
+# blows up several times over, its ringing is plainly visible -- while the
+# frame is a couple of kB either way. The threshold stays low because lossless
+# is not free above it: at 90x90 it costs 4.4x the payload (0.85 -> 3.8 MB for
+# a 700-panel grid) to fix artifacts nobody can see at that scale.
+GRID_LOSSLESS_MAX_PIXELS = 64 * 64
+
+# Panels per row in a `display_images` grid, before it wraps to a new one.
+GRID_MAX_COLS = 5
 
 # float16 tops out at 65504, and raw spectra routinely exceed that, so the
 # buffer is divided by a scale factor before the cast and multiplied back in
@@ -114,11 +132,81 @@ def fast_bounds(
     return lower_bound, upper_bound
 
 
+def _resolve_display_bounds(
+    data: npt.NDArray,
+    vmin: float | None,
+    vmax: float | None,
+    v_percentile: float = 1.0,
+) -> tuple[float, float]:
+    """Fill in whichever of `vmin`/`vmax` was not given from the data itself.
+
+    A caller is allowed to pin one bound and leave the other to the data, so
+    the estimate has to run whenever *either* is missing and then replace only
+    the missing one.
+    """
+    if vmin is not None and vmax is not None:
+        return vmin, vmax
+    new_vmin, new_vmax = fast_bounds(data, p_lower=v_percentile, p_upper=100 - v_percentile)
+    return (new_vmin if vmin is None else vmin, new_vmax if vmax is None else vmax)
+
+
+def _widen_if_flat(low: float, high: float) -> tuple[float, float]:
+    """Give a zero-width range one unit of span so `Normalize` has one to map.
+
+    A constant panel (or an all-zero one under `zeros_as_nan`) still renders as
+    the colormap's low end either way, but a colorbar reading "0 to 0" is worse
+    than one reading "0 to 1".
+    """
+    return (low, high) if high > low else (low, low + 1.0)
+
+
+def _encode_webp(
+    array: npt.NDArray,
+    mode: str | None = None,
+    *,
+    quality: int,
+    lossless: bool = False,
+) -> bytes:
+    """Encode one display raster to WebP bytes.
+
+    `method` trades encode time for size; the lossless path can afford the
+    slower 4 because it is only ever taken for panels under
+    `GRID_LOSSLESS_MAX_PIXELS`.
+    """
+    buf = io.BytesIO()
+    image = PIL.Image.fromarray(array, mode)
+    if lossless:
+        image.save(buf, format="webp", lossless=True, method=4)
+    else:
+        image.save(buf, format="webp", quality=quality, method=2)
+    return buf.getvalue()
+
+
+def _mrsi_to_display_affine(
+    t1_nii: spatialimages.SpatialImage, MRSI: GESeries.MRSISeries
+) -> npt.NDArray:
+    """Build the affine mapping raw MRSI voxel indices to T1 display pixels.
+
+    The raw (blocky) grid is the reference in both directions: `RAW_exp`'s
+    affine is what the voxel picker and the voxel outlines are drawn in, and
+    `get_display_affine` bakes the orientation transpose that `orient_nifti`
+    applies to the anatomical volume, so the inverse of the latter composed
+    with the former is what carries one into the other.
+    """
+    mrsi_affine = np.asarray(MRSI.RAW_exp.nii.affine)
+    t1_display_affine = utils.nifti.get_display_affine(t1_nii)
+    mrsi_to_display = np.linalg.inv(t1_display_affine).dot(mrsi_affine)
+    logger.debug(f"T1 display affine:\n{t1_display_affine}")
+    logger.debug(f"MRSI affine:\n{mrsi_affine}")
+    logger.debug(f"MRSI to display affine:\n{mrsi_to_display}")
+    return mrsi_to_display
+
+
 def display_nifti(
     nii: spatialimages.SpatialImage | GESeries.NiiBase,
     orientation: tuple[str, str, str] | None = None,
     **kwargs,
-) -> tuple[Figure, npt.NDArray] | None:
+) -> None:
     """Orient a NIfTI image and display it via `display_images`.
 
     Parameters
@@ -132,8 +220,8 @@ def display_nifti(
 
     Returns
     -------
-    tuple[Figure, ndarray] or None
-        See `display_images`.
+    None
+        See `display_images` -- the image grid is displayed, not returned.
     """
     if isinstance(nii, GESeries.NiiBase):
         nii = nii.nii
@@ -154,8 +242,13 @@ def display_images(
     v_percentile: float = 1.0,
     zeros_as_nan: bool = False,
     **kwargs,
-) -> tuple[Figure, npt.NDArray] | None:
+) -> None:
     """Display a grid of 2D/3D/4D images, with a slice slider for 3D/4D input.
+
+    The panels are rendered straight to images at the data's own resolution
+    and handed to an interactive widget that draws the titles and colorbar
+    around them as HTML; no matplotlib `Figure` is involved, which is why
+    nothing is returned.
 
     Parameters
     ----------
@@ -169,14 +262,18 @@ def display_images(
     cmap : str, optional
         Colormap to use, by default the module's default colormap.
     imshow_kws : dict, optional
-        Extra keyword arguments passed to `imshow`.
+        Accepted and ignored: there is no `imshow` call left to forward them
+        to. Kept so existing call sites keep working.
     colorbar : bool, optional
         Whether to display a colorbar, by default False.
     colorbar_kws : dict, optional
-        Extra keyword arguments for the colorbar; supports a `"mode"` key
-        of `"single"` or `"each"`.
+        Only the `"mode"` key is read, either `"single"` (one colorbar for
+        the grid) or `"each"` (one per panel, autoscaled to that panel and
+        slice). Remaining keys are ignored -- the colorbar is HTML now, not a
+        matplotlib artist.
     fig_kws : dict, optional
-        Extra keyword arguments passed to `plt.figure`.
+        Accepted and ignored: there is no `Figure` left to configure. Kept so
+        existing call sites keep working.
     vmin : float, optional
         Lower display bound. Estimated from the data if omitted.
     vmax : float, optional
@@ -187,24 +284,18 @@ def display_images(
     zeros_as_nan : bool, optional
         If True, treat zero values as NaN for display, by default False.
     **kwargs
-        Additional axis parameters merged into the default image axis
-        parameters.
+        Accepted and ignored: axis parameters such as `aspect`, `xlabel` or
+        `xticks` have no Axes to apply to. Kept so existing call sites keep
+        working.
 
     Returns
     -------
-    tuple[Figure, ndarray] or None
-        For 2D input (or 3D/4D input with only one slice), the created
-        figure and its axes. For 3D/4D input with more than one slice, an
-        interactive slice-scrubbing widget is displayed instead and `None`
-        is returned.
+    None
+        The grid is displayed as a widget. For a single-slice input the
+        widget simply has no slider.
     """
     if titles is None:
         titles = []
-
-    # Copy default image params and update with any provided kwargs
-    # TODO add option to set vmin and vmax
-    image_params = DEFAULT_IMAGE_AX_PARAMS.copy()
-    image_params.update(kwargs)
 
     # Convert list of images to 4D numpy array
     if isinstance(images, list):
@@ -216,24 +307,22 @@ def display_images(
 
     if original_dims == 2:
         num_images = 1
-        num_cols, num_rows = 1, 1
-        fig_size = (4, 4)
+        num_cols = 1
         slice_idx = 0
         images = images[:, :, np.newaxis, np.newaxis]
     elif original_dims == 3:
         num_images = 1
-        num_cols, num_rows = 1, 1
-        fig_size = (4, 4)
+        num_cols = 1
         # Put the images into a 4D array for easier handling later
         slice_idx = images.shape[2] // 2
         images = images[:, :, :, np.newaxis]
     elif original_dims == 4:
         num_images = images.shape[3]
-        # Add four images per row
-        num_rows = (num_images + 3) // 4
-        num_cols = min(4, num_images)
-        fig_size = (num_cols * 3.5, num_rows * 3)
+        # Nominal columns per row. The widget wraps to fewer when the pane is
+        # too narrow for them, so this is the *most* a row will ever hold.
+        num_cols = min(GRID_MAX_COLS, num_images)
         slice_idx = images.shape[2] // 2
+        num_rows = -(-num_images // GRID_MAX_COLS)
         logger.debug(f"Displaying {num_images} images in a {num_rows}x{num_cols} grid.")
         # Check that 3rd dimension is the same for all images
         for i in range(1, num_images):
@@ -261,12 +350,7 @@ def display_images(
             zeros_nan_images = images
         images = zeros_nan_images
 
-    if vmin is None or vmax is None:
-        new_vmin, new_vmax = fast_bounds(images, p_lower=v_percentile, p_upper=100 - v_percentile)
-        if vmin is None:
-            vmin = new_vmin
-        if vmax is None:
-            vmax = new_vmax
+    vmin, vmax = _resolve_display_bounds(images, vmin, vmax, v_percentile)
 
     if vmin == vmax or vmin is None or vmax is None or np.isnan([vmin, vmax]).any():
         logger.debug(
@@ -286,179 +370,218 @@ def display_images(
 
     logger.debug(f"Setting vmin: {vmin:4g}, vmax: {vmax:4g}")
 
-    # Adjust aspect ratio based on image shape
-    aspect_ratio = images.shape[1] / images.shape[0]
-    kwargs.setdefault("aspect", aspect_ratio)
-    logger.debug(f"Setting image aspect ratio to {kwargs['aspect']}.")
-
-    # Copy default image params and update with any provided kwargs
-    image_params = DEFAULT_IMAGE_AX_PARAMS.copy()
-    image_params.update(kwargs)
+    ignored = {
+        name: value
+        for name, value in (("imshow_kws", imshow_kws), ("fig_kws", fig_kws), *kwargs.items())
+        if value is not None
+    }
+    if ignored:
+        logger.debug(
+            f"Ignoring matplotlib-only arguments {sorted(ignored)}: the panels are rendered "
+            "directly to images, so there is no Figure or Axes to configure."
+        )
 
     if colorbar:
-        if colorbar_kws is not None:
-            colorbar_mode: str = colorbar_kws.pop("mode", "single")
-        else:
-            colorbar_mode = "single"
-
-        if colorbar_mode == "each":
-            # Set default axes padding wider if each axis has its own colorbar
-            vmin = None
-            vmax = None
-            logger.debug("Removing vmin and vmax as each axis has its own colorbar.")
+        colorbar_mode = colorbar_kws.pop("mode", "single") if colorbar_kws is not None else "single"
     else:
         colorbar_mode = ""
 
-    grid_kwargs = dict(
+    frames, bounds = _render_image_grid_frames(
+        images,
         num_images=num_images,
-        num_rows=num_rows,
-        num_cols=num_cols,
         cmap=cmap,
         vmin=vmin,
         vmax=vmax,
-        imshow_kws=imshow_kws,
-        image_params=image_params,
-        titles=titles,
-        colorbar=colorbar,
-        colorbar_kws=colorbar_kws,
-        colorbar_mode=colorbar_mode,
-        fig_title=fig_title,
+        per_panel_bounds=colorbar_mode == "each",
     )
-
-    n_slices = images.shape[2]
-    if original_dims >= 3 and n_slices > 1:
-        frames = _render_image_grid_frames(
-            images, list(range(n_slices)), fig_size=fig_size, fig_kws=fig_kws, **grid_kwargs
+    ipy_display(
+        ImageGridWidget(
+            frames=frames,
+            bounds=bounds,
+            colormap_stops=_colormap_stops(cmap),
+            num_cols=num_cols,
+            titles=titles,
+            fig_title=fig_title,
+            colorbar_mode=colorbar_mode,
+            initial_index=slice_idx,
         )
-        ipy_display(SliceViewerWidget(frames=frames, n_slices=n_slices, initial_index=slice_idx))
-        return None
-
-    fig = plt.figure(figsize=fig_size, **fig_kws if fig_kws else {})
-    axes = fig.subplots(num_rows, num_cols, sharex=True, sharey=True, squeeze=False).flatten()  # type: ignore
-    _draw_image_grid(fig, axes, images, slice_idx, **grid_kwargs)
-    return fig, axes
+    )
+    return None
 
 
-def _draw_image_grid(
-    fig: Figure,
-    axes: list[Axes],
-    images: npt.NDArray,
-    slice_idx: int,
-    *,
-    num_images: int,
-    num_rows: int,
-    num_cols: int,
-    cmap: str,
-    vmin: float | None,
-    vmax: float | None,
-    imshow_kws: dict[str, Any] | None,
-    image_params: dict[str, Any],
-    titles: list[str],
-    colorbar: bool,
-    colorbar_kws: dict[str, Any] | None,
-    colorbar_mode: str,
-    fig_title: str,
-) -> tuple[list[AxesImage], list[Any]]:
-    """Draw one slice of the `display_images` grid onto pre-built axes.
+def _colormap_stops(cmap: str, num_stops: int = 64) -> list[str]:
+    """Sample a matplotlib colormap into CSS hex stops, low to high.
 
-    Returns the per-axis image artists and colorbars (`None` where an axis
-    has no colorbar), so a later slice can be applied in place via
-    `_update_image_grid` without rebuilding the figure.
+    The widget's colorbar is a CSS `linear-gradient`, so it needs the colormap
+    as colours rather than as a `Colormap`. Sampling it here (rather than
+    reimplementing the colormap in JS) is what keeps the bar and the pixels it
+    explains provably the same colormap. 64 stops is well past the point where
+    the browser's linear interpolation between them is distinguishable from
+    the real thing, and costs ~0.5 kB.
     """
-    ims: list[AxesImage] = []
-    cbars: list[Any] = []
-    for image in range(num_images):
-        im = axes[image].imshow(
-            images[:, :, slice_idx, image],
-            origin="upper",
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            **imshow_kws if imshow_kws else {},
+    colors = colormaps[cmap](np.linspace(0, 1, num_stops), bytes=True)
+    return [f"#{r:02x}{g:02x}{b:02x}" for r, g, b, _ in colors]
+
+
+class _Layer(NamedTuple):
+    """One colormapped volume in a frame, composited over the ones before it.
+
+    `bounds` is either a single `(vmin, vmax)` used for every frame, or one
+    pair per job when each frame autoscales to itself. `alpha` is matplotlib's
+    `imshow(alpha=...)`: the base layer is opaque, layers above it blend.
+    """
+
+    volume: npt.NDArray
+    cmap: str
+    bounds: tuple[float, float] | list[tuple[float, float]]
+    alpha: float = 1.0
+
+
+def _render_frames(
+    layers: Sequence[_Layer],
+    jobs: Sequence[tuple[int, ...]],
+    *,
+    quality: int,
+    lossless: bool = False,
+    keep_alpha: bool = False,
+    max_workers: int = 8,
+) -> list[bytes]:
+    """Render a batch of colormapped rasters to WebP bytes, one per job.
+
+    The single frame renderer behind every widget in this module: the
+    `display_images` grid (one opaque layer, one job per (slice, panel)) and
+    the MRSI inspector's anatomicals (a gray T1 under a half-transparent magma
+    overlay, one job per slice) differ only in their layers and in which axes
+    a job indexes. A job is the trailing index into each layer's volume, so
+    `volume[:, :, *job]` is the 2-D image that frame colormaps.
+
+    These frames are pure raster -- no ticks, labels, titles, colorbar or
+    contours; the widgets rebuild all of that as DOM around them. Going
+    through a matplotlib `Figure`/Agg canvas to produce that costs ~130 ms per
+    frame, almost all of it rasterization and PNG encoding, for arithmetic
+    that is really only `cmap(norm(arr))` plus an alpha blend. So the Figure
+    is gone: matplotlib still *supplies* the colormaps (via `ScalarMappable`,
+    so nothing is reimplemented and the panels, the colorbar gradient and the
+    inspector can't drift apart), and the blend and encode are done directly.
+
+    Frames come out at the volume's native `(nrows, ncols)` rather than a
+    dpi-derived size, and the browser scales them to whatever width it has.
+    The client side is resolution-independent -- the SVG voxel overlay is
+    sized by a data-coordinate `viewBox` and clicks are mapped through the
+    rendered `rect.width` -- so this is purely sharper.
+
+    WebP rather than PNG: at native resolution an anatomical frame is ~318 kB
+    as PNG but ~42 kB as WebP q92 (41 dB PSNR against the exact composite),
+    which is what keeps a widget's payload manageable. Pass `lossless` for
+    small hard-edged images, where the ringing shows and the payload argument
+    disappears. `keep_alpha` carries the colormap's "bad" pixels (NaN) through
+    as transparent instead of flattening them onto a baked-in background.
+
+    WebP encoding releases the GIL, so frames are encoded on a thread pool.
+    """
+    # Layers scaled the same way for every frame get one `ScalarMappable`
+    # for the whole batch; per-job bounds have to build theirs per frame.
+    shared = [
+        None
+        if isinstance(layer.bounds, list)
+        else ScalarMappable(Normalize(*layer.bounds), layer.cmap)
+        for layer in layers
+    ]
+
+    def render(index: int) -> bytes:
+        selector = (slice(None), slice(None), *jobs[index])
+        composite: npt.NDArray | None = None
+        for layer, mappable in zip(layers, shared):
+            if mappable is None:
+                bounds = layer.bounds[index]  # pyright: ignore[reportIndexIssue]
+                mappable = ScalarMappable(Normalize(*bounds), layer.cmap)
+            rgba = mappable.to_rgba(layer.volume[selector], bytes=True)
+            if composite is None:
+                composite = rgba
+                continue
+            # Reproduce matplotlib's compositing of a second `imshow(alpha=)`
+            # over the first: the layer's alpha is scaled by the overlay's own
+            # per-pixel alpha, so pixels the colormap marks "bad" (NaN, alpha
+            # 0) let the layer below through untouched instead of being
+            # blended toward the bad colour.
+            weight = (rgba[..., 3:4].astype(np.uint16) * round(layer.alpha * 255)) // 255
+            composite[..., :3] = (
+                composite[..., :3] * (255 - weight) + rgba[..., :3] * weight
+            ) // 255
+
+        assert composite is not None, "at least one layer is required"
+        if keep_alpha:
+            return _encode_webp(composite, "RGBA", quality=quality, lossless=lossless)
+        return _encode_webp(
+            np.ascontiguousarray(composite[..., :3]), quality=quality, lossless=lossless
         )
-        ims.append(im)
-        axes[image].set(**image_params)
-        if len(titles) > image:
-            im_row = image // num_cols
-            if num_rows == 2 and im_row == 1:
-                axes[image].set_xlabel(
-                    titles[image], fontsize="medium", fontweight="normal", labelpad=6
-                )
-            else:
-                axes[image].set_title(titles[image], fontsize="medium", fontweight="normal")
 
-        cbar = None
-        if colorbar:
-            if colorbar_mode == "each":
-                cbar = fig.colorbar(im, ax=axes[image], **colorbar_kws if colorbar_kws else {})
-            elif colorbar_mode == "single" and image == num_images - 1:
-                cbar = fig.colorbar(im, ax=axes[image], **colorbar_kws if colorbar_kws else {})
-        cbars.append(cbar)
-
-    for empty_ax in range(num_images, len(axes)):
-        fig.delaxes(axes[empty_ax])
-
-    if fig_title:
-        fig.suptitle(fig_title, fontsize="large", fontweight="bold", y=1)
-
-    return ims, cbars
+    logger.debug(f"Rendering {len(jobs)} frames on {max_workers} threads")
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return list(pool.map(render, range(len(jobs))))
 
 
-def _update_image_grid(
-    images: npt.NDArray,
-    slice_idx: int,
-    ims: list[AxesImage],
-    cbars: list[Any],
-    *,
-    num_images: int,
-    colorbar_mode: str,
-    **_unused,
-) -> None:
-    """Apply a new slice to an already-drawn `_draw_image_grid` in place.
+def _panel_bounds(panel: npt.NDArray) -> tuple[float, float]:
+    """Autoscale one panel the way `AxesImage.autoscale` did: to its own extent.
 
-    Titles, axis params, and (for `colorbar_mode == "single"`) the colorbar
-    are all slice-independent and were already set by `_draw_image_grid`, so
-    only the image data (and, for `colorbar_mode == "each"`, the per-axis
-    autoscale + colorbar range) needs updating per slice.
+    Guards the two cases matplotlib's `Normalize` would otherwise have to
+    absorb: an all-NaN panel (nothing to scale to) and a constant one (a zero
+    -width range maps every pixel to the colormap's low end).
     """
-    for image in range(num_images):
-        ims[image].set_data(images[:, :, slice_idx, image])
-        if colorbar_mode == "each":
-            ims[image].autoscale()
-            cbars[image].update_normal(ims[image])
+    if not np.isfinite(panel).any():
+        return 0.0, 1.0
+    return _widen_if_flat(float(np.nanmin(panel)), float(np.nanmax(panel)))
 
 
 def _render_image_grid_frames(
     images: npt.NDArray,
-    slice_indices: list[int],
     *,
-    fig_size: tuple[float, float],
-    fig_kws: dict[str, Any] | None,
-    **grid_kwargs,
-) -> list[bytes]:
-    """Render a batch of `display_images` slices to PNG bytes.
+    num_images: int,
+    cmap: str,
+    vmin: float | None,
+    vmax: float | None,
+    per_panel_bounds: bool,
+    quality: int = GRID_FRAME_QUALITY,
+    max_workers: int = 8,
+) -> tuple[list[list[bytes]], list[list[tuple[float, float]]]]:
+    """Shape a `display_images` grid for `_render_frames`: one job per panel.
 
-    Builds one Figure/axes for the whole batch (off the pyplot registry) and
-    reuses it across slices via `_update_image_grid`, instead of rebuilding
-    the figure/gridspec/colorbar from scratch per slice.
+    Rasterising is entirely `_render_frames`' job; what is grid-specific is
+    the bounds each panel is normalised with -- one shared pair, or, under
+    `colorbar_kws={"mode": "each"}`, one per panel and slice -- and the
+    slice-major nesting `_widgets.ImageGridWidget` indexes frames by. The
+    bounds are returned alongside because the widget prints them on its
+    colorbar.
+
+    Panels are rendered with alpha: values the colormap marks "bad" (NaN, so
+    also everything `zeros_as_nan` masked out) stay transparent and take the
+    panel's background in both light and dark themes instead of a baked-in
+    figure colour. Small panels are encoded losslessly -- lossy WebP's ringing
+    is invisible on a 512-row anatomical and obvious on a 20x20 mask, where
+    the payload argument for lossy disappears anyway (see
+    `GRID_LOSSLESS_MAX_PIXELS`).
     """
-    fig = Figure(figsize=fig_size, **fig_kws if fig_kws else {})
-    FigureCanvasAgg(fig)
-    num_rows, num_cols = grid_kwargs["num_rows"], grid_kwargs["num_cols"]
-    axes = fig.subplots(num_rows, num_cols, sharex=True, sharey=True, squeeze=False).flatten()
+    n_slices = images.shape[2]
+    if per_panel_bounds:
+        bounds = [
+            [_panel_bounds(images[:, :, s, p]) for p in range(num_images)] for s in range(n_slices)
+        ]
+    else:
+        shared = _widen_if_flat(
+            0.0 if vmin is None else float(vmin), 1.0 if vmax is None else float(vmax)
+        )
+        bounds = [[shared] * num_images for _ in range(n_slices)]
 
-    frames = []
-    ims: list[AxesImage] | None = None
-    cbars: list[Any] = []
-    for slice_idx in slice_indices:
-        if ims is None:
-            ims, cbars = _draw_image_grid(fig, axes, images, slice_idx, **grid_kwargs)
-        else:
-            _update_image_grid(images, slice_idx, ims, cbars, **grid_kwargs)
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png")
-        frames.append(buf.getvalue())
-    return frames
+    jobs = [(s, p) for s in range(n_slices) for p in range(num_images)]
+    rendered = _render_frames(
+        [_Layer(images, cmap, [bounds[s][p] for s, p in jobs])],
+        jobs,
+        quality=quality,
+        lossless=images.shape[0] * images.shape[1] <= GRID_LOSSLESS_MAX_PIXELS,
+        keep_alpha=True,
+        max_workers=max_workers,
+    )
+    return [rendered[s * num_images : (s + 1) * num_images] for s in range(n_slices)], bounds
 
 
 def overlay_nifti_data_on_T1(
@@ -603,9 +726,6 @@ def overlay_image_data_on_T1(
     # explicit array is not applied here (matches this function's long-standing
     # behavior; `overlay_image_data_on_T1_on_ax` is the one that honours it).
     resolved_mask_contour = mask if mask_contour is True else None
-    contour_kwargs = DEFAULT_MASK_PARAMS.copy()
-    if mask_kwargs is not None:
-        contour_kwargs.update(mask_kwargs)
 
     overlay_kwargs = dict(
         only_overlay=only_overlay,
@@ -751,17 +871,12 @@ def overlay_image_data_on_T1_on_ax(
             return created_fig, ax, im, None
         return im, None
 
-    v_percentile = kwargs.pop("v_percentile", 1.0)
-    vmin = kwargs.pop("vmin", None)
-    vmax = kwargs.pop("vmax", None)
-    if vmin is None or vmax is None:
-        new_vmin, new_vmax = fast_bounds(
-            overlay_image, p_lower=v_percentile, p_upper=100 - v_percentile
-        )
-        if vmin is None:
-            vmin = new_vmin
-        if vmax is None:
-            vmax = new_vmax
+    vmin, vmax = _resolve_display_bounds(
+        overlay_image,
+        kwargs.pop("vmin", None),
+        kwargs.pop("vmax", None),
+        kwargs.pop("v_percentile", 1.0),
+    )
 
     logger.debug(f"Setting overlay vmin: {vmin:4g}, vmax: {vmax:4g}")
     # Assert that t1_images and data_images have the same shape
@@ -856,14 +971,8 @@ def inspect_MRSI_spectra(
     n_anat_slices = t1_images.shape[2]
     initial_slice = n_anat_slices // 2
 
-    blocky_mrsi_affine = np.asarray(MRSI.RAW_exp.nii.affine)
-    t1_display_affine = utils.nifti.get_display_affine(T1.nii)
-    mrsi_to_display = np.linalg.inv(t1_display_affine).dot(blocky_mrsi_affine)
+    mrsi_to_display = _mrsi_to_display_affine(T1.nii, MRSI)
     display_to_mrsi = np.linalg.inv(mrsi_to_display)
-
-    logger.debug(f"T1 display affine:\n{t1_display_affine}")
-    logger.debug(f"MRSI affine:\n{blocky_mrsi_affine}")
-    logger.debug(f"MRSI to display affine:\n{mrsi_to_display}")
 
     nx, ny, n_mrsi_slices = MRSI.spec.shape[1], MRSI.spec.shape[2], MRSI.spec.shape[3]
     initial_voxel = (nx // 2, ny // 2, n_mrsi_slices // 2)
@@ -879,14 +988,13 @@ def inspect_MRSI_spectra(
 
     logger.debug("Starting rendering of Left frames")
 
-    left_frames = _render_mrsi_left_frames(
-        t1_images,
-        mrsi_images,
-        list(range(n_anat_slices)),
-        anat_vmin=anat_vmin,
-        anat_vmax=anat_vmax,
-        mrsi_vmin=mrsi_vmin,
-        mrsi_vmax=mrsi_vmax,
+    left_frames = _render_frames(
+        [
+            _Layer(t1_images, "gray", (anat_vmin, anat_vmax)),
+            _Layer(mrsi_images, "magma", (mrsi_vmin, mrsi_vmax), alpha=0.5),
+        ],
+        [(s,) for s in range(n_anat_slices)],
+        quality=MRSI_FRAME_QUALITY,
     )
     slice_titles = [
         f"Anat. Slice {s}, MRSI Slice {mrsi_slice_for(s)}" for s in range(n_anat_slices)
@@ -1042,60 +1150,6 @@ def _encode_spectra(spectra_array: npt.NDArray) -> tuple[bytes, float]:
     scale = 2.0 ** np.ceil(np.log2(peak / _F16_TARGET_MAX)) if peak > _F16_TARGET_MAX else 1.0
     scaled = (spectra_array / scale) if scale != 1.0 else spectra_array
     return zlib.compress(scaled.astype(np.float16).tobytes(), 6), float(scale)
-
-
-def _render_mrsi_left_frames(
-    t1_images: npt.NDArray,
-    mrsi_images: npt.NDArray,
-    slice_indices: list[int],
-    *,
-    anat_vmin: float,
-    anat_vmax: float,
-    mrsi_vmin: float,
-    mrsi_vmax: float,
-    quality: int = MRSI_FRAME_QUALITY,
-    max_workers: int = 8,
-) -> list[bytes]:
-    """Render a batch of T1+MRSI-overlay anatomical slices, one WebP per slice.
-
-    These frames are pure raster: no ticks, labels, titles, colorbar or
-    contours, just a grayscale T1 with a half-transparent magma overlay
-    filling the whole image. Going through a matplotlib `Figure`/Agg canvas
-    to produce that costs ~130 ms per slice, almost all of it rasterization
-    and PNG encoding, for arithmetic that is really only `cmap(norm(arr))`
-    plus an alpha blend. So the Figure is gone: matplotlib still *supplies*
-    the colormaps (via `ScalarMappable`, so nothing is reimplemented and the
-    two can't drift), and the blend and encode are done directly.
-
-    Frames come out at the volume's native (nrows, ncols) rather than a
-    dpi-derived size. The client side is resolution-independent -- the SVG
-    voxel overlay is sized by a data-coordinate `viewBox` and clicks are
-    mapped through the rendered `rect.width` -- so this is purely sharper.
-
-    WebP rather than PNG: at native resolution these frames are ~318 kB each
-    as PNG but ~42 kB as WebP q92 (41 dB PSNR against the exact composite),
-    which is what keeps the widget's payload manageable. Encoding releases
-    the GIL, so slices are encoded on a thread pool.
-    """
-    anat = ScalarMappable(Normalize(anat_vmin, anat_vmax), "gray")
-    over = ScalarMappable(Normalize(mrsi_vmin, mrsi_vmax), "magma")
-
-    def render(slice_idx: int) -> bytes:
-        a = anat.to_rgba(t1_images[:, :, slice_idx], bytes=True)
-        o = over.to_rgba(mrsi_images[:, :, slice_idx], bytes=True)
-        # Reproduce matplotlib's compositing of the second `imshow(alpha=0.5)`
-        # over the first: the 0.5 is scaled by the overlay's own per-pixel
-        # alpha, so voxels the colormap marks "bad" (NaN, alpha 0) let the T1
-        # through untouched instead of being blended toward the bad colour.
-        w = (o[..., 3:4].astype(np.uint16) * 128) // 255
-        rgb = ((a[..., :3] * (255 - w) + o[..., :3] * w) // 255).astype(np.uint8)
-        buf = io.BytesIO()
-        PIL.Image.fromarray(rgb).save(buf, format="webp", quality=quality, method=2)
-        return buf.getvalue()
-
-    logger.debug(f"Rendering {len(slice_indices)} frames on {max_workers} threads")
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        return list(pool.map(render, slice_indices))
 
 
 class VoxelOverlayParams(TypedDict, total=False):
@@ -1289,13 +1343,7 @@ def overlay_voxel_on_T1(
     logger.trace(f"T1 images shape: {t1_images.shape}")
     logger.trace(f"MRSI images shape: {mrsi_images.shape}")
 
-    mrsi_affine = np.asarray(MRSI.RAW_exp.nii.affine)
-    t1_display_affine = utils.nifti.get_display_affine(t1.nii)
-    mrsi_to_display = np.linalg.inv(t1_display_affine).dot(mrsi_affine)
-
-    logger.debug(f"T1 display affine:\n{t1_display_affine}")
-    logger.debug(f"MRSI affine:\n{mrsi_affine}")
-    logger.debug(f"MRSI to display affine:\n{mrsi_to_display}")
+    mrsi_to_display = _mrsi_to_display_affine(t1.nii, MRSI)
 
     # Ensure voxel_coords is a list of tuples
     if isinstance(voxel_coords, (tuple, np.ndarray)):

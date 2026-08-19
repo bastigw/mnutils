@@ -96,3 +96,29 @@ function makeSliceSlider({ min, max, value, step = 1, label, formatReadout, onIn
   return { lbl, slider, readout };
 }
 
+/**
+ * Build a pill-shaped checkbox: a `<label class="mnu-toggle">` wrapping an
+ * `<input type="checkbox">` and its text, wired so ticking it calls
+ * `onChange(checked)`.
+ *
+ * A label-wrapped checkbox rather than a styled button: it stays a real
+ * checkbox for assistive technology and for keyboard users, and the whole
+ * pill becomes the hit target because the input sits inside the label.
+ */
+function makeToggle({ label, checked = false, onChange }) {
+  const toggle = document.createElement("label");
+  toggle.className = "mnu-toggle";
+
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = checked;
+
+  const text = document.createElement("span");
+  text.textContent = label;
+
+  input.addEventListener("change", () => onChange(input.checked));
+  toggle.append(input, text);
+
+  return { toggle, input };
+}
+

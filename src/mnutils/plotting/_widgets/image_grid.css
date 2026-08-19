@@ -1,0 +1,197 @@
+/* Every size that decides how big the plot area gets, in one place and in
+   rem so a reader's font size scales the whole widget together. Override any
+   of them on the widget element to retune a page.
+
+   Nothing here may exceed the pane the widget lands in: `.mnu-viewer` clips
+   its overflow, so a layout that is too wide doesn't scroll, it disappears.
+   Widths are therefore percentages of the host, with the rem values acting as
+   caps on top of them. */
+.mnutils-image-grid {
+  --mnu-grid-max-w: 100%; /* the plot area stops growing here */
+  --mnu-grid-max-h: 50vh; /* taller than this, the panel box scrolls */
+  --mnu-panel-max-h: 17rem; /* no single panel taller than this */
+  --mnu-panel-min-h: 8rem; /* ...nor shorter than this */
+  --mnu-panel-min-w: 9rem; /* narrower than this, the row wraps instead */
+  --mnu-grid-gap: 0.7rem;
+  --mnu-panel-pad: 0.7rem;
+
+  /* How wide the panels would like to be: their height cap times their aspect
+     ratio (--mnu-aspect is set per grid by the JS once the first frame has
+     loaded), times the nominal column count, plus gaps and padding. This cap
+     is what stops a wide window stretching four 64x64 frames across the whole
+     screen -- the columns below would otherwise share out every pixel going. */
+  --mnu-panel-w-cap: calc(var(--mnu-panel-max-h) * var(--mnu-aspect, 1));
+
+  /* The floor is the same trade read from the other end. A panel is as tall as
+     its width and aspect ratio make it, so "never shorter than
+     --mnu-panel-min-h" means "never narrower than that height times the aspect
+     ratio" -- for a 5x20 frame that is four times --mnu-panel-min-h. Columns
+     take the wider of that and --mnu-panel-min-w, so a row of wide frames wraps
+     sooner rather than flattening into strips. */
+  --mnu-panel-min-w-eff: max(
+    var(--mnu-panel-min-w),
+    calc(var(--mnu-panel-min-h) * var(--mnu-aspect, 1))
+  );
+  --mnu-grid-w-cap: calc(
+    var(--mnu-grid-cols, 1) * var(--mnu-panel-w-cap) +
+      (var(--mnu-grid-cols, 1) - 1) * var(--mnu-grid-gap) + 2 *
+      var(--mnu-panel-pad)
+  );
+
+  margin: 1em 0 0 1em;
+  width: 100%;
+  max-width: min(calc(var(--mnu-grid-max-w) - 1em), var(--mnu-grid-w-cap));
+}
+
+.mnutils-image-grid-title {
+  padding: 0.6em 0.7em 0.2em;
+  font-size: 1.05em;
+  font-weight: 700;
+  text-align: left;
+  color: var(--mnu-fg-strong);
+}
+
+/* The bar wraps instead of pushing the slider past the clipped edge: in a
+   narrow pane the label and readout take the first line and the slider drops
+   to the second, at whatever width is left. */
+.mnutils-image-grid-bar {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  max-width: 100%;
+  border-bottom: 1px solid var(--mnu-border-soft);
+}
+
+.mnutils-image-grid-bar .mnu-lbl,
+.mnutils-image-grid-bar .mnu-readout {
+  font-size: 1.1em;
+}
+
+.mnutils-image-grid-bar .mnu-readout {
+  font-family: inherit;
+  font-weight: 700;
+  line-height: inherit;
+  min-width: 0;
+  color: var(--mnu-fg-strong);
+}
+
+.mnutils-image-grid-bar .mnu-slider {
+  flex: 1 1 8rem;
+  width: auto;
+  min-width: 0;
+  max-width: 20rem;
+  height: 1.3em;
+}
+
+/* --mnu-grid-max-h bounds *this box*, not the panels inside it: past that
+   height the grid scrolls rather than shrinking its images. Twelve 32x32
+   panels are then twelve full-size panels behind a scrollbar, instead of
+   twelve stamps -- past a handful of rows, dividing a fixed budget between
+   them makes every panel unreadable at once.
+   `scrollbar-gutter: stable` reserves the scrollbar's width whether or not it
+   is showing, so the panels don't jump sideways when a slice change is the
+   thing that makes the content overflow. */
+.mnutils-image-grid-panel {
+  padding: var(--mnu-panel-pad);
+  border-bottom: none;
+  max-height: var(--mnu-grid-max-h);
+  overflow-y: auto;
+  overscroll-behavior: auto;
+  scrollbar-gutter: stable;
+}
+
+/* `auto-fit` + `minmax(--mnu-panel-min-w-eff, 1fr)`: as many columns as fit at
+   a readable size, wrapping to a new row when they don't -- where "readable"
+   is both floors above, whichever binds. The nominal column count
+   (`GRID_MAX_COLS`, five) is enforced from above by the widget's max-width
+   rather than by a fixed track list -- a fixed list is what cut the fourth
+   panel off in a narrow editor pane, since grid columns never wrap.
+   `min(..., 100%)` keeps the minimum itself from overflowing a pane narrower
+   than a single panel. */
+.mnutils-image-grid-cells {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(var(--mnu-panel-min-w-eff), 100%), 1fr)
+  );
+  gap: var(--mnu-grid-gap);
+  align-items: start;
+  justify-items: start;
+}
+
+.mnutils-image-grid-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+/* Width-driven, not height-driven: a panel fills its column, and the column is
+   what shrinks when the pane narrows or the grid gains images -- so more
+   images means smaller images rather than clipped ones. Height follows from
+   the aspect ratio, capped by --mnu-panel-max-h so that a single row can't
+   render a 512-row volume at full size. How many rows there are no longer
+   enters into it: the box above scrolls instead.
+
+   The floor is enforced by the column width above rather than here, so that
+   the panel grows *wider* to reach --mnu-panel-min-h instead of being
+   letterboxed into it. `min-height` stays as a backstop for the one case the
+   columns can't fix -- a pane too narrow for even a single minimum-width
+   column -- and, with `object-fit: contain`, for a frame so tall that the
+   height cap bites before the width one. Either way the frame keeps its
+   aspect ratio; only the padding around it changes. */
+.mnutils-image-grid-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: var(--mnu-panel-min-h);
+  max-height: var(--mnu-panel-max-h);
+  object-fit: contain;
+  /* Set per image by the JS: `pixelated` whenever the frame is being scaled
+     up, so a 20x20 array reads as 400 big square pixels instead of a blur,
+     and `auto` when it is being scaled down, where nearest-neighbour would
+     just alias. */
+  image-rendering: var(--mnu-image-rendering, auto);
+}
+
+/* Toggled by the bar's "Border" checkbox. `border-box` keeps the outline
+   inside the column the panel already occupies, so ticking it doesn't reflow
+   the grid. */
+.mnutils-image-grid-cells.is-bordered .mnutils-image-grid-image {
+  box-sizing: border-box;
+  border: 1px solid var(--mnu-border);
+}
+
+.mnutils-image-grid-caption {
+  font-size: 0.85em;
+  text-align: center;
+  color: var(--mnu-fg);
+}
+
+.mnutils-image-grid-cbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  width: 100%;
+}
+
+.mnutils-image-grid-cbar-shared {
+  margin: 0.7rem auto 0;
+  max-width: min(100%, 26rem);
+}
+
+.mnutils-image-grid-cbar-strip {
+  flex: 1;
+  min-width: 0;
+  height: 0.55em;
+  border: 1px solid var(--mnu-border);
+  border-radius: 2px;
+}
+
+.mnutils-image-grid-cbar-tick {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.7em;
+  color: var(--mnu-muted);
+  white-space: nowrap;
+}
