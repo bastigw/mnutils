@@ -61,6 +61,14 @@ consistently across the toolbox, so plotting code never re-derives it.
 `MRISeries` is what you get for a series that has DICOM but no raw scanner exam data — typically
 an anatomical scan. It converts the DICOMs to NIfTI on init if no NIfTI exists yet.
 
+:::{note}
+The anatomical volumes in these fake exams are cropped from a real T1 scan — Chris Rorden's
+`chris_t1`, from the [niivue-images](https://github.com/neurolabusc/niivue-images) sample set,
+licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (non-commercial use only).
+Downloaded and cached on first use by `mnutils.testing.build_fake_exam()` — see
+[the diary entry](#diary-synthetic-exam-fixtures) for how everything else here is simulated.
+:::
+
 ```{code-cell} ipython3
 t1 = MRISeries(DATA_FOLDER, 2)  # 002_3D_Ax_T1_BRAVO
 print(t1.nii.shape)

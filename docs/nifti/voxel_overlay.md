@@ -235,7 +235,7 @@ mrsi_to_display = np.linalg.inv(get_display_affine(t1.nii)).dot(
 )
 
 demo_voxel = (5, 5, 8)
-y_slice, x_slice = slice(20, 170), slice(20, 170)
+y_slice, x_slice = slice(10, 160), slice(10, 160)
 x_offset, y_offset = x_slice.start, y_slice.start
 
 fig, ax = plt.subplots(figsize=(4, 4))
