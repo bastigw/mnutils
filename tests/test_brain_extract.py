@@ -35,9 +35,7 @@ def test_hevo23_bet(dataset_folder):
     base_folder = Path(dataset_folder) / "HeVo-23"
     data_folder = base_folder / "data"
     series = 2
-    nifti_data = file_helpers.get_niftis_from_series(
-        data_folder, series, convert_dicoms=True
-    )
+    nifti_data = file_helpers.get_niftis_from_series(data_folder, series, convert_dicoms=True)
     logger.info(f"Extracting brain from {nifti_data}")
     bet_file = images.extract_brain(nifti_data, save_mask=True)
     # Check if the output file exists

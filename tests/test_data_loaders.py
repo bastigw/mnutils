@@ -36,9 +36,7 @@ def test_load_raw_fids_creates_correct_files(dataset_folder):
         12: 1678,
     }
     for series, npts in npts_expected.items():
-        data, fid_h5_file = data_loaders.load_raw_fids(
-            data_folder, series, force_override=False
-        )
+        data, fid_h5_file = data_loaders.load_raw_fids(data_folder, series, force_override=False)
         assert isinstance(data, np.ndarray)
         assert np.iscomplexobj(data)
         assert data.shape[0] == npts

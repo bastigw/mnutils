@@ -141,9 +141,7 @@ def _resolve_fid_input(
     data: xr.DataArray | None,
     time: npt.NDArray[np.floating] | None,
     fids: npt.NDArray[np.complexfloating | np.floating] | None,
-) -> tuple[
-    npt.NDArray[np.floating], npt.NDArray[np.complexfloating | np.floating], str
-]:
+) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.complexfloating | np.floating], str]:
     """Resolve a time axis (in ms) and fid values from a DataArray or manual fallback args."""
     if data is not None and DIMS.time in data.dims:
         time_axis = data.coords[DIMS.time].values * 1e3  # s -> ms
@@ -337,9 +335,7 @@ def plot_spectra_over_time(
             )
 
     # 3. Apply standard spectral convention (reverse x-axis)
-    spectra_grid.set(
-        **DEFAULT_SPECTRA_AX_PARAMS
-    )  # Apply default spectra plotting params
+    spectra_grid.set(**DEFAULT_SPECTRA_AX_PARAMS)  # Apply default spectra plotting params
     # Set x limits from 10 to 0 ppm
     spectra_grid.set(xlim=(10, -2))
     spectra_grid.set(**kwargs)

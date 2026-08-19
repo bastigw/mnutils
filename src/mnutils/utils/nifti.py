@@ -92,14 +92,11 @@ def orient_nifti(
                 orientation = ("I", "L", "P")
             case _:
                 orientation = DEFAULT_PARAMS["orientation"]
-        logger.debug(
-            f"Orienting NIfTI to {display_plane} plane. Using orientation {orientation}."
-        )
+        logger.debug(f"Orienting NIfTI to {display_plane} plane. Using orientation {orientation}.")
 
     if orientation is None:
         logger.debug(
-            "No orientation specified. Using default orientation: "
-            f"{DEFAULT_PARAMS['orientation']}."
+            f"No orientation specified. Using default orientation: {DEFAULT_PARAMS['orientation']}."
         )
         orientation = DEFAULT_PARAMS["orientation"]
 
@@ -235,9 +232,7 @@ def resample_and_orient_nifti(
     if isinstance(target_nii, GESeries.NiiBase):
         target_nii: spatialimages.SpatialImage = target_nii.nii
     # Resample base_nifti to target_nifti space
-    resampled_nii = resample_nifti(
-        source_nii=source_nii, target_nii=target_nii, **kwargs
-    )
+    resampled_nii = resample_nifti(source_nii=source_nii, target_nii=target_nii, **kwargs)
     # Orient the data
     base_images = orient_nifti(target_nii, orientation, display_plane=display_plane)
     data_images = orient_nifti(resampled_nii, orientation, display_plane=display_plane)
@@ -376,9 +371,7 @@ def downsample_to_coverage(
                 )
 
                 samples = np.zeros_like(xi, dtype=np.float32)
-                samples[inside] = src_img[xi[inside], yi[inside], zi[inside]].astype(
-                    np.float32
-                )
+                samples[inside] = src_img[xi[inside], yi[inside], zi[inside]].astype(np.float32)
 
                 # Average over samples → coverage fraction
                 coverage[i, j, k] = samples.mean()

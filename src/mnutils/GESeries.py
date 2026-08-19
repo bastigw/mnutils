@@ -119,9 +119,7 @@ class NiiBase:
         if isinstance(mask, NiiBase):
             mask = mask.images()
         if mask.shape != images.shape:
-            raise ValueError(
-                f"Mask shape {mask.shape} does not match image shape {images.shape}."
-            )
+            raise ValueError(f"Mask shape {mask.shape} does not match image shape {images.shape}.")
         masked_images = np.where(mask, images, np.nan)
         return masked_images
 
@@ -166,9 +164,9 @@ class NiiBase:
             orientation = self.orientation
         if isinstance(t1, np.ndarray):
             if mask is not None and isinstance(mask, NiiBase):
-                mask = mask.images(
-                    orientation=orientation, display_plane=display_plane
-                ).astype(bool)
+                mask = mask.images(orientation=orientation, display_plane=display_plane).astype(
+                    bool
+                )
             plotting.images.overlay_image_data_on_T1(
                 t1,
                 self.images(orientation=orientation, display_plane=display_plane),
@@ -226,9 +224,7 @@ class NiiBase:
             If no mask is found and ``create`` is False.
         """
         if self.nii_path is None:
-            raise ValueError(
-                "Cannot locate a brain mask: this NIfTI was not loaded from a path."
-            )
+            raise ValueError("Cannot locate a brain mask: this NIfTI was not loaded from a path.")
         folder = self.nii_path.parent
         mask_path = file_helpers.get_nifti_file(
             folder,
@@ -592,9 +588,7 @@ class RawMRISeries(MRISeries):
         else:
             return np.nan
 
-    def _get_header_value(
-        self, key_path: list[str]
-    ) -> None | str | np.double | npt.NDArray:
+    def _get_header_value(self, key_path: list[str]) -> None | str | np.double | npt.NDArray:
         """Traverse the header dictionary using a key path.
 
         Raises AttributeError if the path is invalid.
@@ -769,21 +763,16 @@ class MRSISeries(RawMRISeries):
     def create_MRSI_nii(self) -> NiiBase:
         """Return the RAW magnitude image as a NiiBase, with the MRSI affine."""
         magnitude_data = np.sum(np.abs(self.spec), axis=0).astype(np.float32)
-        return self.with_new_data(
-            new_data=magnitude_data, new_affine=self.create_MRSI_affine()
-        )
+        return self.with_new_data(new_data=magnitude_data, new_affine=self.create_MRSI_affine())
 
     def create_map_nii(self, map_data: npt.NDArray) -> NiiBase:
         """Wrap a per-voxel map array as a NiiBase, with the MRSI affine."""
         # Make sure map_data has correct shape
         if map_data.shape != self.dims:
             raise ValueError(
-                f"map_data shape {map_data.shape} does not match "
-                f"expected dimensions {self.dims}."
+                f"map_data shape {map_data.shape} does not match expected dimensions {self.dims}."
             )
-        return self.with_new_data(
-            new_data=map_data, new_affine=self.create_MRSI_affine()
-        )
+        return self.with_new_data(new_data=map_data, new_affine=self.create_MRSI_affine())
 
     def get_voxel_spectrum(self, x: int, y: int, slice: int) -> xr.DataArray:
         """Return the spectrum at voxel (x, y, slice)."""
@@ -900,16 +889,12 @@ class MRSISeries(RawMRISeries):
         )
 
         combined_fit_results = extracted_results.combined_fit_results
-        fitted_metabolites_temp = np.full(
-            (*self.dims, combined_fit_results.columns.size), np.nan
-        )
+        fitted_metabolites_temp = np.full((*self.dims, combined_fit_results.columns.size), np.nan)
         fitted_metabolites_temp[SNR_mask] = combined_fit_results.loc[
             (slice(None), "amplitude", "value"), :
         ].to_numpy()
         for i, metabolite in enumerate(combined_fit_results.columns):
-            self.fitted_metabolite_maps[metabolite] = fitted_metabolites_temp[
-                :, :, :, i
-            ]
+            self.fitted_metabolite_maps[metabolite] = fitted_metabolites_temp[:, :, :, i]
 
         goodness_of_fit = extracted_results.goodness_of_fit
         gof_metrics_temp = np.full((*self.dims, goodness_of_fit.columns.size), np.nan)
@@ -922,9 +907,7 @@ class MRSISeries(RawMRISeries):
         if extracted_results.badfit_ids.size == 0:
             original_badfit_ids = np.array([], dtype=int)
         else:
-            original_badfit_ids = np.where(SNR_mask.flatten())[0][
-                extracted_results.badfit_ids
-            ]
+            original_badfit_ids = np.where(SNR_mask.flatten())[0][extracted_results.badfit_ids]
 
         return original_badfit_ids
 
@@ -975,8 +958,7 @@ class MRSISeries(RawMRISeries):
         # If file exists, log warning and return
         if full_path.exists():
             logger.warning(
-                f"File {full_path} already exists. Not overwriting. "
-                "Returning existing file path."
+                f"File {full_path} already exists. Not overwriting. Returning existing file path."
             )
             return full_path
 
@@ -993,14 +975,10 @@ class MRSISeries(RawMRISeries):
             gof_group = fitted_data_group.create_group("goodness_of_fit")
             for goodness_metric, metric_map in self.goodness_of_fit_maps.items():
                 logger.debug(f"Saving goodness of fit metric map for {goodness_metric}")
-                gof_group.create_dataset(
-                    goodness_metric, data=metric_map, dtype=metric_map.dtype
-                )
+                gof_group.create_dataset(goodness_metric, data=metric_map, dtype=metric_map.dtype)
 
             # Save acquisition time of series in HDF5 in readable format
-            f.attrs["ACQUISITION_TIME"] = self.scan_datetime.strftime(
-                "%Y-%m-%d_%H:%M:%S"
-            )
+            f.attrs["ACQUISITION_TIME"] = self.scan_datetime.strftime("%Y-%m-%d_%H:%M:%S")
             f.attrs["saved_on"] = datetime.now().isoformat()
             for attr in attrs_to_save:
                 value = getattr(self, attr)
@@ -1080,23 +1058,17 @@ class MRSISeries(RawMRISeries):
                     f"Acquisition time match: {same_acq_time}"
                 )
                 if not all([same_series_id, same_exam_number, same_acq_time]):
-                    logger.warning(
-                        "Mismatch found in saved attributes! Not loading data"
-                    )
+                    logger.warning("Mismatch found in saved attributes! Not loading data")
                     if force_load:
                         logger.warning("Force loading data despite mismatches.")
                     else:
-                        raise ValueError(
-                            "Cannot load data due to mismatches in attributes."
-                        )
+                        raise ValueError("Cannot load data due to mismatches in attributes.")
             except KeyError as e:
                 logger.error(
                     f"KeyError: {e}. The following keys must be present in the "
                     "file: 'SERIES_ID', 'exam_number', 'acquisition_time'."
                 )
-                logger.error(
-                    f"Tree of the HDF5 file:\n{file_helpers.print_hdf5_tree(f)}"
-                )
+                logger.error(f"Tree of the HDF5 file:\n{file_helpers.print_hdf5_tree(f)}")
                 return False
 
             # Load fitted metabolite maps
@@ -1128,12 +1100,8 @@ class MRSISeries(RawMRISeries):
                                     )
                                     logger.debug(f"    sum: {np.nansum(subdata)}")
             except KeyError as e:
-                logger.error(
-                    f"KeyError: {e}. The expected keys may not be present in the file."
-                )
-                logger.error(
-                    f"Tree of the HDF5 file:\n{file_helpers.print_hdf5_tree(f)}"
-                )
+                logger.error(f"KeyError: {e}. The expected keys may not be present in the file.")
+                logger.error(f"Tree of the HDF5 file:\n{file_helpers.print_hdf5_tree(f)}")
 
             # Check if fitted_metabolite_maps and goodness_of_fit_maps are loaded
             if not self.fitted_metabolite_maps:
@@ -1195,9 +1163,7 @@ class MRSISeries(RawMRISeries):
                 if "goodness_of_fit" in fitted_data_group:
                     gof_group = fitted_data_group["goodness_of_fit"]
                     if isinstance(gof_group, h5py.Group) and len(gof_group.keys()) == 0:
-                        logger.error(
-                            f"'goodness_of_fit' group in {filename} has no keys."
-                        )
+                        logger.error(f"'goodness_of_fit' group in {filename} has no keys.")
                         return False
 
                 for key in fitted_data_group.keys():
@@ -1206,14 +1172,12 @@ class MRSISeries(RawMRISeries):
                         data = dataset[:]
                         if data.size == 0:
                             logger.error(
-                                f"Dataset '{key}' in 'fitted_data' group is "
-                                f"empty in {filename}."
+                                f"Dataset '{key}' in 'fitted_data' group is empty in {filename}."
                             )
                             return False
                         if data.ndim != 3:
                             logger.error(
-                                f"Dataset '{key}' in 'fitted_data' group is "
-                                f"not 3D in {filename}."
+                                f"Dataset '{key}' in 'fitted_data' group is not 3D in {filename}."
                             )
                             return False
                     elif isinstance(dataset, h5py.Group):
@@ -1242,20 +1206,14 @@ class MRSISeries(RawMRISeries):
 
                 # Additional check: Ensure acquisition time is present and valid
                 if "ACQUISITION_TIME" not in f.attrs:
-                    logger.error(
-                        f"'ACQUISITION_TIME' attribute not found in {filename}."
-                    )
+                    logger.error(f"'ACQUISITION_TIME' attribute not found in {filename}.")
                     return False
                 try:
                     acq_time_str = f.attrs["ACQUISITION_TIME"]
                     datetime.strptime(str(acq_time_str), "%Y-%m-%d_%H:%M:%S")
-                    logger.debug(
-                        f"'ACQUISITION_TIME' in {filename} is valid: {acq_time_str}"
-                    )
+                    logger.debug(f"'ACQUISITION_TIME' in {filename} is valid: {acq_time_str}")
                 except (TypeError, ValueError) as e:
-                    logger.error(
-                        f"Invalid 'ACQUISITION_TIME' format in {filename}: {e}"
-                    )
+                    logger.error(f"Invalid 'ACQUISITION_TIME' format in {filename}: {e}")
                     return False
 
         except (OSError, KeyError, TypeError, ValueError) as e:
@@ -1375,9 +1333,7 @@ class MRSSeries(RawMRISeries):
         time_per_fid = scan_duration_sec / self.averages
 
         if scan_duration_sec % group_duration != 0:
-            actual_group_duration = (
-                group_duration * self.averages
-            ) / scan_duration_sec
+            actual_group_duration = (group_duration * self.averages) / scan_duration_sec
             logger.warning(
                 f"Scan duration {scan_duration_sec:.2f}s is not an exact multiple "
                 f"of group duration {group_duration:.2f}s.\n Actual group "
@@ -1432,9 +1388,7 @@ class MRSSeries(RawMRISeries):
         # Apply FFT along time dimension
         return averaged_fids.xmr.to_spectrum()
 
-    def average_spectra_by_duration(
-        self, group_duration: int | None = 10
-    ) -> xr.DataArray:
+    def average_spectra_by_duration(self, group_duration: int | None = 10) -> xr.DataArray:
         """Average spectra by grouping acquisitions within a time duration.
 
         Parameters
@@ -1491,9 +1445,7 @@ class MRSSeries(RawMRISeries):
             .sel(chemical_shift=slice(ppm_min, ppm_max))
         )
 
-    def limit_spec_to_ppm_range(
-        self, ppm_min: float = -2, ppm_max: float = 6
-    ) -> xr.DataArray:
+    def limit_spec_to_ppm_range(self, ppm_min: float = -2, ppm_max: float = 6) -> xr.DataArray:
         """Return the spectra limited to the chemical_shift range [ppm_min, ppm_max]."""
         return self.spec.sel(chemical_shift=slice(ppm_max, ppm_min))
 
@@ -1549,17 +1501,13 @@ class MRSWashinSeries(MRSSeries):
                 "No fit results present. Please run fit_grouped_by_duration() "
                 "first. Returning empty results."
             )
-            return fitting.AMARES.FitResults(
-                np.asarray([]), pd.DataFrame(), pd.DataFrame()
-            )
+            return fitting.AMARES.FitResults(np.asarray([]), pd.DataFrame(), pd.DataFrame())
         else:
             return self.extract_from_fit_results()
 
     def plot_washin(self, **kwargs):
         """Plot the duration-averaged spectra, one line per minute."""
-        averaged_spec = self.average_spectra_by_duration(
-            kwargs.pop("group_duration", None)
-        )
+        averaged_spec = self.average_spectra_by_duration(kwargs.pop("group_duration", None))
         minute_labels = [f"Min. {i + 1:.0f}" for i in range(averaged_spec.shape[0])]
 
         # averaged_spectra_per_minute

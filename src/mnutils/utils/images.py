@@ -117,12 +117,8 @@ def extract_brain(
     # type hinting
     torch = import_optional_dependency("torch")
     torch = cast("torch", torch)
-    hd_bet_checkpoint_download = import_optional_dependency(
-        "HD_BET.checkpoint_download"
-    )
-    hd_bet_checkpoint_download = cast(
-        "HD_BET.checkpoint_download", hd_bet_checkpoint_download
-    )
+    hd_bet_checkpoint_download = import_optional_dependency("HD_BET.checkpoint_download")
+    hd_bet_checkpoint_download = cast("HD_BET.checkpoint_download", hd_bet_checkpoint_download)
     hd_bet_predictor = import_optional_dependency("HD_BET.hd_bet_prediction")
     hd_bet_predictor = cast("HD_BET.hd_bet_prediction", hd_bet_predictor)
 

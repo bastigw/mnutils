@@ -101,9 +101,7 @@ def load_raw_fids(
         if existing_files:
             # Get the most recent file based on creation time
             output_h5_file = max(existing_files, key=lambda f: f.stat().st_ctime)
-            logger.debug(
-                f"Found existing raw FIDs file: {output_h5_file}. Loading data from it."
-            )
+            logger.debug(f"Found existing raw FIDs file: {output_h5_file}. Loading data from it.")
             with h5py.File(output_h5_file, "r") as hf:
                 data = np.array(hf["fids"])
             return data, output_h5_file
@@ -118,9 +116,7 @@ def load_raw_fids(
 
     if output_h5_file.exists():
         if not force_override:
-            logger.warning(
-                f"Output file {output_h5_file} already exists. Returning data from it."
-            )
+            logger.warning(f"Output file {output_h5_file} already exists. Returning data from it.")
             with h5py.File(output_h5_file, "r") as hf:
                 data = np.array(hf["fids"])
             return data, output_h5_file
@@ -145,15 +141,11 @@ def load_raw_fids(
     data = np.asarray(data)
     # Validate data shape and type to be complex numpy array
     if not isinstance(data, np.ndarray) or not np.iscomplexobj(data):
-        raise ValueError(
-            f"Loaded data is not a complex numpy array. Got type: {type(data)}"
-        )
+        raise ValueError(f"Loaded data is not a complex numpy array. Got type: {type(data)}")
 
     with h5py.File(output_h5_file, "w") as hf:
         hf.create_dataset("fids", data=data)
-        hf.attrs["file_created_date"] = (
-            datetime.now().isoformat().replace("+00:00", "Z")
-        )
+        hf.attrs["file_created_date"] = datetime.now().isoformat().replace("+00:00", "Z")
         try:
             hf.attrs["file_created_by"] = getpass.getuser()
         except (OSError, KeyError):
@@ -161,9 +153,7 @@ def load_raw_fids(
 
     # Check if file exists
     if not output_h5_file.exists():
-        raise FileNotFoundError(
-            f"Output file {output_h5_file} was not created successfully."
-        )
+        raise FileNotFoundError(f"Output file {output_h5_file} was not created successfully.")
 
     return data, output_h5_file
 

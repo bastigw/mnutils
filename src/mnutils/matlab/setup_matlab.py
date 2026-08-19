@@ -17,18 +17,12 @@ def connect_to_matlab() -> matlab.engine.MatlabEngine:
     """
     engines = matlab.engine.find_matlab()
     if engines:
-        logger.debug(
-            f"Found running shared MATLAB engines. Connecting to engine {engines[0]}"
-        )
+        logger.debug(f"Found running shared MATLAB engines. Connecting to engine {engines[0]}")
         try:
             eng = matlab.engine.connect_matlab(engines[0])
         except matlab.engine.EngineError as e:  # type: ignore
-            logger.error(
-                f"EngineError while connecting to MATLAB engine {engines[0]}: {e}"
-            )
-            logger.error(
-                "This may be due to multiple connections. Only one connection is allowed."
-            )
+            logger.error(f"EngineError while connecting to MATLAB engine {engines[0]}: {e}")
+            logger.error("This may be due to multiple connections. Only one connection is allowed.")
             raise
         except (RuntimeError, TypeError, OSError) as e:
             logger.error(f"Failed to connect to MATLAB engine {engines[0]}: {e}")
@@ -41,9 +35,7 @@ def connect_to_matlab() -> matlab.engine.MatlabEngine:
         eng = matlab.engine.start_matlab()
 
     if not isinstance(eng, matlab.engine.MatlabEngine):
-        raise TypeError(
-            f"Expected eng to be of type matlab.engine.MatlabEngine, got {type(eng)}"
-        )
+        raise TypeError(f"Expected eng to be of type matlab.engine.MatlabEngine, got {type(eng)}")
     logger.debug("Connected to MATLAB engine successfully.")
     return eng
 
@@ -70,9 +62,7 @@ def setup_util_path(
         else:
             logger.debug(f"MATLAB utils path already exists: {matlab_utils_path}")
     else:
-        logger.warning(
-            f"MATLAB_UTILS path is not set or does not exist: {matlab_utils_path}"
-        )
+        logger.warning(f"MATLAB_UTILS path is not set or does not exist: {matlab_utils_path}")
 
 
 def add_matlablatest_path(eng: matlab.engine.MatlabEngine) -> None:
@@ -99,18 +89,14 @@ def add_matlablatest_path(eng: matlab.engine.MatlabEngine) -> None:
 
         # Check if the 'manage_paths' function exists in MATLAB
         if not eng.which("manage_paths"):
-            raise RuntimeError(
-                "'manage_paths' function not found in MATLAB environment."
-            )
+            raise RuntimeError("'manage_paths' function not found in MATLAB environment.")
 
         # Add the 'matlablatest' path
         eng.manage_paths("matlablatest", True, nargout=0)
 
         # Retrieve and log paths containing 'matlabfiles'
         matlabPath = str(eng.path())
-        matlabfiles_paths = [
-            p for p in matlabPath.split(":") if "matlabfiles" in p.lower()
-        ]
+        matlabfiles_paths = [p for p in matlabPath.split(":") if "matlabfiles" in p.lower()]
         if not matlabfiles_paths:
             matlab_sources = eng.eval("getenv('MATLAB_SOURCES')", nargout=1)
             raise ValueError(
