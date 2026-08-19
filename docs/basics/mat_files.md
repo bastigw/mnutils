@@ -30,20 +30,11 @@ logger.remove()
 ```
 
 ```{code-cell} ipython3
-from pathlib import Path
-
 from mnutils.utils import data_loaders as dl
 from mnutils.utils import file_helpers as fh
+from mnutils.testing import build_fake_exam
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-DATASETS = _repo_root() / "tests" / "datasets"
+DATASETS = build_fake_exam()
 ```
 
 (basics-mat-files-newer)=

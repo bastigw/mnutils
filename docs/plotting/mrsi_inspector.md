@@ -36,32 +36,18 @@ logger.remove()
 ```
 
 ```{code-cell} ipython3
-from pathlib import Path
-
 from mnutils.GESeries import MRISeries, MRSISeries
 from mnutils.plotting.images import inspect_MRSI_spectra
+from mnutils.testing import build_fake_exam
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    # Anchor on pyproject.toml rather than a relative "../.." count: this page
-    # is executed from two different working directories -- docs/plotting/ when
-    # mystmd builds it, tests/autogen_notebooks/plotting/ when nbmake runs the
-    # notebook `uv run test-gen` generates from it -- so no single relative
-    # path satisfies both.
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-nist_data = _repo_root() / "tests" / "datasets" / "20250408-NIST-Mag2" / "data"
+nist_data = build_fake_exam() / "20250408-NIST-Mag2" / "data"
 ```
 
 (plotting-mrsi-inspector-load)=
 
 ## 1. Load a matching T1/MRSI pair
 
-Same anonymized phantom dataset as
+Same fake phantom exam as
 [Drawing an MRSI voxel on an anatomical slice](#nifti-voxel-overlay) — series 2 is the
 T1-weighted anatomical scan, series 8 the MRSI acquisition covering it.
 

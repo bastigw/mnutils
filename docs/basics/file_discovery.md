@@ -13,7 +13,7 @@ kernelspec:
 # Finding files in a data folder
 
 `ExamBase` and `GESeries` never hardcode a path to a series's DICOM folder or `.mat` file — a GE
-export names folders differently across scanner software versions (`005_BS_prescan` vs.
+export names folders differently across scanner software versions (`010_axial_localizer` vs.
 `Series0010_BS_prescan`), so every load goes through the same handful of discovery functions in
 `utils.file_helpers`. Reaching for them directly is useful any time you want one file without
 loading a whole series object.
@@ -38,16 +38,9 @@ logger.remove()
 from pathlib import Path
 
 from mnutils.utils import file_helpers as fh
+from mnutils.testing import build_fake_exam
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-DATASETS = _repo_root() / "tests" / "datasets"
+DATASETS = build_fake_exam()
 ```
 
 (basics-file-discovery-exam-mat)=

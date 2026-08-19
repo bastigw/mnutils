@@ -37,26 +37,14 @@ flowchart TD
     S --> W["MRSWashinSeries<br>(+ time-resolved fitting)"]
 ```
 
-The examples below load real fixtures from `tests/datasets/`.
+The examples below load fixtures generated on the fly by `mnutils.testing.build_fake_exam` --
+see [the diary entry](#diary-synthetic-exam-fixtures) for why nothing here is a real scan.
 
 ```{code-cell} ipython3
-from pathlib import Path
-
 from mnutils.GESeries import MRISeries, MRSISeries, MRSSeries, MRSWashinSeries, NiiBase
+from mnutils.testing import build_fake_exam
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    # Anchor on pyproject.toml rather than a relative "../.." count: this page
-    # is executed from two different working directories -- docs/data-model/
-    # when mystmd builds it, tests/autogen_notebooks/data-model/ when nbmake
-    # runs the notebook `uv run test-gen` generates from it.
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-DATASETS = _repo_root() / "tests" / "datasets"
+DATASETS = build_fake_exam()
 DATA_FOLDER = DATASETS / "HeVo-18" / "data"
 ```
 
@@ -162,7 +150,7 @@ assert isinstance(mrsi, NiiBase)  # create_MRSI_nii() gives it a displayable vol
 Two `NiiBase` images at different resolutions come up constantly — an anatomical scan and an
 MRSI grid, say — and need to be compared voxel-for-voxel. `resample_self_to` reslices one onto
 another's grid; `overlay_nifti_data_on_T1` (from `mnutils.plotting.images`) plots the result on
-top of an anatomical volume. These examples use `tests/datasets/20250408-NIST-Mag2/`, a phantom
+top of an anatomical volume. These examples use the fake `20250408-NIST-Mag2` exam, a phantom
 scan where series 2 is the anatomical T1 and series 5 is an MRSI grid.
 
 ```{code-cell} ipython3

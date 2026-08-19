@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pytest
 
+from mnutils.testing import build_fake_exam
 from mnutils.utils import data_loaders
 
 # load_mat_file is covered in docs/basics/mat_files.md (docs pages are the tests
@@ -12,17 +13,9 @@ from mnutils.utils import data_loaders
 
 
 @pytest.fixture
-def test_folder():
-    """Return the directory containing this test file."""
-    test_path = os.path.realpath(__file__)
-    folder = os.path.dirname(test_path)
-    return folder
-
-
-@pytest.fixture
-def dataset_folder(test_folder):
-    """Return the path to the test datasets directory."""
-    return os.path.join(test_folder, "datasets")
+def dataset_folder():
+    """Return the root of the synthetic exam tree (see mnutils.testing.build_fake_exam)."""
+    return build_fake_exam()
 
 
 def test_load_raw_fids_creates_correct_files(dataset_folder):

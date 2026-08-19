@@ -186,19 +186,10 @@ fine voxel — so the origin shift is applied in two parts: first to re-center f
 then an *additional* half of the new (blocky) voxel size on top.
 
 ```{code-cell} ipython3
-from pathlib import Path
-
 from mnutils.GESeries import MRSISeries
+from mnutils.testing import build_fake_exam
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-mrsi = MRSISeries(_repo_root() / "tests" / "datasets" / "20250408-NIST-Mag2" / "data", 5)
+mrsi = MRSISeries(build_fake_exam() / "20250408-NIST-Mag2" / "data", 5)
 
 fine_affine = mrsi.nii.affine
 blocky_affine = mrsi.create_MRSI_affine()
@@ -234,7 +225,7 @@ from mnutils.GESeries import MRISeries, MRSISeries
 from mnutils.plotting.images import draw_voxel_overlays_on_ax, overlay_image_data_on_T1_on_ax
 from mnutils.utils.nifti import get_display_affine, resample_and_orient_nifti
 
-hevo18_data = _repo_root() / "tests" / "datasets" / "HeVo-18" / "data"
+hevo18_data = build_fake_exam() / "HeVo-18" / "data"
 t1 = MRISeries(hevo18_data, 2)
 mrsi_brain = MRSISeries(hevo18_data, 8)
 
@@ -244,7 +235,7 @@ mrsi_to_display = np.linalg.inv(get_display_affine(t1.nii)).dot(
 )
 
 demo_voxel = (5, 5, 8)
-y_slice, x_slice = slice(150, 400), slice(150, 400)
+y_slice, x_slice = slice(20, 170), slice(20, 170)
 x_offset, y_offset = x_slice.start, y_slice.start
 
 fig, ax = plt.subplots(figsize=(4, 4))

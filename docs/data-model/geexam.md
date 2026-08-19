@@ -26,21 +26,12 @@ re-derive that bookkeeping in every notebook.
 | [`DMIinjExam`](#mnutils.GEExam.DMIinjExam) | + splits every MRS/MRSI series into pre-/post-injection lists around a wash-in series |
 
 ```{code-cell} ipython3
-from pathlib import Path
-
 import numpy as np
 
 from mnutils.GEExam import DMIinjExam
+from mnutils.testing import build_fake_exam
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-DATA_FOLDER = _repo_root() / "tests" / "datasets" / "HeVo-18" / "data"
+DATA_FOLDER = build_fake_exam() / "HeVo-18" / "data"
 ```
 
 (data-model-geexam-split)=
