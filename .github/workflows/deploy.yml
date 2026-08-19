@@ -68,7 +68,10 @@ jobs:
           # has to be built for the subdirectory it will be served from --
           # otherwise every stylesheet and script 404s.
           BASE_URL: ${{ github.event_name == 'pull_request' && format('/mnutils/pr-preview/pr-{0}', github.event.number) || '/mnutils' }}
-        run: uv run docs-mnutils
+        run: |
+          uv run docs-api
+          cd docs
+          uv run myst build --html --execute --strict
 
       - name: Upload the built site
         # Fork PRs get a read-only token and never publish: their HTML would
