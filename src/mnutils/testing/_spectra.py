@@ -30,13 +30,25 @@ _TEMPLATE_ATTRIBUTION = (
 
 # Deuterium (2H) chemical shifts track their 1H counterparts (chemical shift is a property of the
 # electronic environment, not the nucleus). HDO dominates real 2H-MRSI spectra by roughly an order
-# of magnitude over the metabolite peaks -- these ratios are illustrative, not measured.
-PEAKS_PPM: dict[str, float] = {"HDO": 4.70, "Glucose": 3.80, "Glx": 2.40}
-PEAK_REL_AMPLITUDE: dict[str, float] = {"HDO": 1.0, "Glucose": 0.18, "Glx": 0.10}
+# of magnitude over the metabolite peaks -- these ratios, and the per-peak linewidths, are
+# illustrative, not measured. `Baseline` is a broad, low-amplitude component standing in for the
+# macromolecular/lipid background every real spectrum sits on top of.
+# name: (relative amplitude, chemical shift [ppm], linewidth [Hz])
+DMI_TRUTH: dict[str, tuple[float, float, float]] = {
+    "HDO": (1.0, 4.70, 12.0),
+    "Glucose": (0.18, 3.80, 12.0),
+    "Glx": (0.10, 2.40, 12.0),
+    "Baseline": (1.0, 1.9, 70.0),
+}
+PEAKS_PPM: dict[str, float] = {name: ppm for name, (_, ppm, _) in DMI_TRUTH.items()}
+PEAK_REL_AMPLITUDE: dict[str, float] = {name: amp for name, (amp, _, _) in DMI_TRUTH.items()}
 
 _BASE_AMPLITUDE = 100.0
-_BASE_DAMPING_HZ = 25.0
-_BASE_SNR = 40.0
+_BASE_SNR_UNLOC = 50.0  # single-transient-equivalent SNR at _REFERENCE_TRANSIENTS
+_BASE_SNR_MRSI = 5.0  # MRSI voxels are effectively single-transient -- no sqrt(N) boost
+_REFERENCE_TRANSIENTS = 8  # transient count _BASE_SNR_UNLOC is calibrated against
+_JITTER_B0_PPM = 0.01  # small per-repetition/per-voxel B0 drift
+_JITTER_PHASE_DEG = 5.0  # small per-repetition/per-voxel phase drift
 _MIN_SCALE = 0.03  # nothing is ever fully silent -- a noise floor everywhere
 
 
@@ -48,26 +60,32 @@ def simulate_spectrum(
     carrier_ppm: float,
     intensity: float = 1.0,
     clarity: float = 1.0,
+    b0_ppm: float = 0.0,
+    phase_deg: float = 0.0,
+    base_snr: float = _BASE_SNR_UNLOC,
     seed: int,
 ) -> np.ndarray:
-    """One simulated spectrum (HDO/Glucose/Glx) via `xmris.simulate_fid` + FFT.
+    """One simulated spectrum (HDO/Glucose/Glx/Baseline) via `xmris.simulate_fid` + FFT.
 
     `intensity` scales peak amplitude and target SNR; `clarity` scales linewidth (higher =
-    narrower/cleaner peaks) and also feeds into SNR. Both are clamped above `_MIN_SCALE` so no
-    voxel goes completely dark.
+    narrower/cleaner peaks) on top of each peak's own linewidth, and also feeds into SNR. `b0_ppm`/
+    `phase_deg` add a uniform chemical-shift offset / zero-order phase across all peaks, matching
+    real per-repetition/per-voxel B0 and phase drift. Both `intensity`/`clarity` are clamped above
+    `_MIN_SCALE` so no voxel goes completely dark.
     """
     intensity = max(intensity, _MIN_SCALE)
     clarity = max(clarity, _MIN_SCALE)
-    names = list(PEAKS_PPM)
+    names = list(DMI_TRUTH)
     fid = xmris.simulate_fid(
-        amplitudes=[_BASE_AMPLITUDE * intensity * PEAK_REL_AMPLITUDE[name] for name in names],
-        chemical_shifts=[PEAKS_PPM[name] for name in names],
+        amplitudes=[_BASE_AMPLITUDE * intensity * DMI_TRUTH[name][0] for name in names],
+        chemical_shifts=[DMI_TRUTH[name][1] + b0_ppm for name in names],
         reference_frequency=centre_freq_mhz,
         carrier_ppm=carrier_ppm,
         spectral_width=bandwidth,
         n_points=npts,
-        dampings=_BASE_DAMPING_HZ / clarity,
-        target_snr=_BASE_SNR * intensity * clarity,
+        dampings=[np.pi * (DMI_TRUTH[name][2] / clarity) for name in names],
+        phases=np.deg2rad(phase_deg),
+        target_snr=base_snr * intensity * clarity,
         seed=seed,
     )
     return np.asarray(xmris.to_spectrum(fid).values, dtype=complex)
@@ -84,7 +102,15 @@ def simulate_averages(
     clarity: float = 1.0,
     seed_base: int,
 ) -> np.ndarray:
-    """`(averages, npts)` stack of `simulate_spectrum` calls, one seed per repetition."""
+    """`(averages, npts)` stack of `simulate_spectrum` calls, one seed per repetition.
+
+    Each repetition gets a small B0/phase jitter (real MRS drifts shot-to-shot), and the target SNR
+    is scaled by `sqrt(averages / _REFERENCE_TRANSIENTS)` -- more transients, better effective SNR.
+    """
+    rng = np.random.default_rng(seed_base)
+    snr_scale = np.sqrt(averages / _REFERENCE_TRANSIENTS)
+    b0_jitter = rng.uniform(-_JITTER_B0_PPM, _JITTER_B0_PPM, size=averages)
+    phase_jitter = rng.uniform(-_JITTER_PHASE_DEG, _JITTER_PHASE_DEG, size=averages)
     return np.stack(
         [
             simulate_spectrum(
@@ -94,6 +120,9 @@ def simulate_averages(
                 carrier_ppm=carrier_ppm,
                 intensity=intensity,
                 clarity=clarity,
+                b0_ppm=float(b0_jitter[i]),
+                phase_deg=float(phase_jitter[i]),
+                base_snr=_BASE_SNR_UNLOC * snr_scale,
                 seed=seed_base + i,
             )
             for i in range(averages)
@@ -111,7 +140,16 @@ def simulate_grid(
     intensity_map: np.ndarray,
     seed_base: int,
 ) -> np.ndarray:
-    """`(npts, i, j, k)` grid of spectra, one per cell, scaled by `intensity_map` (same shape)."""
+    """`(npts, i, j, k)` grid of spectra, one per cell, scaled by `intensity_map` (same shape).
+
+    Each voxel gets its own small B0/phase jitter, same as `simulate_averages` but voxel-to-voxel
+    instead of shot-to-shot -- real MRSI has both. MRSI voxels are effectively single-transient, so
+    `_BASE_SNR_MRSI` (no `sqrt(N)` boost) sets the noise floor.
+    """
+    rng = np.random.default_rng(seed_base)
+    n_cells = int(np.prod(grid))
+    b0_jitter = rng.uniform(-_JITTER_B0_PPM, _JITTER_B0_PPM, size=n_cells)
+    phase_jitter = rng.uniform(-_JITTER_PHASE_DEG, _JITTER_PHASE_DEG, size=n_cells)
     out = np.empty((npts, *grid), dtype=complex)
     for flat, (i, j, k) in enumerate(np.ndindex(grid)):
         scale = float(intensity_map[i, j, k])
@@ -122,6 +160,9 @@ def simulate_grid(
             carrier_ppm=carrier_ppm,
             intensity=scale,
             clarity=scale,
+            b0_ppm=float(b0_jitter[flat]),
+            phase_deg=float(phase_jitter[flat]),
+            base_snr=_BASE_SNR_MRSI,
             seed=seed_base + flat,
         )
     return out

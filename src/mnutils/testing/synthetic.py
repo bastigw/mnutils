@@ -199,7 +199,7 @@ def _build_hevo18(root: Path) -> None:
 
     _write_mrs_mat(
         exam / "Series6" / "ScanArchive_Series6.mat",
-        averages=8,
+        averages=64,
         npts=64,
         seed=6,
         protocol="MRS_unloc",

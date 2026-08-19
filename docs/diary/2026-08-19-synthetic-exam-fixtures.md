@@ -47,11 +47,14 @@ mrsi = MRSISeries(DATASETS / "HeVo-18" / "data", 8)  # HDO/Glucose/Glx, sharper 
 (diary-synthetic-exam-fixtures-spectra)=
 ## Spectra: `xmris.simulate_fid`, not noise
 
-`mnutils.testing._spectra.simulate_spectrum` always places three peaks — HDO (4.70 ppm), Glucose
-(3.80 ppm), Glx (2.40 ppm) — at illustrative relative amplitudes (HDO dominant, as in real 2H-MRSI)
-via `xmris.simulate_fid` + `xmris.to_spectrum`. Every voxel/average takes two knobs: `intensity`
-(peak amplitude and target SNR) and `clarity` (inversely, linewidth — higher clarity means a
-narrower, cleaner peak). Both feed a spatial map instead of being constant:
+`mnutils.testing._spectra.simulate_spectrum` places four peaks from one `DMI_TRUTH` dict — HDO
+(4.70 ppm), Glucose (3.80 ppm), Glx (2.40 ppm), and a broad `Baseline` component (1.9 ppm, 70 Hz
+linewidth) standing in for the macromolecular background every real spectrum sits on top of — each
+with its own illustrative relative amplitude and linewidth (HDO dominant, as in real 2H-MRSI), via
+`xmris.simulate_fid` + `xmris.to_spectrum`. Every voxel/average takes two knobs: `intensity` (peak
+amplitude and target SNR) and `clarity` (a linewidth multiplier on top of each peak's own
+linewidth — higher clarity means a narrower, cleaner peak). Both feed a spatial map instead of
+being constant:
 
 - **`HeVo-18`/`HeVo-23`'s brain series**: the MRSI series' own NIfTI is the real T1 template
   downsampled onto the spec grid — that same downsampled array *is* the per-voxel
@@ -61,6 +64,16 @@ narrower, cleaner peak). Both feed a spatial map instead of being constant:
   offset 20 mm off the z=0 plane) assigns each sphere a distinct intensity, linearly increasing
   around the ring; grid cells inside a sphere take that sphere's intensity, everything else is
   near-silent.
+
+Every repetition/voxel also gets a small, independently-seeded B0 (`b0_ppm`) and zero-order phase
+(`phase_deg`) jitter — real MRS drifts shot-to-shot, real MRSI drifts voxel-to-voxel, and a stack of
+spectra that all sit at exactly 0 ppm/0° would look more consistent than any real acquisition. SNR
+realism is split by how many transients actually back a spectrum: `simulate_averages` (the
+`MRS_unloc`/`MRS_washin` series) scales its target SNR by `sqrt(averages / _REFERENCE_TRANSIENTS)`,
+so `MRS_unloc`'s real 64-transient acquisition count lands well above a single-shot voxel;
+`simulate_grid` (MRSI) has no such boost — each voxel is effectively single-transient, so it draws
+from a separately calibrated, ~10x lower `_BASE_SNR_MRSI` noise floor instead of the unloc-side
+`_BASE_SNR_UNLOC`.
 
 ```python
 # adding a second range of spheres with a different spectral profile -- SphereRing's job
