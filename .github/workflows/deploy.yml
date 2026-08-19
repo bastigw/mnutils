@@ -60,7 +60,7 @@ jobs:
       - name: Install dependencies
         # Syncing the WHOLE project ensures 'xmris' is installed in editable
         # mode so the notebooks can find it during execution.
-        run: uv sync --all-extras
+        run: uv sync
 
       - name: Build MyST Site
         env:
@@ -226,7 +226,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync
 
       - name: Check external links
         # --strict is what makes this job able to fail: an unresolvable link is

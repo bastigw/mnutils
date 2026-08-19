@@ -48,7 +48,7 @@ jobs:
         run: uv python install 3.13
 
       - name: Install dependencies
-        run: uv sync --all-extras --dev
+        run: uv sync
 
       # Format before lint: the mechanical failure is the cheaper one to fix, so
       # it should be the one you see first. `uv run lint` runs these same two.
@@ -61,9 +61,9 @@ jobs:
   bare-install:
     name: bare install
     runs-on: ubuntu-latest
-    # Every other job installs with `uv sync --all-extras --dev`, so the dependency
-    # set a real user receives is exercised nowhere -- a submodule that only imports
-    # because a dev/test dependency, or the optional `bet` extra, leaked in would
+    # Every other job installs with `uv sync` (default group only, no optional
+    # extras), so the dependency set a real user receives is exercised nowhere --
+    # a submodule that only imports because a dev/test dependency leaked in would
     # pass every other job and still break on a fresh `pip install mnutils`.
     # One Python version is enough: this checks the dependency *set*, not the matrix.
     timeout-minutes: 10
@@ -111,7 +111,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --all-extras --dev
+        run: uv sync
 
       - name: Run Tests
         run: uv run test-mnutils

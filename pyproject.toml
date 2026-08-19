@@ -58,7 +58,6 @@ build-backend = "uv_build"
 dev = [
     "ipykernel>=7.1.0",
     "ipywidgets>=8.1.7",
-    "matlabengine==25.1.*",
     "nb-clean>=4.0.1",
     "nbmake>=1.5.5",
     "nbstripout>=0.9.1",
