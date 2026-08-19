@@ -1,9 +1,15 @@
 import os
 from pathlib import Path
 
-import matlab.engine
+import pytest
 
-from mnutils.matlab import (
+pytest.importorskip(
+    "matlab.engine", reason="requires the MATLAB Engine for Python and a local MATLAB install"
+)
+
+import matlab.engine  # noqa: E402
+
+from mnutils.matlab import (  # noqa: E402
     add_matlablatest_path,
     connect_to_matlab,
     setup_util_path,

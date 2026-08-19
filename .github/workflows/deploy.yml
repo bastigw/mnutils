@@ -52,10 +52,10 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1
+      # - name: Install system dependencies
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y libegl1
 
       - name: Install dependencies
         # Syncing the WHOLE project ensures 'xmris' is installed in editable
@@ -68,10 +68,7 @@ jobs:
           # has to be built for the subdirectory it will be served from --
           # otherwise every stylesheet and script 404s.
           BASE_URL: ${{ github.event_name == 'pull_request' && format('/mnutils/pr-preview/pr-{0}', github.event.number) || '/mnutils' }}
-        run: |
-          uv run docs-mnutils-api
-          cd docs
-          uv run myst build --html --execute --strict
+        run: uv run docs-mnutils
 
       - name: Upload the built site
         # Fork PRs get a read-only token and never publish: their HTML would
