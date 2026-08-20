@@ -20,6 +20,7 @@ import h5py
 import nibabel as nib
 import numpy as np
 import scipy.io
+import xmris
 from numpy.typing import ArrayLike
 
 from . import _spectra
@@ -112,25 +113,19 @@ def _write_mrs_mat(
 ) -> None:
     """Write the `.mat` spectrum and, from the same simulated peaks, the raw FID `.h5` cache.
 
-    Every real MRS acquisition has both, so every synthetic one does too -- `simulate_fid` and
-    `simulate_spectrum` share the same `(npts, seed, intensities, ...)` inputs, so the raw FID is
-    the exact time-domain data `simulate_spectrum`'s FFT is computed from, not an independently
-    random array.
+    Every real MRS acquisition has both, so every synthetic one does too -- `simulate_fid`
+    returns the raw time-domain FID `xr.DataArray`, which we convert both ways from a single
+    simulation instead of writing an independently-random raw-FID array.
     """
-    spec = _spectra.simulate_spectrum(
+    fid_da = _spectra.simulate_fid(
         npts=npts,
         n_specs=averages,
         bandwidth=_BANDWIDTH_HZ,
         seed=seed,
         intensities=intensities,
     )
-    fid = _spectra.simulate_fid(
-        npts=npts,
-        n_specs=averages,
-        bandwidth=_BANDWIDTH_HZ,
-        seed=seed,
-        intensities=intensities,
-    )
+    fid = np.asarray(fid_da.values, dtype=complex)
+    spec = np.asarray(xmris.to_spectrum(fid_da).values, dtype=complex)
     _write_mat(
         path,
         spec=spec,

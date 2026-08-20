@@ -50,24 +50,29 @@ _BASE_SNR_UNLOC = 50  # target SNR per simulated spectrum, unlocalized MRS
 _BASE_SNR_MRSI = 30  # MRSI voxels are effectively single-transient -- no sqrt(N) boost
 
 
-def _simulate_fid_da(
+def simulate_fid(
     *,
     npts: int,
     bandwidth: float,
-    centre_freq_mhz: float,
-    carrier_ppm: float,
-    b0_ppm: float,
-    phase_deg: float,
-    base_snr: float,
-    intensities: ArrayLike | None,
+    centre_freq_mhz: float = FREQ_2H_MHz_3T,
+    carrier_ppm: float = CARRIER_PPM,
+    b0_ppm: float = 0.0,
+    phase_deg: float = 0.0,
+    base_snr: float = _BASE_SNR_UNLOC,
+    intensities: ArrayLike | None = None,
     seed: int,
-    n_specs: int,
+    n_specs: int = 1,
 ) -> xr.DataArray:
-    """`n_specs` simulated FIDs (HDO/Glucose/Glx/Baseline), stacked along a `voxel` dim.
+    """`n_specs` simulated FIDs (HDO/Glucose/Glx/Baseline), time-domain, via `xmris.simulate_fid`.
 
-    Shared by `simulate_fid` (raw time-domain output) and `simulate_spectrum` (FFT'd on top) so
-    both draw from the exact same simulated data. Each spectrum gets its own `seed + i` -- a
-    shared seed across `i` would give every repetition/voxel identical noise.
+    Returns the raw `xr.DataArray` -- callers convert it to whatever they need: `xmris.to_spectrum`
+    for the frequency domain, `.values`/`np.asarray` for a plain numpy array. This lets one
+    simulated dataset back both a `.mat` spectrum and a raw-FID fixture (same peaks, same noise)
+    instead of two independently-random ones. `intensities` scales each peak's amplitude, per
+    spectrum -- either one `(n_peaks,)` vector broadcast across all `n_specs`, or a `(n_specs,
+    n_peaks)` array for per-spectrum control (e.g. a washin series ramping Glucose/Glx over time).
+    `b0_ppm`/`phase_deg` add a uniform chemical-shift offset / zero-order phase across all peaks,
+    matching real per-repetition/per-voxel B0 and phase drift.
     """
     names = list(DMI_TRUTH)
     amps = np.asarray([_BASE_AMPLITUDE * DMI_TRUTH[name][0] for name in names], dtype=np.float32)
@@ -101,7 +106,7 @@ def _simulate_fid_da(
                 dampings=dampings,
                 phases=phases,
                 target_snr=base_snr,
-                seed=seed + i,
+                seed=seed + i,  # a shared seed across i would give every voxel identical noise
             )
             for i in range(n_specs)
         ],
@@ -109,75 +114,6 @@ def _simulate_fid_da(
     ).assign_coords(voxel=np.arange(n_specs))
     fid.attrs = {"reference_frequency": centre_freq_mhz, "carrier_ppm": carrier_ppm}
     return fid
-
-
-def simulate_fid(
-    *,
-    npts: int,
-    bandwidth: float,
-    centre_freq_mhz: float = FREQ_2H_MHz_3T,
-    carrier_ppm: float = CARRIER_PPM,
-    b0_ppm: float = 0.0,
-    phase_deg: float = 0.0,
-    base_snr: float = _BASE_SNR_UNLOC,
-    intensities: ArrayLike | None = None,
-    seed: int,
-    n_specs: int = 1,
-) -> np.ndarray:
-    """`(n_specs, npts)` raw time-domain FIDs -- the same simulated data `simulate_spectrum` FFTs.
-
-    Lets a caller write out both the frequency-domain `.mat` spectrum and the time-domain raw FID
-    file from one simulation (same peaks, same noise) instead of two independently-random ones.
-    """
-    fid = _simulate_fid_da(
-        npts=npts,
-        bandwidth=bandwidth,
-        centre_freq_mhz=centre_freq_mhz,
-        carrier_ppm=carrier_ppm,
-        b0_ppm=b0_ppm,
-        phase_deg=phase_deg,
-        base_snr=base_snr,
-        intensities=intensities,
-        seed=seed,
-        n_specs=n_specs,
-    )
-    return np.asarray(fid.values, dtype=complex)
-
-
-def simulate_spectrum(
-    *,
-    npts: int,
-    bandwidth: float,
-    centre_freq_mhz: float = FREQ_2H_MHz_3T,
-    carrier_ppm: float = CARRIER_PPM,
-    b0_ppm: float = 0.0,
-    phase_deg: float = 0.0,
-    base_snr: float = _BASE_SNR_UNLOC,
-    intensities: ArrayLike | None = None,
-    seed: int,
-    n_specs: int = 1,
-) -> np.ndarray:
-    """`n_specs` simulated spectra (HDO/Glucose/Glx/Baseline) via `xmris.simulate_fid` + FFT.
-
-    `intensities` scales each peak's amplitude, per spectrum -- either one `(n_peaks,)` vector
-    broadcast across all `n_specs`, or a `(n_specs, n_peaks)` array for per-spectrum control (e.g. a
-    washin series ramping Glucose/Glx over time). `b0_ppm`/`phase_deg` add a uniform chemical-shift
-    offset / zero-order phase across all peaks, matching real per-repetition/per-voxel B0 and phase
-    drift.
-    """
-    fid = _simulate_fid_da(
-        npts=npts,
-        bandwidth=bandwidth,
-        centre_freq_mhz=centre_freq_mhz,
-        carrier_ppm=carrier_ppm,
-        b0_ppm=b0_ppm,
-        phase_deg=phase_deg,
-        base_snr=base_snr,
-        intensities=intensities,
-        seed=seed,
-        n_specs=n_specs,
-    )
-    return np.asarray(xmris.to_spectrum(fid).values, dtype=complex)
 
 
 def simulate_grid(
@@ -192,14 +128,14 @@ def simulate_grid(
 ) -> np.ndarray:
     """`(npts, i, j, k)` grid of spectra, one per cell, scaled by `intensity_map` (same shape).
 
-    Every cell gets its own unscaled spectrum from `simulate_spectrum`, then `intensity_map` scales
+    Every cell gets its own unscaled spectrum from `simulate_fid`, then `intensity_map` scales
     each cell's signal post-FFT. MRSI voxels are effectively single-transient, so `_BASE_SNR_MRSI`
     (no `sqrt(N)` boost) sets the noise floor.
     """
     n_cells = int(np.prod(grid))
 
-    # Simulate all spectra
-    specs_flat = simulate_spectrum(
+    # Simulate all FIDs, then convert to the frequency domain
+    fid = simulate_fid(
         npts=npts,
         bandwidth=bandwidth,
         centre_freq_mhz=centre_freq_mhz,
@@ -208,6 +144,7 @@ def simulate_grid(
         seed=seed,
         n_specs=n_cells,
     )
+    specs_flat = np.asarray(xmris.to_spectrum(fid).values, dtype=complex)
 
     # Reshape to (npts, i, j, k) and apply intensity map
     specs = specs_flat.reshape((npts, *grid))
