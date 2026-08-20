@@ -31,7 +31,7 @@ import numpy as np
 from mnutils.GEExam import DMIinjExam
 from mnutils.testing import build_fake_exam
 
-DATA_FOLDER = build_fake_exam() / "HeVo-18" / "data"
+DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam") / "data"
 ```
 
 (data-model-geexam-split)=

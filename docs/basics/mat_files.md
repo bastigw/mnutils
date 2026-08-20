@@ -34,14 +34,14 @@ from mnutils.utils import data_loaders as dl
 from mnutils.utils import file_helpers as fh
 from mnutils.testing import build_fake_exam
 
-DATASETS = build_fake_exam()
+mrsi_missing_series_exam = build_fake_exam("mrsi_missing_series_exam")
 ```
 
 (basics-mat-files-newer)=
 ## The current format
 
 ```{code-cell} ipython3
-mat_path = fh.get_mat_data_from_series(DATASETS / "LG_D19", 7)
+mat_path = fh.get_mat_data_from_series(mrsi_missing_series_exam, 7)
 data = dl.load_mat_file(mat_path)
 print(type(data), sorted(data.keys())[:5])
 print(data["spec"].shape)
@@ -63,7 +63,7 @@ Older reconstructions saved as MATLAB v7.3 fail the plain `scipy.io.loadmat` pat
 to `mat73` transparently — same call, same return type.
 
 ```{code-cell} ipython3
-legacy_data = dl.load_mat_file(DATASETS / "MRSexampleTE35.mat")
+legacy_data = dl.load_mat_file(build_fake_exam("legacy_matlab73_example"))
 print("pyr" in legacy_data)
 ```
 

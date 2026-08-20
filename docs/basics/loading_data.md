@@ -38,7 +38,7 @@ from mnutils.GEExam import ExamBase
 from mnutils.GESeries import MRSSeries
 from mnutils.testing import build_fake_exam
 
-DATA_FOLDER = build_fake_exam() / "HeVo-18"
+DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam")
 ```
 
 (basics-loading-data-exam)=

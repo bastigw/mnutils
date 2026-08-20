@@ -1,10 +1,10 @@
 """Synthetic GE exam fixtures for docs pages and tests -- no real scanner data required.
 
 See docs/diary/2026-08-19-synthetic-exam-fixtures.md for why this exists, what it does and doesn't
-fake, and where the spectra/anatomy come from. `build_fake_exam()` writes a fresh tree under a
-process-local temp directory (via `tempfile.mkdtemp`) the first time it's called, caches the path
-for the rest of the process, and registers an `atexit` cleanup so nothing survives past the process
-that created it.
+fake, and where the spectra/anatomy come from. `build_fake_exam(dataset)` writes the requested
+dataset under a process-local temp directory (via `tempfile.mkdtemp`) the first time it's called,
+caches each dataset's path for the rest of the process, and registers an `atexit` cleanup so
+nothing survives past the process that created it.
 
 `_TEMPLATE_ATTRIBUTION` in `_spectra.py` covers the one piece of real (downloaded, cached) data
 used here -- a CC BY-NC 4.0 T1 template.
@@ -14,6 +14,7 @@ import atexit
 import functools
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import h5py
@@ -199,7 +200,7 @@ def _write_raw_fid_files(series_folder: Path, series_id: int, npts: int, ntime: 
     _write_raw_fids_h5(series_folder, series_id, fids)
 
 
-def _build_hevo18(root: Path) -> None:
+def _build_brain_mrs_mrsi_exam(root: Path) -> None:
     data = root / "data"
     exam = data / "ExamHeVo18anon"
     grid = (16, 16, 16)
@@ -267,13 +268,13 @@ def _build_hevo18(root: Path) -> None:
     (exam / "Series13").mkdir(parents=True, exist_ok=True)  # exam data, no DICOM
 
 
-def _build_hevo23(root: Path) -> None:
+def _build_brain_extraction_exam(root: Path) -> None:
     data = root / "data"
     (data / "Series0010_BS_prescan").mkdir(parents=True, exist_ok=True)  # new-style naming
     _spectra.write_template_t1(data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO_BODY.nii.gz")
 
 
-def _build_lg_d19(root: Path) -> None:
+def _build_mrsi_missing_series_exam(root: Path) -> None:
     exam = root / "Exam4873anon"
     _write_mrsi_mat(
         exam / "Series7" / "ScanArchive_Series7.mat",
@@ -289,7 +290,7 @@ def _build_lg_d19(root: Path) -> None:
     (root / "010_axial_localizer").mkdir(parents=True, exist_ok=True)  # old-style naming
 
 
-def _build_nist(root: Path) -> None:
+def _build_nist_phantom_exam(root: Path) -> None:
     data = root / "data"
     exam = data / "ExamNISTanon"
     grid = (16, 16, 16)
@@ -336,23 +337,37 @@ def _write_legacy_mat(path: Path) -> None:
         dataset.attrs["MATLAB_class"] = np.bytes_(b"double")
 
 
-@functools.cache
-def build_fake_exam() -> Path:
-    """Return the root of a synthetic multi-exam tree, generating it on first call.
+_DATASETS: dict[str, tuple[Callable[[Path], None], str]] = {
+    "brain_mrs_mrsi_exam": (_build_brain_mrs_mrsi_exam, "brain_mrs_mrsi_exam"),
+    "brain_extraction_exam": (_build_brain_extraction_exam, "brain_extraction_exam"),
+    "mrsi_missing_series_exam": (_build_mrsi_missing_series_exam, "mrsi_missing_series_exam"),
+    "nist_phantom_exam": (_build_nist_phantom_exam, "nist_phantom_exam"),
+    "legacy_matlab73_example": (_write_legacy_mat, "legacy_matlab73_example.mat"),
+}
 
-    Contains `HeVo-18/`, `HeVo-23/`, `LG_D19/`, `20250408-NIST-Mag2/`, and `MRSexampleTE35.mat` --
-    the same names and shapes docs pages and tests previously read from `tests/datasets/`, entirely
-    fabricated (see the diary entry for what's simulated vs. downloaded). The tree lives under a
-    unique `tempfile.mkdtemp` directory removed by an `atexit` hook when the process exits, so
-    nothing accumulates across runs.
-    """
+
+@functools.cache
+def _fake_exam_root() -> Path:
     root = Path(tempfile.mkdtemp(prefix="mnutils_fake_exam_"))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
-
-    _build_hevo18(root / "HeVo-18")
-    _build_hevo23(root / "HeVo-23")
-    _build_lg_d19(root / "LG_D19")
-    _build_nist(root / "20250408-NIST-Mag2")
-    _write_legacy_mat(root / "MRSexampleTE35.mat")
-
     return root
+
+
+@functools.cache
+def build_fake_exam(dataset: str) -> Path:
+    """Build (on first call) and return the path to one synthetic dataset.
+
+    `dataset` is one of `_DATASETS`' keys -- the same names and shapes docs pages and tests
+    previously read from `tests/datasets/`, entirely fabricated (see the diary entry for what's
+    simulated vs. downloaded). Every dataset lives under one shared `tempfile.mkdtemp` directory
+    (created on first call to any dataset) removed by an `atexit` hook when the process exits, so
+    nothing accumulates across runs. Each dataset is built at most once per process.
+    """
+    if dataset not in _DATASETS:
+        raise ValueError(
+            f"Unknown fake-exam dataset {dataset!r}; choose one of {sorted(_DATASETS)}"
+        )
+    builder, filename = _DATASETS[dataset]
+    path = _fake_exam_root() / filename
+    builder(path)
+    return path

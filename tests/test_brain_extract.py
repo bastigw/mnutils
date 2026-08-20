@@ -19,14 +19,13 @@ logger.add(sys.stdout, level="DEBUG")
 
 @pytest.fixture
 def dataset_folder():
-    """Return the root of the synthetic exam tree (see mnutils.testing.build_fake_exam)."""
-    return build_fake_exam()
+    """Return the root of the brain-extraction synthetic exam (see mnutils.testing)."""
+    return build_fake_exam("brain_extraction_exam")
 
 
 def test_hevo23_bet(dataset_folder):
     """Test that extract_brain produces the expected skull-stripped nifti output file."""
-    base_folder = dataset_folder / "HeVo-23"
-    data_folder = base_folder / "data"
+    data_folder = dataset_folder / "data"
     series = 2
     nifti_data = file_helpers.get_niftis_from_series(data_folder, series, convert_dicoms=True)
     logger.info(f"Extracting brain from {nifti_data}")

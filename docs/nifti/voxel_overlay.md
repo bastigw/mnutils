@@ -189,7 +189,7 @@ then an *additional* half of the new (blocky) voxel size on top.
 from mnutils.GESeries import MRSISeries
 from mnutils.testing import build_fake_exam
 
-mrsi = MRSISeries(build_fake_exam() / "20250408-NIST-Mag2" / "data", 5)
+mrsi = MRSISeries(build_fake_exam("nist_phantom_exam") / "data", 5)
 
 fine_affine = mrsi.nii.affine
 blocky_affine = mrsi.create_MRSI_affine()
@@ -225,7 +225,7 @@ from mnutils.GESeries import MRISeries, MRSISeries
 from mnutils.plotting.images import draw_voxel_overlays_on_ax, overlay_image_data_on_T1_on_ax
 from mnutils.utils.nifti import get_display_affine, resample_and_orient_nifti
 
-hevo18_data = build_fake_exam() / "HeVo-18" / "data"
+hevo18_data = build_fake_exam("brain_mrs_mrsi_exam") / "data"
 t1 = MRISeries(hevo18_data, 2)
 mrsi_brain = MRSISeries(hevo18_data, 8)
 

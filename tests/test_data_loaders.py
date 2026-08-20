@@ -14,14 +14,13 @@ from mnutils.utils import data_loaders
 
 @pytest.fixture
 def dataset_folder():
-    """Return the root of the synthetic exam tree (see mnutils.testing.build_fake_exam)."""
-    return build_fake_exam()
+    """Return the root of the brain MRS/MRSI synthetic exam (see mnutils.testing)."""
+    return build_fake_exam("brain_mrs_mrsi_exam")
 
 
 def test_load_raw_fids_creates_correct_files(dataset_folder):
     """Test that load_raw_fids returns correctly-shaped complex FID arrays and writes an h5 file."""
-    base_folder = os.path.join(dataset_folder, "HeVo-18")
-    data_folder = os.path.join(base_folder, "data")
+    data_folder = os.path.join(dataset_folder, "data")
     # Series 6/7 (MRS_unloc/MRS_washin) have real, `.mat`-derived FIDs shaped
     # (averages, npts); the rest are random-noise fixtures shaped (npts, ntime).
     shape_expected = {

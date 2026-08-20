@@ -4,8 +4,10 @@
 <span style="color: gray; font-size: 0.9em;">Last edited: 2026-08-19</span>
 
 CI (#3) ran green locally and failed for real: `tests/datasets/` is `.gitignore`d, so `HeVo-18`,
-`HeVo-23`, `LG_D19`, and `20250408-NIST-Mag2` didn't exist on the runner, and 8 tests/notebooks
-that hard-coded paths into them died on `ValueError: The base folder does not exist`. Uploading
+`HeVo-23`, `LG_D19`, and `20250408-NIST-Mag2` (now `brain_mrs_mrsi_exam`, `brain_extraction_exam`,
+`mrsi_missing_series_exam`, and `nist_phantom_exam`) didn't exist on the runner, and 8
+tests/notebooks that hard-coded paths into them died on `ValueError: The base folder does not
+exist`. Uploading
 them wasn't a small fix either — they're real scanner acquisitions with unclear redistribution
 provenance, several MB each, and brittle to extend (issue #10). But the first pass at faking them
 filled every `.mat`/`.nii` with plain random noise, which only gets a docs page to *run* — a
@@ -39,9 +41,11 @@ sees:
 # the call site every doc page and test ends up with
 from mnutils.testing import build_fake_exam
 
-DATASETS = build_fake_exam()  # generated once per process, cleaned up at exit
-t1 = MRISeries(DATASETS / "HeVo-18" / "data", 2)  # real, cropped T1 template
-mrsi = MRSISeries(DATASETS / "HeVo-18" / "data", 8)  # HDO/Glucose/Glx, sharper inside the brain
+DATA_FOLDER = (
+    build_fake_exam("brain_mrs_mrsi_exam") / "data"
+)  # built once per process, cleaned up at exit
+t1 = MRISeries(DATA_FOLDER, 2)  # real, cropped T1 template
+mrsi = MRSISeries(DATA_FOLDER, 8)  # HDO/Glucose/Glx, sharper inside the brain
 ```
 
 (diary-synthetic-exam-fixtures-spectra)=
@@ -56,11 +60,11 @@ amplitude and target SNR) and `clarity` (a linewidth multiplier on top of each p
 linewidth — higher clarity means a narrower, cleaner peak). Both feed a spatial map instead of
 being constant:
 
-- **`HeVo-18`/`HeVo-23`'s brain series**: the MRSI series' own NIfTI is the real T1 template
+- **`brain_mrs_mrsi_exam`/`brain_extraction_exam`'s brain series**: the MRSI series' own NIfTI is the real T1 template
   downsampled onto the spec grid — that same downsampled array *is* the per-voxel
   intensity/clarity map, so "inside the brain" literally means "where the real template has
   signal."
-- **`20250408-NIST-Mag2`**: a `SphereRing` (8 spheres, evenly spaced around a 60 mm-radius circle,
+- **`nist_phantom_exam`**: a `SphereRing` (8 spheres, evenly spaced around a 60 mm-radius circle,
   offset 20 mm off the z=0 plane) assigns each sphere a distinct intensity, linearly increasing
   around the ring; grid cells inside a sphere take that sphere's intensity, everything else is
   near-silent.
@@ -103,7 +107,7 @@ generator, zero checked-in data, is simpler to reason about and is what issue #1
 (diary-synthetic-exam-fixtures-template)=
 ## Anatomy: a real, downloaded template
 
-`HeVo-18`'s and `HeVo-23`'s anatomical/MRSI-seed NIfTIs are cropped from **Chris Rorden's
+`brain_mrs_mrsi_exam`'s and `brain_extraction_exam`'s anatomical/MRSI-seed NIfTIs are cropped from **Chris Rorden's
 `chris_t1`**, part of the [niivue-images](https://github.com/neurolabusc/niivue-images) sample set,
 licensed [**CC BY-NC 4.0**](https://creativecommons.org/licenses/by-nc/4.0/) — **non-commercial use
 only**. `_fetch_t1_template_path()` downloads it once per machine into the system temp directory
@@ -121,12 +125,14 @@ non-commercial open-source test fixture (attribution above, and in
 (diary-synthetic-exam-fixtures-cleanup)=
 ## Cleanup: `atexit`, not a fixture
 
-`build_fake_exam()` is called with no arguments from both pytest and plain notebook cells (MyST's
-`--execute` runs docs pages outside pytest entirely), so there's no shared fixture scope to hang
-teardown on. It writes to a fresh `tempfile.mkdtemp()` directory the first time it's called per
-process, caches that path (`functools.cache`) so every call within one test run or one notebook
-reuses the same tree, and registers `atexit.register(shutil.rmtree, ...)` once — so the tree is
-removed when the pytest process or the notebook kernel exits, whichever called it. The downloaded
+`build_fake_exam(dataset)` is called with a dataset name from both pytest and plain notebook cells
+(MyST's `--execute` runs docs pages outside pytest entirely), so there's no shared fixture scope to
+hang teardown on. All datasets share one `tempfile.mkdtemp()` directory, created the first time any
+dataset is requested per process; each dataset itself is only built the first time it's requested
+(`functools.cache`, keyed on the dataset name), so every call within one test run or one notebook
+reuses the same tree. An `atexit.register(shutil.rmtree, ...)` is registered once for that shared
+directory — so the tree is removed when the pytest process or the notebook kernel exits, whichever
+called it. The downloaded
 template lives separately, in a machine-wide cache directory rather than the per-process tree, so
 it survives across runs instead of being re-fetched every time.
 

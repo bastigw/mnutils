@@ -54,8 +54,7 @@ from mnutils.testing import build_fake_exam
 ```
 
 ```{code-cell} ipython3
-DATASETS = build_fake_exam()
-DATA_FOLDER = DATASETS / "HeVo-18" / "data"
+DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam") / "data"
 ```
 
 (data-model-geseries-niibase)=
@@ -178,13 +177,13 @@ assert isinstance(mrsi, NiiBase)  # create_MRSI_nii() gives it a displayable vol
 Two `NiiBase` images at different resolutions come up constantly — an anatomical scan and an
 MRSI grid, say — and need to be compared voxel-for-voxel. `resample_self_to` reslices one onto
 another's grid; `overlay_nifti_data_on_T1` (from `mnutils.plotting.images`) plots the result on
-top of an anatomical volume. These examples use the fake `20250408-NIST-Mag2` exam, a phantom
+top of an anatomical volume. These examples use the fake `nist_phantom_exam`, a phantom
 scan where series 2 is the anatomical T1 and series 5 is an MRSI grid.
 
 ```{code-cell} ipython3
 from mnutils.plotting.images import overlay_nifti_data_on_T1
 
-phantom_folder = DATASETS / "20250408-NIST-Mag2" / "data"
+phantom_folder = build_fake_exam("nist_phantom_exam") / "data"
 t1 = MRISeries(phantom_folder, 2)
 mrsi_phantom = MRSISeries(phantom_folder, 5)
 

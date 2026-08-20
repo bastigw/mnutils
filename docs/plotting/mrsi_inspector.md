@@ -40,7 +40,7 @@ from mnutils.GESeries import MRISeries, MRSISeries
 from mnutils.plotting.images import inspect_MRSI_spectra
 from mnutils.testing import build_fake_exam
 
-nist_data = build_fake_exam() / "20250408-NIST-Mag2" / "data"
+nist_data = build_fake_exam("nist_phantom_exam") / "data"
 ```
 
 (plotting-mrsi-inspector-load)=
