@@ -102,6 +102,7 @@ def _write_mat(path: Path, *, spec: np.ndarray, fov_mm: float, seed: int, **head
 def _write_mrs_mat(
     path: Path,
     *,
+    series_id: int,
     averages: int,
     npts: int,
     seed: int,
@@ -109,7 +110,21 @@ def _write_mrs_mat(
     fov_mm: float = 240.0,
     **header_kwargs,
 ) -> None:
+    """Write the `.mat` spectrum and, from the same simulated peaks, the raw FID `.h5` cache.
+
+    Every real MRS acquisition has both, so every synthetic one does too -- `simulate_fid` and
+    `simulate_spectrum` share the same `(npts, seed, intensities, ...)` inputs, so the raw FID is
+    the exact time-domain data `simulate_spectrum`'s FFT is computed from, not an independently
+    random array.
+    """
     spec = _spectra.simulate_spectrum(
+        npts=npts,
+        n_specs=averages,
+        bandwidth=_BANDWIDTH_HZ,
+        seed=seed,
+        intensities=intensities,
+    )
+    fid = _spectra.simulate_fid(
         npts=npts,
         n_specs=averages,
         bandwidth=_BANDWIDTH_HZ,
@@ -126,6 +141,7 @@ def _write_mrs_mat(
         centre_freq_x1e7=_CENTRE_FREQ_X1E7,
         **header_kwargs,
     )
+    _write_raw_fids_h5(path.parent, series_id, fid)
 
 
 def _write_mrsi_mat(
@@ -161,7 +177,7 @@ def _write_mrsi_mat(
     )
 
 
-def _write_raw_fid_files(series_folder: Path, series_id: int, npts: int, ntime: int = 150) -> None:
+def _write_raw_fids_h5(series_folder: Path, series_id: int, fids: np.ndarray) -> None:
     """A dummy `ScanArchive*.h5` (only its existence matters) plus a pre-cached `fids` dataset.
 
     `load_raw_fids` reads the cache directly when present and never opens the archive -- see the
@@ -169,11 +185,16 @@ def _write_raw_fid_files(series_folder: Path, series_id: int, npts: int, ntime: 
     """
     series_folder.mkdir(parents=True, exist_ok=True)
     (series_folder / f"ScanArchive_{series_id}.h5").touch()
+    with h5py.File(series_folder / f"Series{series_id}_raw_fids.h5", "w") as hf:
+        hf.create_dataset("fids", data=fids)
+
+
+def _write_raw_fid_files(series_folder: Path, series_id: int, npts: int, ntime: int = 150) -> None:
+    """Random-noise raw FIDs for series with no `.mat`-backed spectrum to derive real ones from."""
     fids = _rng(series_folder, "fids").standard_normal((npts, ntime)) + 1j * _rng(
         series_folder, "fids-imag"
     ).standard_normal((npts, ntime))
-    with h5py.File(series_folder / f"Series{series_id}_raw_fids.h5", "w") as hf:
-        hf.create_dataset("fids", data=fids)
+    _write_raw_fids_h5(series_folder, series_id, fids)
 
 
 def _build_hevo18(root: Path) -> None:
@@ -196,6 +217,7 @@ def _build_hevo18(root: Path) -> None:
 
     _write_mrs_mat(
         exam / "Series6" / "ScanArchive_Series6.mat",
+        series_id=6,
         averages=64,
         npts=2048,
         seed=6,
@@ -203,7 +225,6 @@ def _build_hevo18(root: Path) -> None:
         description="006_MRS_unloc",
         exam_number=1801,
     )
-    _write_raw_fid_files(exam / "Series6", 6, npts=2048)
 
     # Create increasing intensities for the washin series
     # Defines start values [HDO, Glucose, Glx, Baseline] and their stop values
@@ -211,6 +232,7 @@ def _build_hevo18(root: Path) -> None:
 
     _write_mrs_mat(
         exam / "Series7" / "ScanArchive_Series7.mat",
+        series_id=7,
         averages=250,
         intensities=intensities,
         npts=2048,

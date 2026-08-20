@@ -22,18 +22,22 @@ def test_load_raw_fids_creates_correct_files(dataset_folder):
     """Test that load_raw_fids returns correctly-shaped complex FID arrays and writes an h5 file."""
     base_folder = os.path.join(dataset_folder, "HeVo-18")
     data_folder = os.path.join(base_folder, "data")
-    npts_expected = {
-        6: 2048,
-        9: 700,
-        11: 700,
-        12: 1678,
+    # Series 6/7 (MRS_unloc/MRS_washin) have real, `.mat`-derived FIDs shaped
+    # (averages, npts); the rest are random-noise fixtures shaped (npts, ntime).
+    shape_expected = {
+        6: (64, 2048),
+        7: (250, 2048),
+        9: (700, 150),
+        11: (700, 150),
+        12: (1678, 150),
     }
-    for series, npts in npts_expected.items():
+    for series, shape in shape_expected.items():
         data, fid_h5_file = data_loaders.load_raw_fids(data_folder, series, force_override=False)
         assert isinstance(data, np.ndarray)
         assert np.iscomplexobj(data)
-        assert data.shape[0] == npts
-        assert data.shape[1] > 100  # Should have more than 100 points
+        assert data.shape == shape
+        if series in (6, 7):  # MRS_unloc/MRS_washin -- real simulated data, not repeated noise
+            assert not np.allclose(data[0], data[1])
         assert os.path.isfile(fid_h5_file)
         # Clean up created file
         os.remove(fid_h5_file)
