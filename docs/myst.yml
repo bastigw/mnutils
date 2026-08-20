@@ -132,5 +132,5 @@ project:
 
 site:
   nav:
-    - title: GitLab
-      url: https://gitlab.developers.cam.ac.uk/deptofrad/molecular-imaging/multi-nuclear-utils-python
+    - title: GitHub
+      url: https://github.com/bastigw/mnutils

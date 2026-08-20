@@ -1,6 +1,6 @@
 [project]
 name = "MNutils"
-version = "1.1.2"
+version = "1.2.0"
 
 authors = [
     {name = "Sebastian Bauer", email = "28663646+bastigw@users.noreply.github.com"}
@@ -38,6 +38,12 @@ dependencies = [
     "seaborn>=0.13.2",
     "xmris[fitting]",
 ]
+
+[project.urls]
+Homepage = "https://github.com/bastigw/mnutils"
+Documentation = "https://bastigw.github.io/mnutils/"
+Repository = "https://github.com/bastigw/mnutils"
+Issues = "https://github.com/bastigw/mnutils/issues"
 
 [project.optional-dependencies]
 2025a = ["matlabengine==25.1.*"]

@@ -24,7 +24,7 @@ flowchart LR
 
 :::{note}
 **For Claude Code users:** the two skills under
-[`.claude/skills/`](https://gitlab.developers.cam.ac.uk/deptofrad/molecular-imaging/multi-nuclear-utils-python/-/tree/main/.claude/skills)
+[`.claude/skills/`](https://github.com/bastigw/mnutils/tree/main/.claude/skills)
 fire on the matching change above. Neither carries rules of its own — each routes to the one
 canonical doc that owns it, obeying the same "one home per concept" rule these docs preach.
 :::

@@ -11,7 +11,7 @@ by reader and by where their cells execute:
 
 The four house-style rules — motivated narrative, one home per concept, every article stands
 alone, and the MyST palette carries the argument — are the single source of truth in
-[`CLAUDE.md` § Documentation style](https://gitlab.developers.cam.ac.uk/deptofrad/molecular-imaging/multi-nuclear-utils-python/-/blob/main/CLAUDE.md).
+[`CLAUDE.md` § Documentation style](https://github.com/bastigw/mnutils/blob/main/CLAUDE.md).
 
 (contribute-docs-skill)=
 ## Working with Claude Code
