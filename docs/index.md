@@ -35,7 +35,7 @@ pyAMARES — see [Fitting](#fitting-index) once that chapter has content.
 ## Install
 
 ```bash
-uv add git+https://gitlab.developers.cam.ac.uk/deptofrad/molecular-imaging/multi-nuclear-utils-python.git
+uv add mnutils
 ```
 
 Requires Python 3.12+. Installing the MATLAB Engine for Python separately is required for any
