@@ -47,8 +47,8 @@ from mnutils.GEExam import ExamBase
 
 exam = ExamBase("data/HeVo-11")  # prints an overview of every series it found
 
-exam.exam_overview.head()        # same overview as a DataFrame
-exam.series_dict[6]              # the GESeries subclass ExamBase picked for series 6 — nothing loaded yet
+exam.exam_overview.head()  # same overview as a DataFrame
+exam.series_dict[6]  # the GESeries subclass ExamBase picked for series 6 — nothing loaded yet
 ```
 
 Load the series you actually need and analyse it — everything about it (spectrum, header fields,
