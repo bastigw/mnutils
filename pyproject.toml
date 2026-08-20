@@ -1,11 +1,30 @@
 [project]
 name = "MNutils"
 version = "1.1.2"
+
+authors = [
+    {name = "Sebastian Bauer", email = "28663646+bastigw@users.noreply.github.com"}
+]
+
 description = "Utility functions for multinuclear MR data processing"
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
+
+keywords = ["mri", "mrs", "xarray", "spectroscopy", "nmr"]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Framework :: Jupyter",
+]
+
 requires-python = ">=3.12"
+
 dependencies = [
     "dcm2niiw>=0.1.5",
     "ipython>=8.0",
@@ -17,7 +36,6 @@ dependencies = [
     "pillow>=12.3.0",
     "scipy>=1.15.3",
     "seaborn>=0.13.2",
-    "tailwind-colors>=1.4.1",
     "xmris[fitting]",
 ]
 
@@ -26,11 +44,11 @@ dependencies = [
 bet = ["hd-bet>=2.0.1", "torch>=2.10.0"]
 
 [project.scripts]
-docs-api = "mnutils._scripts:docs_api"        # Regenerate quartodoc API stubs
-docs-notebooks = "mnutils._scripts:docs_notebooks"  # Serve tutorials — blocking
-docs = "mnutils._scripts:docs_all"            # API refs, then serve site — blocking
-test-gen = "mnutils._scripts:generate_test_notebooks"  # docs/*.md -> tests/autogen_notebooks/*.ipynb
-test = "mnutils._scripts:run_tests"           # test-gen, then run the full pytest suite
+docs-mnutils-api = "mnutils._scripts:docs_api"        # Regenerate quartodoc API stubs
+docs-mnutils-notebooks = "mnutils._scripts:docs_notebooks"  # Serve tutorials — blocking
+docs-mnutils = "mnutils._scripts:docs_all"            # API refs, then serve site — blocking
+test-mnutils-gen = "mnutils._scripts:generate_test_notebooks"  # docs/*.md -> tests/autogen_notebooks/*.ipynb
+test-mnutils = "mnutils._scripts:run_tests"           # test-gen, then run the full pytest suite
 
 [build-system]
 requires = ["uv_build>=0.8.13,<0.9.0"]
@@ -38,16 +56,14 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    # --- Notebooks ---
     "ipykernel>=7.1.0",
     "ipywidgets>=8.1.7",
-    "matlabengine==25.1.*",
-    "nb-clean>=4.0.1",
+    # --- Testing ---
     "nbmake>=1.5.5",
-    "nbstripout>=0.9.1",
-    "pydicom>=3.0.1",
-    "pyqt6>=6.11.0",
     "pytest>=8.4.1",
-    "snakeviz>=2.2.2",
+    # --- Code Quality ---
+    "ruff>=0.9.0",
     # --- Documentation (MyST) ---
     "mystmd>=1.3.0",            # Python MyST CLI for docs building
     "quartodoc>=0.11.1",        # Converts code docstrings to markdown

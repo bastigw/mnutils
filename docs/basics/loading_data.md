@@ -36,21 +36,9 @@ from pathlib import Path
 
 from mnutils.GEExam import ExamBase
 from mnutils.GESeries import MRSSeries
+from mnutils.testing import build_fake_exam
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    # Anchor on pyproject.toml rather than a relative "../.." count: this page
-    # is executed from two different working directories -- docs/basics/ when
-    # mystmd builds it, tests/autogen_notebooks/basics/ when nbmake runs the
-    # notebook `uv run test-gen` generates from it -- so no single relative
-    # path satisfies both.
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-DATA_FOLDER = _repo_root() / "tests" / "datasets" / "HeVo-18"
+DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam")
 ```
 
 (basics-loading-data-exam)=

@@ -189,9 +189,7 @@ def fit_multiple_fids(
         fit_kwargs = {
             "ifplot": False,
         }
-        fit_kwargs["method"] = batch_fit_kwargs.get(
-            "method", DEFAULT_BATCH_FIT_PARAMS["method"]
-        )
+        fit_kwargs["method"] = batch_fit_kwargs.get("method", DEFAULT_BATCH_FIT_PARAMS["method"])
 
         batch_fitting_obj = fit_single_fid(
             avg_fid,
@@ -282,9 +280,7 @@ def extract_from_fit_results(
             minimizer_result = result[1]
             for i, param in enumerate(GoF_params_to_extract):
                 if not hasattr(minimizer_result, param):
-                    logger.warning(
-                        f"Minimizer result does not have attribute '{param}'"
-                    )
+                    logger.warning(f"Minimizer result does not have attribute '{param}'")
                 else:
                     goodness_of_fit_metrics[idx, i] = getattr(minimizer_result, param)
         else:
@@ -309,8 +305,7 @@ def extract_from_fit_results(
         bad_fit_chisqr_threshold = 3 * median_chisqr
 
     badfit_ids = gof_metrics_df.index[
-        (gof_metrics_df["chisqr"] >= bad_fit_chisqr_threshold)
-        | gof_metrics_df.isna().any(axis=1)
+        (gof_metrics_df["chisqr"] >= bad_fit_chisqr_threshold) | gof_metrics_df.isna().any(axis=1)
     ].to_numpy()
 
     logger.trace(
@@ -325,14 +320,10 @@ def extract_from_fit_results(
     # filled with np.nan
     # Select an index that is not in badfit_ids to get the structure
     if badfit_ids.size != 0:
-        valid_index = next(
-            (i for i in range(len(fit_results)) if i not in badfit_ids), None
-        )
+        valid_index = next((i for i in range(len(fit_results)) if i not in badfit_ids), None)
         if valid_index is not None:
             template_df = fit_results[valid_index][0].T.copy()
-            nan_df = pd.DataFrame(
-                np.nan, index=template_df.index, columns=template_df.columns
-            )
+            nan_df = pd.DataFrame(np.nan, index=template_df.index, columns=template_df.columns)
         else:
             logger.warning(
                 "No valid index found to create a template DataFrame. This could mean all "
@@ -381,9 +372,7 @@ def extract_from_fit_results(
     combined_fit_results_df["parameter"] = combined_fit_results_df["parameter"].map(
         lambda x: mapping[str(x)][0]
     )
-    combined_fit_results_df.set_index(
-        [index_key, "parameter", "value_type"], inplace=True
-    )
+    combined_fit_results_df.set_index([index_key, "parameter", "value_type"], inplace=True)
     # Adjust chem_shift values by ppm_offset (subtract as ppm_offset is defined as water - 4.68)
     combined_fit_results_df.loc[(slice(None), "chem_shift", "value"), :] -= ppm_offset
 
@@ -534,9 +523,7 @@ def load_extracted_results(path: str | Path) -> tuple[FitResults, dict]:
             badfit_ids = store["badfit_ids"].to_numpy()
             # Get all additionally stored attributes
             attrs = store.root._v_attrs
-            user_attributes = {
-                name: getattr(attrs, name) for name in attrs._v_attrnamesuser
-            }
+            user_attributes = {name: getattr(attrs, name) for name in attrs._v_attrnamesuser}
 
         fit_results = FitResults(
             badfit_ids=badfit_ids,
@@ -618,9 +605,7 @@ def plot_amares_fitting(
         fig, ax_combined = plt.subplots(figsize=(10, 6), **fig_kwargs)
     else:
         # Plot with two axes to accommodate table
-        fig, axes = plt.subplots(
-            2, 1, height_ratios=[2, 1], figsize=(10, 8), **fig_kwargs
-        )
+        fig, axes = plt.subplots(2, 1, height_ratios=[2, 1], figsize=(10, 8), **fig_kwargs)
         ax_combined: Axes = axes[0]
         ax_table: Axes = axes[1]
         ax_table.axis("off")
@@ -672,9 +657,7 @@ def plot_amares_fitting(
     return fig
 
 
-def add_colored_table_to_plot(
-    table_ax: Axes, table: pd.DataFrame, sig: int = 3
-) -> Axes:
+def add_colored_table_to_plot(table_ax: Axes, table: pd.DataFrame, sig: int = 3) -> Axes:
     """Add a colored table beneath the given axis in the plot.
 
     Parameters
@@ -839,9 +822,7 @@ def multiindex_to_priorknowledge(
     # Fill the 'Group' column with the 'Index' values where applicable
     raw_df["Group"] = raw_df["Group"].fillna(raw_df["Index"])
     # Sort the dataframe by the "Group" column, ensuring "Initial Values" comes before "Bounds"
-    raw_df["Group"] = pd.Categorical(
-        raw_df["Group"], categories=group_order, ordered=True
-    )
+    raw_df["Group"] = pd.Categorical(raw_df["Group"], categories=group_order, ordered=True)
     raw_df.sort_values(by="Group", inplace=True)
     # Reset the index
     raw_df.set_index("Index", inplace=True)

@@ -10,6 +10,7 @@ kernelspec:
 ---
 
 (data-model-geseries)=
+
 # The GESeries class hierarchy
 
 A GE series folder can hold very different shapes of data depending on what was acquired: a 3D
@@ -18,14 +19,14 @@ dynamic wash-in series sampled every few seconds. `GESeries` isn't one class try
 of that — it's a small hierarchy, and [`ExamBase`](#basics-loading-data) picks the right subclass
 for a folder so you don't have to guess it yourself.
 
-| Class | What it adds |
-|---|---|
-| [`NiiBase`](#mnutils.GESeries.NiiBase) | wraps a NIfTI image: affine, `images()`, `display()`, brain masking |
-| [`MRISeries`](#mnutils.GESeries.MRISeries) | + converts a DICOM series to NIfTI (anatomical scans) |
-| [`RawMRISeries`](#mnutils.GESeries.RawMRISeries) | + the raw `.mat` reconstruction, FIDs, and scanner header properties |
-| [`MRSSeries`](#mnutils.GESeries.MRSSeries) | + single-voxel spectrum, `averages × chemical_shift` |
-| [`MRSWashinSeries`](#mnutils.GESeries.MRSWashinSeries) | + grouped, time-resolved fitting for a wash-in acquisition |
-| [`MRSISeries`](#mnutils.GESeries.MRSISeries) | + spectroscopic-imaging grid, `chemical_shift × i × j × k` |
+| Class                                                  | What it adds                                                         |
+| ------------------------------------------------------ | -------------------------------------------------------------------- |
+| [`NiiBase`](#mnutils.GESeries.NiiBase)                 | wraps a NIfTI image: affine, `images()`, `display()`, brain masking  |
+| [`MRISeries`](#mnutils.GESeries.MRISeries)             | + converts a DICOM series to NIfTI (anatomical scans)                |
+| [`RawMRISeries`](#mnutils.GESeries.RawMRISeries)       | + the raw `.mat` reconstruction, FIDs, and scanner header properties |
+| [`MRSSeries`](#mnutils.GESeries.MRSSeries)             | + single-voxel spectrum, `averages × chemical_shift`                 |
+| [`MRSWashinSeries`](#mnutils.GESeries.MRSWashinSeries) | + grouped, time-resolved fitting for a wash-in acquisition           |
+| [`MRSISeries`](#mnutils.GESeries.MRSISeries)           | + spectroscopic-imaging grid, `chemical_shift × i × j × k`           |
 
 ```{mermaid}
 %%{init: {'flowchart': {'htmlLabels': false}}}%%
@@ -37,30 +38,27 @@ flowchart TD
     S --> W["MRSWashinSeries<br>(+ time-resolved fitting)"]
 ```
 
-The examples below load real fixtures from `tests/datasets/`.
+The examples below load fixtures generated on the fly by `mnutils.testing.build_fake_exam` --
+see [the diary entry](#diary-synthetic-exam-fixtures) for why nothing here is a real scan.
 
 ```{code-cell} ipython3
-from pathlib import Path
+from loguru import logger
 
+logger.remove()
+```
+
+```{code-cell} ipython3
 from mnutils.GESeries import MRISeries, MRSISeries, MRSSeries, MRSWashinSeries, NiiBase
+from mnutils.plotting.spectra import plot_spectra
+from mnutils.testing import build_fake_exam
+```
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    # Anchor on pyproject.toml rather than a relative "../.." count: this page
-    # is executed from two different working directories -- docs/data-model/
-    # when mystmd builds it, tests/autogen_notebooks/data-model/ when nbmake
-    # runs the notebook `uv run test-gen` generates from it.
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-DATASETS = _repo_root() / "tests" / "datasets"
-DATA_FOLDER = DATASETS / "HeVo-18" / "data"
+```{code-cell} ipython3
+DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam") / "data"
 ```
 
 (data-model-geseries-niibase)=
+
 ## `NiiBase` — a NIfTI image, oriented and displayable
 
 Every series that has DICOM data ends up with a `NiiBase` (or subclass) wrapping the converted
@@ -68,13 +66,23 @@ NIfTI: `nii`, `affine`, and helpers like `images()`/`display()` that apply a dis
 consistently across the toolbox, so plotting code never re-derives it.
 
 (data-model-geseries-mriseries)=
+
 ## `MRISeries` — DICOM series, converted automatically
 
 `MRISeries` is what you get for a series that has DICOM but no raw scanner exam data — typically
 an anatomical scan. It converts the DICOMs to NIfTI on init if no NIfTI exists yet.
 
+:::{note}
+The anatomical volumes in these fake exams are cropped from a real T1 scan — Chris Rorden's
+`chris_t1`, from the [niivue-images](https://github.com/neurolabusc/niivue-images) sample set,
+licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (non-commercial use only).
+Downloaded and cached on first use by `mnutils.testing.build_fake_exam()` — see
+[the diary entry](#diary-synthetic-exam-fixtures) for how everything else here is simulated.
+:::
+
 ```{code-cell} ipython3
 t1 = MRISeries(DATA_FOLDER, 2)  # 002_3D_Ax_T1_BRAVO
+t1.display(cmap="gray")
 print(t1.nii.shape)
 ```
 
@@ -87,6 +95,7 @@ assert t1.nii.ndim == 3
 ```
 
 (data-model-geseries-mrsseries)=
+
 ## `MRSSeries` — a single-voxel spectrum over time
 
 A series with both raw exam data and DICOM (or no DICOM at all, for a pure spectroscopy
@@ -96,8 +105,11 @@ combined.
 
 ```{code-cell} ipython3
 mrs = MRSSeries(DATA_FOLDER, 6)  # 006_MRS_unloc
-print(mrs.spec.dims, mrs.spec.shape)
-print(mrs.nucleus, mrs.centre_frequency)  # 2 => deuterium (2H)
+mrs.spec
+```
+
+```{code-cell} ipython3
+plot_spectra(mrs.avg_spec)
 ```
 
 ```{code-cell} ipython3
@@ -113,6 +125,7 @@ assert mrs.nucleus == 2
 [Loading a series and an exam](#basics-loading-data) for a worked example.
 
 (data-model-geseries-washin)=
+
 ## `MRSWashinSeries` — the same spectrum, resolved over time
 
 A wash-in acquisition is structurally an `MRSSeries` — same `averages × chemical_shift` shape —
@@ -122,7 +135,7 @@ metabolite as it washes in. `MRSWashinSeries` adds `fit_grouped_by_duration()` a
 
 ```{code-cell} ipython3
 washin = MRSWashinSeries(DATA_FOLDER, 7)  # 007_MRS_washin
-print(washin.spec.dims, washin.spec.shape)
+washin.spec
 ```
 
 ```{code-cell} ipython3
@@ -135,9 +148,10 @@ assert washin.fit_results == []  # nothing fit yet
 ```
 
 (data-model-geseries-mrsiseries)=
+
 ## `MRSISeries` — a spectroscopic-imaging grid
 
-`MRSISeries` is the spatial counterpart: a spectrum *per voxel*, laid out on a 3D grid
+`MRSISeries` is the spatial counterpart: a spectrum _per voxel_, laid out on a 3D grid
 (`chemical_shift × i × j × k`). It carries per-voxel fitting (`fit_all_voxels`,
 `fit_single_voxel`) and an SNR mask used to skip voxels with no real signal.
 
@@ -157,18 +171,19 @@ assert isinstance(mrsi, NiiBase)  # create_MRSI_nii() gives it a displayable vol
 ```
 
 (data-model-geseries-niibase-ops)=
+
 ## `NiiBase` operations: resampling and overlays
 
 Two `NiiBase` images at different resolutions come up constantly — an anatomical scan and an
 MRSI grid, say — and need to be compared voxel-for-voxel. `resample_self_to` reslices one onto
 another's grid; `overlay_nifti_data_on_T1` (from `mnutils.plotting.images`) plots the result on
-top of an anatomical volume. These examples use `tests/datasets/20250408-NIST-Mag2/`, a phantom
+top of an anatomical volume. These examples use the fake `nist_phantom_exam`, a phantom
 scan where series 2 is the anatomical T1 and series 5 is an MRSI grid.
 
 ```{code-cell} ipython3
 from mnutils.plotting.images import overlay_nifti_data_on_T1
 
-phantom_folder = DATASETS / "20250408-NIST-Mag2" / "data"
+phantom_folder = build_fake_exam("nist_phantom_exam") / "data"
 t1 = MRISeries(phantom_folder, 2)
 mrsi_phantom = MRSISeries(phantom_folder, 5)
 

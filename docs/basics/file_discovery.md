@@ -13,7 +13,7 @@ kernelspec:
 # Finding files in a data folder
 
 `ExamBase` and `GESeries` never hardcode a path to a series's DICOM folder or `.mat` file — a GE
-export names folders differently across scanner software versions (`005_BS_prescan` vs.
+export names folders differently across scanner software versions (`010_axial_localizer` vs.
 `Series0010_BS_prescan`), so every load goes through the same handful of discovery functions in
 `utils.file_helpers`. Reaching for them directly is useful any time you want one file without
 loading a whole series object.
@@ -38,16 +38,9 @@ logger.remove()
 from pathlib import Path
 
 from mnutils.utils import file_helpers as fh
+from mnutils.testing import build_fake_exam
 
-
-def _repo_root(start: Path = Path.cwd()) -> Path:
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    raise FileNotFoundError("Could not locate repo root (no pyproject.toml found)")
-
-
-DATASETS = _repo_root() / "tests" / "datasets"
+lg_folder = build_fake_exam("mrsi_missing_series_exam")
 ```
 
 (basics-file-discovery-exam-mat)=
@@ -57,7 +50,6 @@ DATASETS = _repo_root() / "tests" / "datasets"
 exam data (`.mat` reconstructions) lives, separate from the DICOM export next to it.
 
 ```{code-cell} ipython3
-lg_folder = DATASETS / "LG_D19"
 exam_folder = fh.get_exam_folder(lg_folder)
 mat_path = fh.get_mat_data_from_series(lg_folder, 7)
 print(exam_folder)
@@ -97,7 +89,7 @@ Older exports name a series folder `NNN_<description>`; newer ones use `SeriesNN
 
 ```{code-cell} ipython3
 old_style = fh.get_dicom_folder(lg_folder, 10)
-new_style = fh.get_dicom_folder(DATASETS / "HeVo-23" / "data", 10)
+new_style = fh.get_dicom_folder(build_fake_exam("brain_extraction_exam") / "data", 10)
 print(old_style.name)
 print(new_style.name)
 ```
@@ -121,7 +113,7 @@ doesn't exist because numbering starts at 1"). `ExamBase` uses this internally t
 overview.
 
 ```{code-cell} ipython3
-found, missing = fh.get_all_dicom_series_ids(DATASETS / "HeVo-18" / "data")
+found, missing = fh.get_all_dicom_series_ids(build_fake_exam("brain_mrs_mrsi_exam") / "data")
 print(f"{len(found)} series found, gaps at {missing}")
 ```
 

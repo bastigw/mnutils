@@ -44,9 +44,7 @@ def get_all_dicom_series_ids(data_folder: str | Path) -> tuple[list[int], list[i
 
     # This should now be an increasing list of numbers without any missing ones
     # Briefly check if any indices are missing and raise.
-    missing = sorted(
-        set(range(series_numbers[0], series_numbers[-1] + 1)) - set(series_numbers)
-    )
+    missing = sorted(set(range(series_numbers[0], series_numbers[-1] + 1)) - set(series_numbers))
     if missing:
         logger.error(f"Missing series IDs: {missing}. DOUBLE CHECK DATA FOLDER!")
 
@@ -103,20 +101,14 @@ def get_exam_folder(base_path: str | Path) -> Path:
     """
     base = Path(base_path)
     if not base.is_dir():
-        raise ValueError(
-            f"The base path does not exist or is not a folder: '{base_path}'"
-        )
+        raise ValueError(f"The base path does not exist or is not a folder: '{base_path}'")
 
-    exam_folders = [
-        item for item in base.iterdir() if "Exam" in item.name and item.is_dir()
-    ]
+    exam_folders = [item for item in base.iterdir() if "Exam" in item.name and item.is_dir()]
 
     if len(exam_folders) == 0:
         raise ValueError(f"No folder with 'Exam' in its name found in '{base_path}'")
     elif len(exam_folders) > 1:
-        raise ValueError(
-            f"Multiple folders with 'Exam' in their name found in '{base_path}'"
-        )
+        raise ValueError(f"Multiple folders with 'Exam' in their name found in '{base_path}'")
 
     return exam_folders[0]
 
@@ -239,9 +231,7 @@ def get_latest_processing_file(output_folder: Path, series_id: int) -> Path:
     FileNotFoundError
         If no processing files are found for the given series ID.
     """
-    processing_files = list(
-        output_folder.glob(f"*Series{series_id:02d}_processing_data.h5")
-    )
+    processing_files = list(output_folder.glob(f"*Series{series_id:02d}_processing_data.h5"))
 
     if not processing_files:
         raise FileNotFoundError(
@@ -348,14 +338,10 @@ def get_nifti_file(
     all_nifti_files = list(folder.glob("*.nii")) + list(folder.glob("*.nii.gz"))
     # Make sure to filter out files that contain "bet", "skullstrip", or "ss" in their names
     filter_out_regex = (
-        re.compile("|".join(filter_out_keywords), re.IGNORECASE)
-        if filter_out_keywords
-        else None
+        re.compile("|".join(filter_out_keywords), re.IGNORECASE) if filter_out_keywords else None
     )
     filter_in_regex = (
-        re.compile("|".join(filter_in_keywords), re.IGNORECASE)
-        if filter_in_keywords
-        else None
+        re.compile("|".join(filter_in_keywords), re.IGNORECASE) if filter_in_keywords else None
     )
 
     logger.trace(
@@ -369,9 +355,7 @@ def get_nifti_file(
             f for f in filtered_nifti_files if not filter_out_regex.search(f.name)
         ]
     if filter_in_regex:
-        filtered_nifti_files = [
-            f for f in filtered_nifti_files if filter_in_regex.search(f.name)
-        ]
+        filtered_nifti_files = [f for f in filtered_nifti_files if filter_in_regex.search(f.name)]
 
     selected_file = filtered_nifti_files[0] if filtered_nifti_files else None
     logger.trace(f"Selected NIfTI file: {selected_file}")
@@ -531,9 +515,7 @@ def print_hdf5_tree(hdf5_file: h5py.File | h5py.Group, prefix: str = "") -> str:
     return tree_string
 
 
-def get_exam_overview(
-    data_folder: str | Path, print_overview: bool = True
-) -> pd.DataFrame:
+def get_exam_overview(data_folder: str | Path, print_overview: bool = True) -> pd.DataFrame:
     """Build (and optionally print) an overview of all exam series in a data folder.
 
     Parameters
@@ -653,17 +635,13 @@ def move_files_with_glob(
     """
     folder = Path(folder)
     if not folder.is_dir():
-        raise ValueError(
-            f"The specified folder does not exist or is not a directory: '{folder}'"
-        )
+        raise ValueError(f"The specified folder does not exist or is not a directory: '{folder}'")
 
     target_folder = folder / target_folder_name
     # Check if there are any files matching the glob pattern
     files_to_move = list(folder.glob(file_glob))
     if not files_to_move:
-        logger.debug(
-            f"No files found matching the pattern '{file_glob}' in '{folder}'."
-        )
+        logger.debug(f"No files found matching the pattern '{file_glob}' in '{folder}'.")
         return
 
     # Create the target folder only if there are files to move
@@ -695,16 +673,12 @@ def move_files_with_glob(
                 )
             else:
                 creation_time = file.stat().st_mtime
-                date_str = datetime.fromtimestamp(creation_time).strftime(
-                    "%Y%m%d_%H%M%S"
-                )
+                date_str = datetime.fromtimestamp(creation_time).strftime("%Y%m%d_%H%M%S")
                 new_name = f"{date_str}_{file.name}"
                 target_file = target_folder / new_name
 
         file.rename(target_file)
         if target_file.is_absolute():
-            logger.debug(
-                f"Moved file to: {target_file.relative_to(os.getcwd(), walk_up=True)}"
-            )
+            logger.debug(f"Moved file to: {target_file.relative_to(os.getcwd(), walk_up=True)}")
         else:
             logger.debug(f"Moved file to: {target_file}")

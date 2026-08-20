@@ -37,9 +37,7 @@ class ExamBase:
         else:
             self.OUTPUT_FOLDER = Path(OUTPUT_FOLDER)
 
-        self.exam_overview = file_helpers.get_exam_overview(
-            self.DATA_FOLDER, print_overview=True
-        )
+        self.exam_overview = file_helpers.get_exam_overview(self.DATA_FOLDER, print_overview=True)
         self.series = self.exam_overview.index.tolist()
         self.series_dict = self._create_series_dict()
 
@@ -64,9 +62,7 @@ class ExamBase:
             return self.all[key]
         except KeyError as ke:
             valid_series = list(self.all.keys())
-            ke.add_note(
-                f"Series ID {key} is not valid. Valid series IDs are: {valid_series}"
-            )
+            ke.add_note(f"Series ID {key} is not valid. Valid series IDs are: {valid_series}")
             raise
 
     def __iter__(self) -> Iterator[tuple[int, GESeries.MRISeries]]:
@@ -98,18 +94,13 @@ class ExamBase:
                 continue
 
             if not has_exam and not has_dicom:
-                logger.debug(
-                    f"Series {series_num} does not have exam or DICOM data. Skipping"
-                )
+                logger.debug(f"Series {series_num} does not have exam or DICOM data. Skipping")
                 continue
 
             if has_dicom and not has_exam:
                 logger.trace(f"Series {series_num} does not have raw data.")
                 # Based on the folder name determine if it is anatomical data we want to load
-                if any(
-                    skip_name.lower() in folder_name
-                    for skip_name in ANATOMICAL_SERIES_TO_SKIP
-                ):
+                if any(skip_name.lower() in folder_name for skip_name in ANATOMICAL_SERIES_TO_SKIP):
                     logger.debug(f"Series {series_num} is anatomical data to skip.")
                     continue
                 series_class_dict[series_num] = GESeries.MRISeries
@@ -167,9 +158,7 @@ class ExamBase:
             series_ids = [series_ids]
         for series_id in series_ids:
             if series_id not in self.series_dict:
-                logger.warning(
-                    f"Series {series_id} not found in series dictionary. Skipping."
-                )
+                logger.warning(f"Series {series_id} not found in series dictionary. Skipping.")
                 continue
             series_class = self.series_dict[series_id]
             if (
@@ -203,9 +192,7 @@ class DMIExam(ExamBase):
                 identifier = "t1_bravo"
             self.ANATOMICAL_series = (
                 self.exam_overview[
-                    self.exam_overview["Folder Name"].str.contains(
-                        identifier, na=False, case=False
-                    )
+                    self.exam_overview["Folder Name"].str.contains(identifier, na=False, case=False)
                 ]
                 .index.to_numpy()
                 .astype(int)[0]
@@ -220,9 +207,7 @@ class DMIExam(ExamBase):
         )
         # By default append all series where Has Dicom in the exam overview table is False
         no_DICOM_series = (
-            self.exam_overview[~self.exam_overview["Has DICOM"]]
-            .index.to_numpy()
-            .astype(int)
+            self.exam_overview[~self.exam_overview["Has DICOM"]].index.to_numpy().astype(int)
         )
         self.MRS_series = np.union1d(self.MRS_series, no_DICOM_series)
 
@@ -329,15 +314,11 @@ class MS_DMIExam(DMIExam):
                 )
 
         if len(mrs_candidates) != 2:
-            logger.warning(
-                f"Expected exactly two MRS series, but found {len(mrs_candidates)}. "
-            )
+            logger.warning(f"Expected exactly two MRS series, but found {len(mrs_candidates)}. ")
         else:
             self.pre_MRS = mrs_candidates[0]
             self.post_MRS = mrs_candidates[1]
-            self.normalisation_factor = (
-                self.pre_MRS.avg_fid.__abs__().max().values.item() / 10
-            )
+            self.normalisation_factor = self.pre_MRS.avg_fid.__abs__().max().values.item() / 10
 
 
 class DMIinjExam(DMIExam):
@@ -449,9 +430,7 @@ class DMIinjExam(DMIExam):
         pre_series_idx = np.where(series < reference_series)[0]
 
         if pre_series_idx.size == 0:
-            logger.debug(
-                f"No pre-{series_type} series found before the reference series."
-            )
+            logger.debug(f"No pre-{series_type} series found before the reference series.")
             pre_series = -1
         elif pre_series_idx.size == 1:
             pre_series = int(series[pre_series_idx].item())
@@ -465,9 +444,7 @@ class DMIinjExam(DMIExam):
 
         post_series_idx = np.where(series > reference_series)[0]
         if post_series_idx.size == 0:
-            logger.warning(
-                f"No post-{series_type} series found after the reference series."
-            )
+            logger.warning(f"No post-{series_type} series found after the reference series.")
             post_series = np.array([], dtype=int)
         else:
             post_series = series[post_series_idx]
@@ -498,9 +475,7 @@ class DMIinjExam(DMIExam):
         for mrs_obj in self.all_MRS:
             # phase_avg_spec returns a single chemical_shift-indexed DataArray
             phased_spec = mrs_obj.phase_avg_spec(**phase_kwargs)
-            phased_spectra.append(
-                phased_spec.assign_coords(Spectra_ID=mrs_obj.SERIES_ID)
-            )
+            phased_spectra.append(phased_spec.assign_coords(Spectra_ID=mrs_obj.SERIES_ID))
             # Set labels
             scan_time_str = mrs_obj.scan_time.strftime("%H:%M")
             time_delta_min = (mrs_obj.scan_datetime - inj_start).total_seconds() / 60
