@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" role="img" aria-label="mnutils logo">
+  <defs>
+    <radialGradient id="naGradL" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#FFC857" />
+      <stop offset="100%" stop-color="#FF9F1C" />
+    </radialGradient>
+    <linearGradient id="rodGradNaL" x1="46.01" y1="160.63" x2="39.19" y2="155.73" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFC857" />
+      <stop offset="100%" stop-color="#FF9F1C" />
+    </linearGradient>
+  </defs>
+
+  <path d="m 0.75,153.55843 c 38.977273,0 77.522305,-17.05618 119,-15.03935 60.1485,2.92468 73.16482,-91.218463 85.87084,-91.218463 6.03935,0 23.6181,80.699383 55.06471,80.699383 31.4466,0 74.72381,25.20793 139.31445,29.32359 25.31044,1.61276 99.53145,-0.50563 137.16289,-0.50563 26.83066,0 24.54732,-56.81796 35.00638,-56.81796 9.66963,0 10.24553,58.49324 44.27727,58.49324 33.45129,0 131.57629,6.81427 183.55346,7.95387"
+    fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" opacity="0.35" />
+
+  <g transform="translate(25,3)">
+    <circle cx="70" cy="120" r="34" fill="url(#naGradL)" />
+    <circle cx="120" cy="70" r="26" fill="#000000" />
+    <circle cx="140" cy="130" r="16" fill="#1E3A8A" />
+
+    <g id="spinArrowNaL">
+      <path d="M46.01,160.63 L93.82,94.02 L87.00,89.12 L39.19,155.73 Z" fill="url(#rodGradNaL)" stroke="none" />
+      <path d="M93.82,94.02 L96.10,95.65 L97.40,81.82 L84.72,87.49 L87.00,89.12 Z" fill="url(#rodGradNaL)" stroke="none" />
+    </g>
+    <g id="spinArrowCL">
+      <path d="M142.33,102.17 L109.83,44.73 L103.57,48.27 L136.07,105.71 Z" fill="#000000" stroke="none" />
+      <path d="M109.83,44.73 L112.79,43.05 L100.80,36.06 L100.61,49.95 L103.57,48.27 Z" fill="#000000" stroke="none" />
+    </g>
+    <g id="spinArrowHL">
+      <path d="M120.77,151.89 L154.32,120.40 L150.48,116.32 L116.93,147.81 Z" fill="#1E3A8A" stroke="none" />
+      <path d="M154.32,120.40 L157.19,123.46 L161.15,110.15 L147.61,113.26 L150.48,116.32 Z" fill="#1E3A8A" stroke="none" />
+    </g>
+  </g>
+  <text x="255" y="128" font-family="'Segoe UI', Arial, sans-serif" font-weight="800" font-size="76" fill="#0F172A"
+    letter-spacing="-1">mnutils</text>
+</svg>

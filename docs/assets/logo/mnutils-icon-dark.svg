@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="mnutils icon dark">
+  <defs>
+    <radialGradient id="naGradDI" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#FFE08A"/>
+      <stop offset="100%" stop-color="#FBBF24"/>
+    </radialGradient>
+    <radialGradient id="cGradDI" cx="40%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#94A3B8"/>
+      <stop offset="100%" stop-color="#F8FAFC"/>
+    </radialGradient>
+    <radialGradient id="hGradDI" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </radialGradient>
+    <filter id="naGlowDI" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="arrowGlowDI" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.0" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <linearGradient id="rodGradNaI" x1="36.35" y1="159.75" x2="43.17" y2="164.65" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFE08A"/>
+      <stop offset="50%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#f7b612"/>
+    </linearGradient>
+    <linearGradient id="rodGradCI" x1="132.26" y1="97.99" x2="138.52" y2="94.45" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F8FAFC"/>
+      <stop offset="50%" stop-color="#abb7c7"/>
+      <stop offset="100%" stop-color="#94A3B8"/>
+    </linearGradient>
+    <linearGradient id="rodGradHI" x1="124.47" y1="140.22" x2="128.31" y2="144.30" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="50%" stop-color="#408ae6"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(51,57) scale(2.05)">
+    <circle cx="70" cy="120" r="34" fill="url(#naGradDI)" filter="url(#naGlowDI)"/>
+    <circle cx="120" cy="70" r="26" fill="url(#cGradDI)" filter="url(#naGlowDI)"/>
+    <circle cx="140" cy="130" r="16" fill="url(#hGradDI)" filter="url(#naGlowDI)"/>
+
+    <g filter="url(#arrowGlowDI)">
+      <path d="M46.01,160.63 L93.82,94.02 L87.00,89.12 L39.19,155.73 Z" fill="url(#rodGradNaI)" stroke="none"/>
+      <path d="M93.82,94.02 L96.10,95.65 L97.40,81.82 L84.72,87.49 L87.00,89.12 Z" fill="url(#rodGradNaI)" stroke="none"/>
+    </g>
+    <g filter="url(#arrowGlowDI)">
+      <path d="M142.33,102.17 L109.83,44.73 L103.57,48.27 L136.07,105.71 Z" fill="url(#rodGradCI)" stroke="none"/>
+      <path d="M109.83,44.73 L112.79,43.05 L100.80,36.06 L100.61,49.95 L103.57,48.27 Z" fill="url(#rodGradCI)" stroke="none"/>
+    </g>
+    <g filter="url(#arrowGlowDI)">
+      <path d="M120.77,151.89 L154.32,120.40 L150.48,116.32 L116.93,147.81 Z" fill="url(#rodGradHI)" stroke="none"/>
+      <path d="M154.32,120.40 L157.19,123.46 L161.15,110.15 L147.61,113.26 L150.48,116.32 Z" fill="url(#rodGradHI)" stroke="none"/>
+    </g>
+  </g>
+</svg>
