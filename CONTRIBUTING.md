@@ -4,7 +4,7 @@ Thanks for considering a contribution to **MNUtils** — utility functions for m
 from our GE scanners.
 
 The full, always-current contribution guidelines live in the rendered documentation under
-`docs/contribute/` (see `docs/contribute/index.md` — served locally with `uv run docs` until a
+`docs/contribute/` (see `docs/contribute/index.md` — served locally with `uv run docs-mnutils` until a
 public docs site exists).
 
 ## Quick start

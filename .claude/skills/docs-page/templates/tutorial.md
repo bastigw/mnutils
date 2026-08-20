@@ -86,7 +86,7 @@ page makes, linked to its API entry, one line on what it does *here* (not what i
 — the API page says that). Anchors are quartodoc's dotted targets, which are project-global, so a
 bare `#anchor` resolves from any page: `#mnutils.fitting.AMARES.<func>` for a fitting-module call,
 `#mnutils.GESeries.GESeries.<method>` for a class method. Find the exact one with
-`grep -n "^(mnutils" docs/api/<module>.md` after `uv run docs-api`. Skip the table on pages that
+`grep -n "^(mnutils" docs/api/<module>.md` after `uv run docs-mnutils-api`. Skip the table on pages that
 call nothing (rare for a tutorial).
 
 ## Hidden assert cells
@@ -104,7 +104,7 @@ nothing is a doc, not a test — the checker warns about exactly that.
 
 Real fixtures live under `tests/datasets/`. **Don't hardcode a relative `../..` path to them** —
 this same page is executed from two different working directories: `docs/<chapter>/` when mystmd
-builds it, `tests/autogen_notebooks/<chapter>/` when `uv run test-gen` converts it to a notebook
+builds it, `tests/autogen_notebooks/<chapter>/` when `uv run test-mnutils-gen` converts it to a notebook
 for pytest. Those are different depths from the repo root, so no single relative path satisfies
 both. Anchor on `pyproject.toml` instead — copy the `_repo_root()` helper from an existing page
 (e.g. `docs/basics/loading_data.md`) into your setup cell.
