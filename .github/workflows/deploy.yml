@@ -4,6 +4,16 @@ name: Documentation
 on:
   push:
     branches: [main]
+    # Restrict to paths that actually feed the build: docs/ itself, src/ (the
+    # API stubs and every executed notebook import mnutils), and the
+    # dependency/build files docs-mnutils-api and myst rely on. A README-only
+    # commit, for instance, no longer triggers a rebuild.
+    paths: &docs-paths
+      - 'docs/**'
+      - 'src/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/deploy.yml'
   # Build (execute) the docs on PRs too, so a docs-breaking or kernel-hanging
   # dependency is caught pre-merge instead of only surfacing after landing on
   # main -- and publish the result as a preview the reviewer can read. There is
@@ -12,6 +22,7 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+    paths: *docs-paths
   # Weekly, off the PR path. Three jobs at once: external link rot is checked
   # (a dead third-party URL is no reason to redden a PR that never touched it),
   # main's artifact is refreshed so it can never expire, and the site is
