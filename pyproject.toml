@@ -40,7 +40,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-2025a = ["matlabengine==25.1.*"]
+2025a = ["matlabengine>=25.1,<26.2"]
 bet = ["hd-bet>=2.0.1", "torch>=2.10.0"]
 
 [project.scripts]
