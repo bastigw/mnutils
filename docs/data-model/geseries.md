@@ -49,12 +49,13 @@ logger.remove()
 
 ```{code-cell} ipython3
 from mnutils.GESeries import MRISeries, MRSISeries, MRSSeries, MRSWashinSeries, NiiBase
-from mnutils.plotting.spectra import plot_spectra
+from mnutils.plotting.spectra import plot_fid, plot_spectra
 from mnutils.testing import build_fake_exam
 ```
 
 ```{code-cell} ipython3
-DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam") / "data"
+DATASETS = build_fake_exam("brain_mrs_mrsi_exam")
+DATA_FOLDER = DATASETS / "data"
 ```
 
 (data-model-geseries-niibase)=
@@ -104,7 +105,7 @@ single-voxel spectrum with an `averages` dimension — one spectrum per repetiti
 combined.
 
 ```{code-cell} ipython3
-mrs = MRSSeries(DATA_FOLDER, 6)  # 006_MRS_unloc
+mrs = MRSSeries(DATA_FOLDER, 7)  # 006_MRS_unloc
 mrs.spec
 ```
 
@@ -139,6 +140,10 @@ washin.spec
 ```
 
 ```{code-cell} ipython3
+washin.plot_washin(group_duration=60)
+```
+
+```{code-cell} ipython3
 :tags: [remove-cell]
 
 # STRICT TESTS: MRSWashinSeries
@@ -159,6 +164,13 @@ assert washin.fit_results == []  # nothing fit yet
 mrsi = MRSISeries(DATA_FOLDER, 8)  # 008_MRSI_pseudo_S700_X10_Y10_Z10_T1_C1
 print(mrsi.spec.dims, mrsi.spec.shape)
 print(mrsi.dims)  # spatial grid (i, j, k)
+mrsi.spec
+```
+
+```{code-cell} ipython3
+from mnutils.plotting.images import inspect_MRSI_spectra
+
+inspect_MRSI_spectra(t1, mrsi)
 ```
 
 ```{code-cell} ipython3
@@ -177,17 +189,11 @@ assert isinstance(mrsi, NiiBase)  # create_MRSI_nii() gives it a displayable vol
 Two `NiiBase` images at different resolutions come up constantly — an anatomical scan and an
 MRSI grid, say — and need to be compared voxel-for-voxel. `resample_self_to` reslices one onto
 another's grid; `overlay_nifti_data_on_T1` (from `mnutils.plotting.images`) plots the result on
-top of an anatomical volume. These examples use the fake `nist_phantom_exam`, a phantom
+top of an anatomical volume. These examples use the fake `20250408-NIST-Mag2` exam, a phantom
 scan where series 2 is the anatomical T1 and series 5 is an MRSI grid.
 
 ```{code-cell} ipython3
-from mnutils.plotting.images import overlay_nifti_data_on_T1
-
-phantom_folder = build_fake_exam("nist_phantom_exam") / "data"
-t1 = MRISeries(phantom_folder, 2)
-mrsi_phantom = MRSISeries(phantom_folder, 5)
-
-resampled = mrsi_phantom.resample_self_to(t1.nii, order=0)
+resampled = mrsi.resample_self_to(t1.nii, order=0)
 print(isinstance(resampled, NiiBase), resampled.nii.shape == t1.nii.shape)
 ```
 
@@ -203,30 +209,27 @@ assert resampled.nii.shape == t1.nii.shape
 overlay helpers plot under the hood:
 
 ```{code-cell} ipython3
-:tags: [remove-cell]
+from mnutils.plotting.images import overlay_nifti_data_on_T1
 
-images = t1.images()
-assert images.shape == t1.nii.shape
-
-overlay_nifti_data_on_T1(t1.nii, mrsi_phantom.nii)  # STRICT TEST: runs without error
+overlay_nifti_data_on_T1(t1.nii, mrsi.nii, aspect=1)
 ```
 
 `MRSISeries` carries a few more properties worth knowing about beyond `spec`: an SNR-based mask
 for skipping low-signal voxels, a computed voxel size, and per-voxel spectrum access.
 
 ```{code-cell} ipython3
-print(mrsi_phantom.voxel_size)  # mm, derived from field_of_view / matrix size
-print(mrsi_phantom.SNR_map.dims)
-voxel_spectrum = mrsi_phantom.get_voxel_spectrum(0, 0, 0)
-print(voxel_spectrum.dims)
+print(mrsi.voxel_size)  # mm, derived from field_of_view / matrix size
+print(mrsi.SNR_map.dims)
+voxel_spectrum = mrsi.get_voxel_spectrum(10, 10, 8)
+plot_spectra(voxel_spectrum)
 ```
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
 # STRICT TESTS: MRSISeries extras
-assert mrsi_phantom.SNR_map.dims == ("i", "j", "k")
-assert mrsi_phantom.create_MRSI_affine().shape == (4, 4)
+assert mrsi.SNR_map.dims == ("i", "j", "k")
+assert mrsi.create_MRSI_affine().shape == (4, 4)
 assert voxel_spectrum.dims == ("chemical_shift",)
 ```
 
