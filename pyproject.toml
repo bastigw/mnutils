@@ -51,7 +51,7 @@ test-mnutils-gen = "mnutils._scripts:generate_test_notebooks"  # docs/*.md -> te
 test-mnutils = "mnutils._scripts:run_tests"           # test-gen, then run the full pytest suite
 
 [build-system]
-requires = ["uv_build>=0.8.13,<0.9.0"]
+requires = ["uv_build>=0.8.13,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
