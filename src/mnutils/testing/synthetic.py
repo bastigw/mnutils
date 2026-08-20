@@ -36,6 +36,7 @@ def _mat_header(
     exam_number: int,
     bandwidth: float,
     centre_freq_x1e7: float,
+    sctime: float = 60_000_000.0,
     fov_mm: float,
 ) -> dict:
     """Build the nested dict `RawMRISeries._get_header_value` walks (`h.rdb_hdr.*` etc.)."""
@@ -66,7 +67,7 @@ def _mat_header(
             "nex": 1.0,
             "tr": 2_000_000.0,
             "slthick": 5.0,
-            "sctime": 60_000_000.0,
+            "sctime": sctime,
         },
         "mrconfig": {"fieldStrength": 30_000.0},
     }
@@ -136,6 +137,12 @@ def _write_mrs_mat(
         centre_freq_x1e7=_CENTRE_FREQ_X1E7,
         **header_kwargs,
     )
+    # In mrs data the fids are chopped. IE every other fid is multiplied by -1
+    # Fake this too
+    fid[1::2, :] *= -1
+    # And the data is complex conjugated
+    fid = np.conjugate(fid)
+
     _write_raw_fids_h5(path.parent, series_id, fid)
 
 
@@ -223,7 +230,7 @@ def _build_hevo18(root: Path) -> None:
 
     # Create increasing intensities for the washin series
     # Defines start values [HDO, Glucose, Glx, Baseline] and their stop values
-    intensities = np.linspace(start=[1.0, 1.0, 1.0, 1.0], stop=[1.2, 2.0, 1.8, 1.0], num=250)
+    intensities = np.linspace(start=[1.0, 0.4, 0.0, 1.0], stop=[1.2, 3.0, 0.6, 1.0], num=250)
 
     _write_mrs_mat(
         exam / "Series7" / "ScanArchive_Series7.mat",
@@ -235,6 +242,7 @@ def _build_hevo18(root: Path) -> None:
         protocol="MRS_washin",
         description="007_MRS_washin",
         exam_number=1801,
+        sctime=300_000_000.0,
     )
 
     _write_mrsi_mat(
