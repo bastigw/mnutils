@@ -38,15 +38,47 @@ across contributors' machines.
 
 ## Usage
 
+The main entry point is `ExamBase`: point it at a GE exam's data folder and it classifies every
+series for you — no need to know in advance which folder is an anatomical scan and which is a
+spectrum.
+
 ```python
-from mnutils.utils.file_helpers import get_mat_data_from_series
+from mnutils.GEExam import ExamBase
 
-# Example: Get raw data path from a specific series in a dataset
-BASE_PATH = "data/HeVo-11"
+exam = ExamBase("data/HeVo-11")  # prints an overview of every series it found
 
-raw_data_path = get_mat_data_from_series(BASE_PATH, 29)
-print(raw_data_path)
+exam.exam_overview.head()        # same overview as a DataFrame
+exam.series_dict[6]              # the GESeries subclass ExamBase picked for series 6 — nothing loaded yet
 ```
+
+Load the series you actually need and analyse it — everything about it (spectrum, header fields,
+scan time) lives on the returned object:
+
+```python
+exam.load_series(6)
+mrs = exam[6]
+
+print(mrs.protocol_name, mrs.spec.dims, mrs.spec.shape)
+avg = mrs.avg_spec  # average over repetitions
+```
+
+`load_series` also takes a list, and `load_all` loads everything `ExamBase` classified. If you
+already know a series's type, construct it directly (e.g. `MRSSeries(DATA_FOLDER, 6)`) and skip
+the exam-level overview entirely.
+
+From there, spectral fitting is handled by [**xmris**](https://github.com/andrewendlinger/xmris)
+— MNUtils deliberately doesn't reimplement fitting, it wraps xmris's AMARES implementation
+(itself built on pyAMARES) so a series's spectrum can go straight into a fit:
+
+```bash
+uv add "xmris[fitting]"
+```
+
+See the [fitting docs](https://bastigw.github.io/mnutils/fitting/) for the full workflow, and the
+[loading data](https://bastigw.github.io/mnutils/basics/loading_data/) and
+[GEExam](https://bastigw.github.io/mnutils/data-model/geexam/) tutorials for more on exams and
+series. Need a raw `.mat` file's path directly instead of a loaded object?
+`mnutils.utils.file_helpers.get_mat_data_from_series(base_folder, series_id)` returns it.
 
 ## Requirements
 
