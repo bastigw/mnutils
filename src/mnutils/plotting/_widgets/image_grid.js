@@ -194,6 +194,11 @@ function renderWidget(data, el) {
       formatReadout: (idx) => String(idx),
       onInput: showSlice,
     });
+    // Reserve the readout's full width up front, sized to the largest index
+    // it will ever show -- otherwise a 3-digit slice count only grows the bar
+    // past its wrap threshold once the slider is dragged there, so the layout
+    // shifts mid-scrub instead of on load.
+    readout.style.minWidth = `${String(nSlices - 1).length}ch`;
     controls.push(makeGroup(lbl, readout), slider);
   }
   const bar = makeBar(...controls, toggle);

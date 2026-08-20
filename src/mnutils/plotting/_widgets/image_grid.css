@@ -41,6 +41,11 @@
   margin: 1em 0 0 1em;
   width: 100%;
   max-width: min(calc(var(--mnu-grid-max-w) - 1em), var(--mnu-grid-w-cap));
+  /* The panel grid alone can size the widget narrower than its own control
+     bar needs (a single small panel, say) -- floor it at the bar's worst-case
+     width (label + a 3-digit readout + a usable slider + the border toggle)
+     so the slider stays on the bar's first line instead of wrapping under it. */
+  min-width: min(100%, 16rem);
 }
 
 .mnutils-image-grid-title {
