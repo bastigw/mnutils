@@ -215,6 +215,10 @@ def _build_hevo18(root: Path) -> None:
         intensity_map * 200,
         own_affine,
     )
+    # create_MRSI_affine() rescales x/y from the header's fov_mm/mtx[0] against own_affine's x
+    # voxel size -- derive fov_mm from that same affine so the two agree (a mismatched hardcoded
+    # value here inflates the MRSI grid relative to the real brain extent it's drawn over).
+    fov_mm = own_affine[0, 0] * grid[0]
     (data / "014_localizer").mkdir(parents=True, exist_ok=True)  # DICOM-only gap filler
 
     _write_mrs_mat(
@@ -249,7 +253,7 @@ def _build_hevo18(root: Path) -> None:
         exam / "Series8" / "ScanArchive_Series8.mat",
         npts=700,
         grid=grid,
-        fov_mm=300.0,
+        fov_mm=fov_mm,
         seed=8000,
         intensity_map=intensity_map,
         protocol="MRSI_pseudo",

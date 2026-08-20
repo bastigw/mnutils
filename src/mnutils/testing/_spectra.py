@@ -144,7 +144,9 @@ def simulate_grid(
         seed=seed,
         n_specs=n_cells,
     )
-    specs_flat = np.asarray(xmris.to_spectrum(fid).values, dtype=complex)
+    # xmris.to_spectrum returns (voxel, frequency) -- transpose to (frequency, voxel) before
+    # reshaping, or the flat buffer scrambles frequency bins across voxels.
+    specs_flat = np.asarray(xmris.to_spectrum(fid).values, dtype=complex).T
 
     # Reshape to (npts, i, j, k) and apply intensity map
     specs = specs_flat.reshape((npts, *grid))
@@ -305,15 +307,32 @@ def template_grid_intensity(grid: tuple[int, int, int]) -> tuple[np.ndarray, np.
     physical_extent = np.array(data.shape) * voxel_native
     voxel_size = physical_extent / np.array(grid)
 
+    # grid_mode=True samples voxel *centers* under the same uniform physical_extent/grid stride
+    # own_affine assumes below -- the default corner-aligned mapping (native index 0 -> low-res
+    # index 0, native's *last* index -> low-res's last index) stretches across a shorter span than
+    # physical_extent implies, growing to a full blocky-voxel misalignment at the far edge.
     zoom_factors = np.array(grid) / np.array(data.shape)
-    low_res = zoom(data, zoom_factors, order=1)
+    low_res = zoom(data, zoom_factors, order=1, grid_mode=True, mode="nearest")
     if low_res.shape != tuple(grid):
         padded = np.zeros(grid, dtype=np.float32)
         sl = tuple(slice(0, min(a, b)) for a, b in zip(low_res.shape, grid, strict=True))
         padded[sl] = low_res[sl]
         low_res = padded
 
+    # `simulate_grid` scales each cell's whole complex spectrum (signal *and* noise) by this map,
+    # so a hard 0.0 outside the head would silence the noise floor there too -- a background voxel
+    # would come back a perfectly flat, noiseless zero instead of a real acquisition's noise-only
+    # spectrum. Floor it so background stays low-signal but still noisy.
     intensity_map = (low_res / (low_res.max() + 1e-6)).astype(np.float32)
+    intensity_map = np.maximum(intensity_map, 0.05)
     own_affine = np.diag([*voxel_size, 1.0])
     own_affine[:3, 3] = affine[:3, 3]
+    # MRSISeries.create_MRSI_affine() always adds an extra half-*blocky*-voxel shift in x/y on top
+    # of its resize shift (tuned for real GE headers, where the "fine" reference affine needs it).
+    # For grid_mode=True zoom, blocky voxel i's true center is:
+    #   native_translation + blocky_voxel*(i + 0.5) - native_voxel/2
+    # i.e. own_affine's translation should be native_translation - native_voxel/2 to land there once
+    # create_MRSI_affine's own +blocky_voxel/2 shift is added back on top -- the blocky_voxel terms
+    # cancel exactly, so the correction here is half a *native* voxel, not half the blocky one.
+    own_affine[:2, 3] -= voxel_native[:2] / 2
     return own_affine, intensity_map
