@@ -324,7 +324,7 @@ def template_grid_intensity(grid: tuple[int, int, int]) -> tuple[np.ndarray, np.
     # would come back a perfectly flat, noiseless zero instead of a real acquisition's noise-only
     # spectrum. Floor it so background stays low-signal but still noisy.
     intensity_map = (low_res / (low_res.max() + 1e-6)).astype(np.float32)
-    intensity_map = np.maximum(intensity_map, 0.05)
+    intensity_map = np.maximum(intensity_map, 0.0)
     own_affine = np.diag([*voxel_size, 1.0])
     own_affine[:3, 3] = affine[:3, 3]
     # MRSISeries.create_MRSI_affine() always adds an extra half-*blocky*-voxel shift in x/y on top

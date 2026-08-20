@@ -8,7 +8,8 @@ from matplotlib.figure import Figure
 from ..utils import file_helpers
 from . import images, spectra  # noqa: F401
 
-plt.rcParams["font.family"] = "Arial"
+plt.rcParams["font.family"] = "sans-serif"
+plt.rcParams["font.sans-serif"] = ["Helvetica", "Liberation Sans", "Arial", "sans-serif"]
 plt.rcParams["axes.labelweight"] = "bold"
 plt.rcParams["figure.constrained_layout.use"] = True
 
