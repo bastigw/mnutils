@@ -77,6 +77,10 @@ Ruff, when configured for a given file, follows NumPy docstring convention (see
 `.github/copilot-instructions.md` for the current type-hinting standards, kept separate since it
 targets GitHub Copilot specifically).
 
+Before pushing, run `uv run ruff format --check .` — it's fast and catches what the pre-commit
+hook (`ruff check .`, lint only) doesn't. If it fails, stop and let the user fix it themselves
+rather than auto-applying `ruff format .`.
+
 ## Gotchas
 
 - **MATLAB Engine version must match the local MATLAB install.** There is no way to pin one
