@@ -88,7 +88,7 @@ qualifies a single specific passage. A pass-1 entry with no assumptions marked u
 were looked for.
 
 **Then stop — the draft is the gate.** Commit, name the page, tell the user how to preview it
-(`uv run docs`), and **end the turn**. Implementation, verification, further commits — everything
+(`uv run docs-mnutils`), and **end the turn**. Implementation, verification, further commits — everything
 waits until the user responds; a bare "go" is approval. This binds in auto-accept mode too: the
 handoff is the last thing in the turn, with nothing queued behind it. Rolling past an unreviewed
 draft defeats the entry's purpose, which is catching a bad decision *before* it is built.

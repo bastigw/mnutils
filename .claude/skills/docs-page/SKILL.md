@@ -84,7 +84,7 @@ uv run python .claude/skills/docs-page/check_docs.py docs/<path>/<page>.md
 Errors are render-breaking and exit 1. Warnings are drift and exit 0. Then, for a **tutorial**:
 
 ```bash
-uv run test-gen
+uv run test-mnutils-gen
 uv run pytest "tests/autogen_notebooks/<chapter>/<name>.ipynb" -q
 # docs/<chapter>/<name>.md becomes tests/autogen_notebooks/<chapter>/<name>.ipynb
 ```
@@ -96,7 +96,7 @@ skipped rather than failing with no kernel to start. There are no `tests/*.py` f
 this generated notebook run **is** the test.
 
 `myst build --html --execute` from `docs/` is the same command a docs-deploy CI job would run —
-run it locally before finishing any page with live cells. (`uv run docs` serves a live preview and
+run it locally before finishing any page with live cells. (`uv run docs-mnutils` serves a live preview and
 never exits; it is for reading the site, not for checking it.)
 
 Two pathspec traps:
