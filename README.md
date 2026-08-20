@@ -1,4 +1,10 @@
-# MNUtils
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)"
+            srcset="docs/assets/logo/mnutils-banner-dark.svg">
+    <img src="docs/assets/logo/mnutils-banner-light.svg" alt="MNUtils" width="420">
+  </picture>
+</p>
 
 [![Tests](https://github.com/bastigw/mnutils/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/bastigw/mnutils/actions/workflows/ci-fast.yml)
 [![Docs](https://github.com/bastigw/mnutils/actions/workflows/deploy.yml/badge.svg)](https://bastigw.github.io/mnutils/)

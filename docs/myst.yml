@@ -131,6 +131,31 @@ project:
     - "**/*.ipynb"
 
 site:
+  options:
+    logo: assets/logo/mnutils-banner-light.svg
+    logo_dark: assets/logo/mnutils-banner-dark.svg
+    favicon: assets/logo/mnutils-icon-light.png
+  # Nav URLs are MyST's auto-generated page slugs, which come from the file name
+  # (api/GEExam.ExamBase.md -> /geexam-exambase) and so are stable. The chapter
+  # landing pages are NOT usable here: every `index.md` collides, so they get
+  # numbered by TOC position (/index-9 for api/index.md) and would silently
+  # re-point whenever a chapter is added above them.
   nav:
+    - title: API reference
+      children:
+        - title: Exams (GEExam)
+          url: /geexam-exambase
+        - title: Series (GESeries)
+          url: /geseries-niibase
+        - title: Data loaders
+          url: /utils-data-loaders
+        - title: NIfTI utilities
+          url: /utils-nifti
+        - title: Image plotting
+          url: /plotting-images
+        - title: Spectra plotting
+          url: /plotting-spectra
+        - title: AMARES fitting
+          url: /fitting-amares
     - title: GitHub
       url: https://github.com/bastigw/mnutils

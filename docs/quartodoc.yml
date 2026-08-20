@@ -42,7 +42,7 @@ quartodoc:
         - plotting.images
         - plotting.spectra
         - utils.spectra
-        - plotting
+        - plotting.saving
 
     - title: Fitting
       desc: Spectral fitting, wrapping xmris/pyAMARES.
