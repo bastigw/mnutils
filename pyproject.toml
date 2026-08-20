@@ -84,6 +84,10 @@ mat73 = { git = "https://github.com/skjerns/mat7.3" }
 xmris = { git = "https://github.com/andrewendlinger/xmris.git" }
 # xmris = { path = "../xmris", editable = true }
 
+[tool.uv.build-backend]
+source-exclude = [".ruff_cache/**"]
+wheel-exclude = [".ruff_cache/**"]
+
 # --- Ruff (Linter) ---
 [tool.ruff]
 line-length = 100
