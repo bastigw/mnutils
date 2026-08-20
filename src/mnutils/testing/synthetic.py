@@ -20,6 +20,7 @@ import h5py
 import nibabel as nib
 import numpy as np
 import scipy.io
+from numpy.typing import ArrayLike
 
 from . import _spectra
 
@@ -31,7 +32,7 @@ def _mat_header(
     nucleus: float,
     protocol: str,
     description: str,
-    exam_number: float,
+    exam_number: int,
     bandwidth: float,
     centre_freq_x1e7: float,
     fov_mm: float,
@@ -74,7 +75,7 @@ def _mat_header(
 # and the peaks xmris simulates all agree on what "4.7 ppm" means.
 _NUCLEUS = 2.0
 _BANDWIDTH_HZ = 5000.0
-_CENTRE_FREQ_X1E7 = 8.0e8  # -> 80.0 MHz via the `centre_frequency` property
+_CENTRE_FREQ_X1E7 = 1.9612e8  # -> 80.0 MHz via the `centre_frequency` property
 _CENTRE_FREQ_MHZ = _CENTRE_FREQ_X1E7 / 1e7
 _CARRIER_PPM = 4.68  # matches GESeries.RawMRISeries.carrier_ppm for nucleus in {1, 2}
 
@@ -104,20 +105,16 @@ def _write_mrs_mat(
     averages: int,
     npts: int,
     seed: int,
-    intensity: float = 1.0,
-    clarity: float = 1.0,
+    intensities: ArrayLike | None = None,
     fov_mm: float = 240.0,
     **header_kwargs,
 ) -> None:
-    spec = _spectra.simulate_averages(
+    spec = _spectra.simulate_spectrum(
         npts=npts,
-        averages=averages,
+        n_specs=averages,
         bandwidth=_BANDWIDTH_HZ,
-        centre_freq_mhz=_CENTRE_FREQ_MHZ,
-        carrier_ppm=_CARRIER_PPM,
-        intensity=intensity,
-        clarity=clarity,
-        seed_base=seed,
+        seed=seed,
+        intensities=intensities,
     )
     _write_mat(
         path,
@@ -150,7 +147,7 @@ def _write_mrsi_mat(
         centre_freq_mhz=_CENTRE_FREQ_MHZ,
         carrier_ppm=_CARRIER_PPM,
         intensity_map=intensity_map,
-        seed_base=seed,
+        seed=seed,
     )
     _write_mat(
         path,
@@ -182,7 +179,7 @@ def _write_raw_fid_files(series_folder: Path, series_id: int, npts: int, ntime: 
 def _build_hevo18(root: Path) -> None:
     data = root / "data"
     exam = data / "ExamHeVo18anon"
-    grid = (10, 10, 10)
+    grid = (16, 16, 16)
 
     # The real T1 template, cropped to the head -- see _spectra._TEMPLATE_ATTRIBUTION.
     _spectra.write_template_t1(data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz")
@@ -200,37 +197,42 @@ def _build_hevo18(root: Path) -> None:
     _write_mrs_mat(
         exam / "Series6" / "ScanArchive_Series6.mat",
         averages=64,
-        npts=64,
+        npts=2048,
         seed=6,
         protocol="MRS_unloc",
         description="006_MRS_unloc",
-        exam_number=1801.0,
+        exam_number=1801,
     )
-    _write_raw_fid_files(exam / "Series6", 6, npts=64)
+    _write_raw_fid_files(exam / "Series6", 6, npts=2048)
+
+    # Create increasing intensities for the washin series
+    # Defines start values [HDO, Glucose, Glx, Baseline] and their stop values
+    intensities = np.linspace(start=[1.0, 1.0, 1.0, 1.0], stop=[1.2, 2.0, 1.8, 1.0], num=250)
 
     _write_mrs_mat(
         exam / "Series7" / "ScanArchive_Series7.mat",
-        averages=8,
-        npts=64,
+        averages=250,
+        intensities=intensities,
+        npts=2048,
         seed=7,
         protocol="MRS_washin",
         description="007_MRS_washin",
-        exam_number=1801.0,
+        exam_number=1801,
     )
 
     _write_mrsi_mat(
         exam / "Series8" / "ScanArchive_Series8.mat",
-        npts=64,
+        npts=700,
         grid=grid,
-        fov_mm=240.0,
+        fov_mm=300.0,
         seed=8000,
         intensity_map=intensity_map,
         protocol="MRSI_pseudo",
         description="008_MRSI_pseudo_S64_X10_Y10_Z10_T1_C1",
-        exam_number=1801.0,
+        exam_number=1801,
     )
 
-    for series_id, npts in ((9, 64), (11, 64), (12, 1678)):
+    for series_id, npts in ((9, 700), (11, 700), (12, 1678)):
         _write_raw_fid_files(exam / f"Series{series_id}", series_id, npts=npts)
 
     (exam / "Series13").mkdir(parents=True, exist_ok=True)  # exam data, no DICOM
@@ -247,12 +249,12 @@ def _build_lg_d19(root: Path) -> None:
     _write_mrsi_mat(
         exam / "Series7" / "ScanArchive_Series7.mat",
         npts=700,
-        grid=(1, 1, 1),
-        fov_mm=240.0,
+        grid=(16, 16, 16),
+        fov_mm=300.0,
         seed=7700,
         protocol="MRSI_pseudo",
         description="007_MRSI_pseudo",
-        exam_number=4873.0,
+        exam_number=4873,
     )
     (exam / "Series5").mkdir(parents=True, exist_ok=True)  # no .mat -- FileNotFoundError case
     (root / "010_axial_localizer").mkdir(parents=True, exist_ok=True)  # old-style naming
@@ -261,15 +263,15 @@ def _build_lg_d19(root: Path) -> None:
 def _build_nist(root: Path) -> None:
     data = root / "data"
     exam = data / "ExamNISTanon"
-    grid = (12, 12, 3)
-    fov_mm = 168.0  # -> 14 mm in-plane voxels, comfortably resolves the 8-sphere ring
-    z_extent_mm = 60.0
+    grid = (16, 16, 16)
+    fov_mm = 300.0  # -> 14 mm in-plane voxels, comfortably resolves the 8-sphere ring
+    z_extent_mm = 300.0
     rings = _spectra.DEFAULT_SPHERE_RINGS
 
     _spectra.sphere_phantom_image(
         data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz",
-        shape=(64, 64, 24),
-        voxel_mm=2.5,
+        shape=(128, 128, 100),
+        voxel_mm=1,
         rings=rings,
         seed=2,
     )
@@ -286,14 +288,14 @@ def _build_nist(root: Path) -> None:
 
     _write_mrsi_mat(
         exam / "Series5" / "ScanArchive_Series5.mat",
-        npts=64,
+        npts=700,
         grid=grid,
         fov_mm=fov_mm,
         seed=5500,
-        intensity_map=intensity_map,
+        intensity_map=intensity_map * 500,
         protocol="MRSI_pseudo",
         description="005_MRSI_pseudo_S64_X12_Y12_Z3_T1_C1",
-        exam_number=408.0,
+        exam_number=408,
     )
 
 

@@ -8,8 +8,6 @@ each sphere gets a different, increasing signal intensity and that same intensit
 spectra simulated at its location.
 """
 
-from __future__ import annotations
-
 import functools
 import tempfile
 import urllib.request
@@ -18,8 +16,10 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+import xarray as xr
 import xmris
 from loguru import logger
+from numpy.typing import ArrayLike
 
 _TEMPLATE_URL = "https://raw.githubusercontent.com/neurolabusc/niivue-images/main/chris_t1.nii.gz"
 _TEMPLATE_ATTRIBUTION = (
@@ -36,98 +36,81 @@ _TEMPLATE_ATTRIBUTION = (
 # name: (relative amplitude, chemical shift [ppm], linewidth [Hz])
 DMI_TRUTH: dict[str, tuple[float, float, float]] = {
     "HDO": (1.0, 4.70, 12.0),
-    "Glucose": (0.18, 3.80, 12.0),
-    "Glx": (0.10, 2.40, 12.0),
+    "Glucose": (0.25, 3.80, 12.0),
+    "Glx": (0.18, 2.40, 12.0),
     "Baseline": (1.0, 1.9, 70.0),
 }
 PEAKS_PPM: dict[str, float] = {name: ppm for name, (_, ppm, _) in DMI_TRUTH.items()}
 PEAK_REL_AMPLITUDE: dict[str, float] = {name: amp for name, (amp, _, _) in DMI_TRUTH.items()}
 
-_BASE_AMPLITUDE = 100.0
-_BASE_SNR_UNLOC = 50.0  # single-transient-equivalent SNR at _REFERENCE_TRANSIENTS
-_BASE_SNR_MRSI = 5.0  # MRSI voxels are effectively single-transient -- no sqrt(N) boost
-_REFERENCE_TRANSIENTS = 8  # transient count _BASE_SNR_UNLOC is calibrated against
-_JITTER_B0_PPM = 0.01  # small per-repetition/per-voxel B0 drift
-_JITTER_PHASE_DEG = 5.0  # small per-repetition/per-voxel phase drift
-_MIN_SCALE = 0.03  # nothing is ever fully silent -- a noise floor everywhere
+FREQ_2H_MHz_3T = 19.61
+CARRIER_PPM = 4.68
+_BASE_AMPLITUDE = 40.0
+_BASE_SNR_UNLOC = 50  # target SNR per simulated spectrum, unlocalized MRS
+_BASE_SNR_MRSI = 30  # MRSI voxels are effectively single-transient -- no sqrt(N) boost
 
 
 def simulate_spectrum(
     *,
     npts: int,
     bandwidth: float,
-    centre_freq_mhz: float,
-    carrier_ppm: float,
-    intensity: float = 1.0,
-    clarity: float = 1.0,
+    centre_freq_mhz: float = FREQ_2H_MHz_3T,
+    carrier_ppm: float = CARRIER_PPM,
     b0_ppm: float = 0.0,
     phase_deg: float = 0.0,
     base_snr: float = _BASE_SNR_UNLOC,
+    intensities: ArrayLike | None = None,
     seed: int,
+    n_specs: int = 1,
 ) -> np.ndarray:
-    """One simulated spectrum (HDO/Glucose/Glx/Baseline) via `xmris.simulate_fid` + FFT.
+    """`n_specs` simulated spectra (HDO/Glucose/Glx/Baseline) via `xmris.simulate_fid` + FFT.
 
-    `intensity` scales peak amplitude and target SNR; `clarity` scales linewidth (higher =
-    narrower/cleaner peaks) on top of each peak's own linewidth, and also feeds into SNR. `b0_ppm`/
-    `phase_deg` add a uniform chemical-shift offset / zero-order phase across all peaks, matching
-    real per-repetition/per-voxel B0 and phase drift. Both `intensity`/`clarity` are clamped above
-    `_MIN_SCALE` so no voxel goes completely dark.
+    `intensities` scales each peak's amplitude, per spectrum -- either one `(n_peaks,)` vector
+    broadcast across all `n_specs`, or a `(n_specs, n_peaks)` array for per-spectrum control (e.g. a
+    washin series ramping Glucose/Glx over time). `b0_ppm`/`phase_deg` add a uniform chemical-shift
+    offset / zero-order phase across all peaks, matching real per-repetition/per-voxel B0 and phase
+    drift.
     """
-    intensity = max(intensity, _MIN_SCALE)
-    clarity = max(clarity, _MIN_SCALE)
     names = list(DMI_TRUTH)
-    fid = xmris.simulate_fid(
-        amplitudes=[_BASE_AMPLITUDE * intensity * DMI_TRUTH[name][0] for name in names],
-        chemical_shifts=[DMI_TRUTH[name][1] + b0_ppm for name in names],
-        reference_frequency=centre_freq_mhz,
-        carrier_ppm=carrier_ppm,
-        spectral_width=bandwidth,
-        n_points=npts,
-        dampings=[np.pi * (DMI_TRUTH[name][2] / clarity) for name in names],
-        phases=np.deg2rad(phase_deg),
-        target_snr=base_snr * intensity * clarity,
-        seed=seed,
-    )
-    return np.asarray(xmris.to_spectrum(fid).values, dtype=complex)
+    amps = np.asarray([_BASE_AMPLITUDE * DMI_TRUTH[name][0] for name in names], dtype=np.float32)
+    chemical_shifts = np.asarray([DMI_TRUTH[name][1] + b0_ppm for name in names], dtype=np.float32)
+    dampings = np.asarray([np.pi * DMI_TRUTH[name][2] for name in names], dtype=np.float32)
+    phases = np.deg2rad(phase_deg)
 
+    if intensities is None:
+        intensities = np.ones(len(names))
+    intensities = np.atleast_1d(intensities).astype(np.float32)
 
-def simulate_averages(
-    *,
-    npts: int,
-    averages: int,
-    bandwidth: float,
-    centre_freq_mhz: float,
-    carrier_ppm: float,
-    intensity: float = 1.0,
-    clarity: float = 1.0,
-    seed_base: int,
-) -> np.ndarray:
-    """`(averages, npts)` stack of `simulate_spectrum` calls, one seed per repetition.
-
-    Each repetition gets a small B0/phase jitter (real MRS drifts shot-to-shot), and the target SNR
-    is scaled by `sqrt(averages / _REFERENCE_TRANSIENTS)` -- more transients, better effective SNR.
-    """
-    rng = np.random.default_rng(seed_base)
-    snr_scale = np.sqrt(averages / _REFERENCE_TRANSIENTS)
-    b0_jitter = rng.uniform(-_JITTER_B0_PPM, _JITTER_B0_PPM, size=averages)
-    phase_jitter = rng.uniform(-_JITTER_PHASE_DEG, _JITTER_PHASE_DEG, size=averages)
-    return np.stack(
-        [
-            simulate_spectrum(
-                npts=npts,
-                bandwidth=bandwidth,
-                centre_freq_mhz=centre_freq_mhz,
-                carrier_ppm=carrier_ppm,
-                intensity=intensity,
-                clarity=clarity,
-                b0_ppm=float(b0_jitter[i]),
-                phase_deg=float(phase_jitter[i]),
-                base_snr=_BASE_SNR_UNLOC * snr_scale,
-                seed=seed_base + i,
+    # Check if the number of intensities matches the number of spectra to simulate
+    if intensities.ndim == 1:
+        intensities = np.broadcast_to(intensities, (n_specs, len(names)))
+    elif intensities.ndim == 2:
+        if intensities.shape[0] != n_specs or intensities.shape[1] != len(names):
+            raise ValueError(
+                f"intensities shape {intensities.shape} does not match n_specs={n_specs} and "
+                f"number of peaks={len(names)}"
             )
-            for i in range(averages)
-        ]
-    )
+
+    fid = xr.concat(
+        [
+            xmris.simulate_fid(
+                amplitudes=amps * intensities[i],
+                chemical_shifts=chemical_shifts,
+                reference_frequency=centre_freq_mhz,
+                carrier_ppm=carrier_ppm,
+                spectral_width=bandwidth,
+                n_points=npts,
+                dampings=dampings,
+                phases=phases,
+                target_snr=base_snr,
+                seed=seed,
+            )
+            for i in range(n_specs)
+        ],
+        dim="voxel",
+    ).assign_coords(voxel=np.arange(n_specs))
+    fid.attrs = {"reference_frequency": centre_freq_mhz, "carrier_ppm": carrier_ppm}
+    return np.asarray(xmris.to_spectrum(fid).values, dtype=complex)
 
 
 def simulate_grid(
@@ -135,37 +118,34 @@ def simulate_grid(
     npts: int,
     grid: tuple[int, int, int],
     bandwidth: float,
-    centre_freq_mhz: float,
-    carrier_ppm: float,
+    centre_freq_mhz: float = FREQ_2H_MHz_3T,
+    carrier_ppm: float = CARRIER_PPM,
     intensity_map: np.ndarray,
-    seed_base: int,
+    seed: int,
 ) -> np.ndarray:
     """`(npts, i, j, k)` grid of spectra, one per cell, scaled by `intensity_map` (same shape).
 
-    Each voxel gets its own small B0/phase jitter, same as `simulate_averages` but voxel-to-voxel
-    instead of shot-to-shot -- real MRSI has both. MRSI voxels are effectively single-transient, so
-    `_BASE_SNR_MRSI` (no `sqrt(N)` boost) sets the noise floor.
+    Every cell gets its own unscaled spectrum from `simulate_spectrum`, then `intensity_map` scales
+    each cell's signal post-FFT. MRSI voxels are effectively single-transient, so `_BASE_SNR_MRSI`
+    (no `sqrt(N)` boost) sets the noise floor.
     """
-    rng = np.random.default_rng(seed_base)
     n_cells = int(np.prod(grid))
-    b0_jitter = rng.uniform(-_JITTER_B0_PPM, _JITTER_B0_PPM, size=n_cells)
-    phase_jitter = rng.uniform(-_JITTER_PHASE_DEG, _JITTER_PHASE_DEG, size=n_cells)
-    out = np.empty((npts, *grid), dtype=complex)
-    for flat, (i, j, k) in enumerate(np.ndindex(grid)):
-        scale = float(intensity_map[i, j, k])
-        out[:, i, j, k] = simulate_spectrum(
-            npts=npts,
-            bandwidth=bandwidth,
-            centre_freq_mhz=centre_freq_mhz,
-            carrier_ppm=carrier_ppm,
-            intensity=scale,
-            clarity=scale,
-            b0_ppm=float(b0_jitter[flat]),
-            phase_deg=float(phase_jitter[flat]),
-            base_snr=_BASE_SNR_MRSI,
-            seed=seed_base + flat,
-        )
-    return out
+
+    # Simulate all spectra
+    specs_flat = simulate_spectrum(
+        npts=npts,
+        bandwidth=bandwidth,
+        centre_freq_mhz=centre_freq_mhz,
+        carrier_ppm=carrier_ppm,
+        base_snr=_BASE_SNR_MRSI,
+        seed=seed,
+        n_specs=n_cells,
+    )
+
+    # Reshape to (npts, i, j, k) and apply intensity map
+    specs = specs_flat.reshape((npts, *grid))
+    specs *= intensity_map.reshape((1, *grid))
+    return specs
 
 
 def grid_world_centers(
@@ -312,8 +292,7 @@ def template_grid_intensity(grid: tuple[int, int, int]) -> tuple[np.ndarray, np.
     `own_affine` is what an MRSI series' own NIfTI (the one `create_MRSI_nii` derives its affine
     from) should carry so the low-res grid sits inside the real brain's footprint; `intensity_map`
     is that same downsampled data, normalized, and is meant to drive `simulate_grid`'s
-    intensity/clarity directly -- real brain signal in, real-shaped "inside the brain has clearer
-    peaks" spectra out.
+    `intensity_map` directly -- real brain signal in, brain-shaped spectra out.
     """
     from scipy.ndimage import zoom
 

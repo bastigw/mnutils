@@ -56,6 +56,10 @@ t1 = MRISeries(nist_data, 2)
 mrsi = MRSISeries(nist_data, 5)
 ```
 
+```{code-cell} ipython3
+t1.display()
+```
+
 (plotting-mrsi-inspector-widget)=
 
 ## 2. Display the inspector

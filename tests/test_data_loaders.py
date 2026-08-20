@@ -23,9 +23,9 @@ def test_load_raw_fids_creates_correct_files(dataset_folder):
     base_folder = os.path.join(dataset_folder, "HeVo-18")
     data_folder = os.path.join(base_folder, "data")
     npts_expected = {
-        6: 64,
-        9: 64,
-        11: 64,
+        6: 2048,
+        9: 700,
+        11: 700,
         12: 1678,
     }
     for series, npts in npts_expected.items():
