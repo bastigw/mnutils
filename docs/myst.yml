@@ -131,6 +131,10 @@ project:
     - "**/*.ipynb"
 
 site:
+  options:
+    logo: assets/logo/mnutils-banner-light.svg
+    logo_dark: assets/logo/mnutils-banner-dark.svg
+    favicon: assets/logo/mnutils-icon-light.png
   nav:
     - title: GitLab
       url: https://gitlab.developers.cam.ac.uk/deptofrad/molecular-imaging/multi-nuclear-utils-python
