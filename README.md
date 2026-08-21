@@ -6,6 +6,8 @@
   </picture>
 </p>
 
+[![PyPI](https://img.shields.io/pypi/v/mnutils.svg)](https://pypi.org/project/mnutils/)
+[![Python](https://img.shields.io/pypi/pyversions/mnutils.svg)](https://pypi.org/project/mnutils/)
 [![Tests](https://github.com/bastigw/mnutils/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/bastigw/mnutils/actions/workflows/ci-fast.yml)
 [![Docs](https://github.com/bastigw/mnutils/actions/workflows/deploy.yml/badge.svg)](https://bastigw.github.io/mnutils/)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
@@ -26,15 +28,23 @@ plotting, fitting, NIfTI, and MATLAB-bridge guides.
 
 ## Installation
 
+MNUtils is on PyPI:
+
 ```bash
-uv add git+https://github.com/bastigw/mnutils.git
+uv add mnutils
 ```
 
 Optional extras:
 
 ```bash
-uv add "mnutils[bet] @ git+https://github.com/bastigw/mnutils.git"     # brain extraction (hd-bet, torch)
-uv add "mnutils[2025a] @ git+https://github.com/bastigw/mnutils.git"   # MATLAB Engine pinned to MATLAB 2025a
+uv add "mnutils[bet]"     # brain extraction (hd-bet, torch)
+uv add "mnutils[2025a]"   # MATLAB Engine pinned to MATLAB 2025a
+```
+
+To track the development version instead:
+
+```bash
+uv add git+https://github.com/bastigw/mnutils.git
 ```
 
 `2025a` pins `matlabengine==25.1.*`. If your local MATLAB install is a different version, install
