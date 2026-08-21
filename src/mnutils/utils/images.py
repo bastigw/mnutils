@@ -132,8 +132,7 @@ def extract_brain(
 
     for idx, input_path in enumerate(files):
         logger.debug(
-            f"Processing file {input_path.relative_to(os.getcwd(), walk_up=True)} "
-            f"({idx + 1}/{len(files)})"
+            f"Processing file {file_helpers._relative_to_cwd(input_path)} ({idx + 1}/{len(files)})"
         )
         # Assert that input path has nii.gz suffix
         if not str(input_path).endswith(".nii.gz"):
@@ -155,9 +154,9 @@ def extract_brain(
         # Check if output file already exists
         if default_output_path.exists():
             logger.warning(
-                f"Output file {default_output_path.relative_to(os.getcwd(), walk_up=True)} "
+                f"Output file {file_helpers._relative_to_cwd(default_output_path)} "
                 f"already exists. Skipping brain extraction for "
-                f"{input_path.relative_to(os.getcwd(), walk_up=True)}."
+                f"{file_helpers._relative_to_cwd(input_path)}."
             )
             output_files.append(default_output_path)
             continue
@@ -165,9 +164,9 @@ def extract_brain(
         if other_bet_niftis:
             logger.warning(
                 f"Other brain extracted NIfTI files found in output directory "
-                f"{output_dir.relative_to(os.getcwd(), walk_up=True)}. This may indicate that "
+                f"{file_helpers._relative_to_cwd(output_dir)}. This may indicate that "
                 f"brain extraction has already been performed for this or other files. Skipping "
-                f"brain extraction for {input_path.relative_to(os.getcwd(), walk_up=True)} to "
+                f"brain extraction for {file_helpers._relative_to_cwd(input_path)} to "
                 f"avoid overwriting existing files."
             )
             output_files.append(other_bet_niftis)
@@ -192,8 +191,8 @@ def extract_brain(
 
         logger.debug(
             f"Brain extracted successfully for "
-            f"{input_path.relative_to(os.getcwd(), walk_up=True)}, saved to "
-            f"{default_output_path.relative_to(os.getcwd(), walk_up=True)}"
+            f"{file_helpers._relative_to_cwd(input_path)}, saved to "
+            f"{file_helpers._relative_to_cwd(default_output_path)}"
         )
         output_files.append(default_output_path)
 

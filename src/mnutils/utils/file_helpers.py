@@ -12,6 +12,30 @@ from loguru import logger
 _DEFAULT_DICOM_FOLDER_PATTERN = r"(?:Series)?(\d{1,5})_"
 
 
+def _relative_to_cwd(path: str | Path) -> Path:
+    """Express a path relative to the current working directory, for log messages.
+
+    Falls back to the unchanged path when no relative form exists -- notably on
+    Windows, where a path on another drive (e.g. a ``C:`` temp dir while the cwd
+    is on ``D:``) has a different anchor and ``Path.relative_to`` raises.
+
+    Parameters
+    ----------
+    path : str or Path
+        The path to shorten.
+
+    Returns
+    -------
+    Path
+        The path relative to the cwd, or the original path if that is impossible.
+    """
+    path = Path(path)
+    try:
+        return path.relative_to(os.getcwd(), walk_up=True)
+    except ValueError:
+        return path
+
+
 def get_all_dicom_series_ids(data_folder: str | Path) -> tuple[list[int], list[int]]:
     """Retrieve all DICOM series IDs from a specified folder.
 
@@ -679,6 +703,6 @@ def move_files_with_glob(
 
         file.rename(target_file)
         if target_file.is_absolute():
-            logger.debug(f"Moved file to: {target_file.relative_to(os.getcwd(), walk_up=True)}")
+            logger.debug(f"Moved file to: {_relative_to_cwd(target_file)}")
         else:
             logger.debug(f"Moved file to: {target_file}")
