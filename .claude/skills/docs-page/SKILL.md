@@ -28,9 +28,15 @@ sprawling across tutorial asides.
 `templates/patterns.md` is the shared MyST pattern library — read it alongside whichever genre
 template applies.
 
-**One path never routes here:** `docs/diary/` belongs to the **`dev-diary`** skill. Hand off; do
-not write an entry from here. (`check_docs.py` still checks entries — the structural rules in §2
-bind every page in the tree.)
+**Three paths never route here:**
+
+- `docs/diary/` belongs to the **`dev-diary`** skill. Hand off; do not write an entry from here.
+  (`check_docs.py` still checks entries — the structural rules in §2 bind every page in the tree.)
+- `docs/changelog.md` belongs to the **`changelog`** skill. It is a reference genre — no motivated
+  narrative, no live cells — so none of the templates below apply to it.
+- `docs/api/` is **generated and gitignored**. `docs-mnutils-api` clears the directory before
+  regenerating, so a hand edit there is destroyed with no git history to recover it. Fix the
+  docstring in `src/` instead, then rerun `uv run docs-mnutils-api`.
 
 House style — motivated narrative, one home per concept, every article stands alone, the MyST
 palette carries the argument — lives in **`CLAUDE.md` § "Documentation style"** and is not
@@ -40,8 +46,9 @@ it worse.
 
 ## 2. Rules that survive genre
 
-Every one of these is enforced by `check_docs.py` — run it before you finish (§4). The build is
-silent about all of them; the checker is not.
+Every one of these is enforced by `check_docs.py`, which the `Docs style` job in `ci-fast.yml` runs
+over the whole tree on every pull request. The build is silent about all of them; the gate is not.
+The tree is at zero errors — do not be the change that reopens the backlog.
 
 - **Frontmatter is exact**, and `display_name: .venv` is the frozen kernel label. If
   your local Jupyter rewrites it (to `Python 3 (ipykernel)` or similar), fix it back before
@@ -56,6 +63,11 @@ silent about all of them; the checker is not.
 - **Never link `.ipynb`.** `docs/myst.yml` excludes notebook files from the build, so the link
   resolves to `null` and dies — with no build warning. Use `[text](#explicit-target)` or a
   relative `.md` path.
+- **A new `doi.org` link must be frozen** into `docs/myst.doi.bib` (`cd docs && uv run myst build
+  --doi-bib`, then commit it). mystmd resolves DOI links against the network at build time, so an
+  unfrozen one makes `deploy.yml` fail whenever a runner's lookup is rate-limited — on somebody
+  else's pull request. Link text is irrelevant; `[paper](https://doi.org/…)` is resolved just like
+  `[](…)`. The file does not exist yet: the first DOI anyone adds creates it.
 - **TOC entry in `docs/myst.yml` is mandatory** (except `testonly_`). The sidebar shows the TOC
   title — keep it consistent with the H1. A page missing from the TOC never renders.
 - **Commit only the `.md`.** `docs/**/*.ipynb` is gitignored; edits made in an `.ipynb` twin are
@@ -81,7 +93,8 @@ Most doc work is editing, and the house rules make thinning **expected work, not
 uv run python .claude/skills/docs-page/check_docs.py docs/<path>/<page>.md
 ```
 
-Errors are render-breaking and exit 1. Warnings are drift and exit 0. Then, for a **tutorial**:
+Errors are render-breaking and exit 1 — the same exit code the `Docs style` CI job gates on, so
+this run is that gate, locally. Warnings are drift and exit 0. Then, for a **tutorial**:
 
 ```bash
 uv run test-mnutils-gen
@@ -112,6 +125,7 @@ Two pathspec traps:
 - [ ] Frontmatter exact, `display_name: .venv`
 - [ ] `(target)=` + single H1 is the very first content; a target above every header
 - [ ] TOC entry in `docs/myst.yml` (unless `testonly_`); no `.ipynb` links
+- [ ] New `doi.org` link frozen into `docs/myst.doi.bib` (`myst build --doi-bib`) and committed
 - [ ] `check_docs.py` passes on the page (0 errors)
 - [ ] Tutorial only: notebook test run is green
 - [ ] Only the `.md` staged
