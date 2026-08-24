@@ -43,8 +43,11 @@ must be binned with `floor(idx + 0.5)`, never `floor(idx)`.
 ```python
 pv = mask_occupancy(seg_nii, mrsi_series, min_coverage=0.9)
 
-pv.occupancy.sel(label="tumour")   # (i, j, k) — NaN where coverage fell short
-pv.coverage                        # (i, j, k) — never masked
+# (i, j, k), NaN where coverage fell short
+pv.occupancy.sel(label="tumour")
+
+# (i, j, k), never masked
+pv.coverage
 ```
 
 Two variables, because two different questions hide inside one number:

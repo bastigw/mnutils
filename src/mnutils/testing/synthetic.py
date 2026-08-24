@@ -267,6 +267,16 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
 
     (exam / "Series13").mkdir(parents=True, exist_ok=True)  # exam data, no DICOM
 
+    # Segmentations of the same T1, for partial-volume pages. They live in `derived/`, a
+    # sibling of `data/`, deliberately: `get_dicom_folder` anchors on `(?:Series)?(\d{1,5})_`
+    # and `get_nifti_file` takes the *first* glob hit, so a mask dropped beside the T1 would
+    # be a candidate for `MRISeries(data, 2)` itself.
+    brain, seg, t1_affine = _spectra.template_tissue_masks()
+    derived = root / "derived"
+    derived.mkdir(parents=True, exist_ok=True)
+    nib.save(nib.Nifti1Image(brain.astype(np.uint8), t1_affine), derived / "brain_mask.nii.gz")
+    nib.save(nib.Nifti1Image(seg, t1_affine), derived / "tissue_seg.nii.gz")
+
 
 def _build_brain_extraction_exam(root: Path) -> None:
     data = root / "data"

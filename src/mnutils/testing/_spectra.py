@@ -336,3 +336,26 @@ def template_grid_intensity(grid: tuple[int, int, int]) -> tuple[np.ndarray, np.
     # cancel exactly, so the correction here is half a *native* voxel, not half the blocky one.
     own_affine[:2, 3] -= voxel_native[:2] / 2
     return own_affine, intensity_map
+
+
+def template_tissue_masks() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A binary head mask and a 3-label tissue segmentation of the cropped T1 template.
+
+    Returns `(brain, seg, affine)`, all on the template's own full-resolution grid. `seg`
+    labels are 1/2/3, split by intensity percentile inside `brain`.
+
+    These are **not** anatomically faithful -- intensity banding is not tissue segmentation.
+    They exist so partial-volume pages have a mask with realistic *shape*: convoluted borders,
+    a solid interior, and an extent that only partly overlaps the MRSI grid. That geometry is
+    what those pages test; which voxel is really grey matter is irrelevant to them.
+    """
+    data, affine = _cropped_template()
+    brain = data > data.max() * 0.15
+
+    seg = np.zeros(data.shape, dtype=np.int16)
+    lo, hi = np.percentile(data[brain], [33.0, 66.0])
+    seg[brain & (data <= lo)] = 1
+    seg[brain & (data > lo) & (data <= hi)] = 2
+    seg[brain & (data > hi)] = 3
+
+    return brain, seg, affine

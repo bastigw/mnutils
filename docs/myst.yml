@@ -49,6 +49,8 @@ project:
           title: Overview
         - file: nifti/voxel_overlay.md
           title: Drawing an MRSI voxel on an anatomical slice
+        - file: nifti/partial_volume.md
+          title: How much of this MRSI voxel is inside the mask?
 
     - title: MATLAB bridge
       children:
@@ -114,6 +116,8 @@ project:
           title: File helpers
         - file: api/utils.nifti.md
           title: NIfTI utilities
+        - file: api/utils.partial_volume.md
+          title: Partial volume
         - file: api/utils.images.md
           title: Image utilities
         - file: api/plotting.images.md
