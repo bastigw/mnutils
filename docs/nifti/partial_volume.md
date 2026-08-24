@@ -33,6 +33,15 @@ plt.rcParams["figure.dpi"] = 150
 from loguru import logger
 
 logger.remove()
+
+
+def panel(ax, image_2d, title, **kwargs):
+    """One bare image panel -- transposed and y-up, so anatomy reads the usual way."""
+    handle = ax.imshow(image_2d.T, origin="lower", **kwargs)
+    ax.set_title(title, fontsize=9)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    return handle
 ```
 
 ```{code-cell} ipython3
@@ -52,7 +61,24 @@ brain_mask = nib.load(root / "derived" / "brain_mask.nii.gz")
 tissue_seg = nib.load(root / "derived" / "tissue_seg.nii.gz")
 ```
 
-The two grids this page has to reconcile:
+Those are the three volumes on the fine grid — the anatomy, a binary mask of it, and a three-label
+segmentation. Same shape, same affine, one slice through each:
+
+```{code-cell} ipython3
+t1_data = np.asarray(t1.nii.dataobj)
+mask_data = np.asarray(brain_mask.dataobj)
+seg_data = np.asarray(tissue_seg.dataobj)
+
+z = t1_data.shape[2] // 2
+
+fig, axes = plt.subplots(1, 3, figsize=(9, 3.2), layout="constrained")
+panel(axes[0], t1_data[:, :, z], f"T1 anatomy, z={z}", cmap="gray")
+panel(axes[1], mask_data[:, :, z], "brain_mask (binary)", cmap="gray")
+seg_handle = panel(axes[2], seg_data[:, :, z], "tissue_seg (3 labels)", cmap="viridis")
+fig.colorbar(seg_handle, ax=axes[2], fraction=0.046, ticks=[0, 1, 2, 3])
+```
+
+Now the grid they have to be mapped onto:
 
 ```{code-cell} ipython3
 target = mrsi.RAW_exp  # the blocky MRSI grid, one voxel per spectrum
@@ -81,6 +107,35 @@ print(tgt_from_mask.round(4))
 
 Read the diagonal as "how many mask voxels fit along one target voxel" (inverted): about 11.8,
 16.0 and 11.6 respectively. Those non-integer ratios matter later.
+
+The matrix is easier to believe when you draw it. Push every T1 voxel of one slice through
+`tgt_from_mask`, take the target voxel each lands in, and colour it as a checkerboard: that *is*
+the MRSI lattice, rendered on the anatomy by the same arithmetic the algorithm uses. Anything
+mapping off the target grid is hatched — that is the overhang which will come back as low
+`coverage`:
+
+```{code-cell} ipython3
+slice_idx = np.indices(t1_data.shape[:2], dtype=np.float64)
+slice_idx = np.stack([slice_idx[0], slice_idx[1], np.full(t1_data.shape[:2], float(z))])
+slice_tgt = np.einsum("ab,bij->aij", tgt_from_mask[:3, :3], slice_idx) + tgt_from_mask[:3, 3, None, None]
+slice_bins = np.floor(slice_tgt + 0.5).astype(int)
+
+on_grid = np.ones(slice_bins.shape[1:], dtype=bool)
+for axis in range(3):
+    on_grid &= (slice_bins[axis] >= 0) & (slice_bins[axis] < target.nii.shape[axis])
+
+checker = np.where(on_grid, (slice_bins[0] + slice_bins[1]) % 2, np.nan)
+
+fig, ax = plt.subplots(figsize=(4.2, 4.2), layout="constrained")
+panel(ax, t1_data[:, :, z], "MRSI voxel lattice over the T1", cmap="gray")
+ax.imshow(checker.T, origin="lower", cmap="cool", alpha=0.35, interpolation="nearest")
+off_grid = np.where(on_grid, np.nan, 1.0)
+ax.imshow(off_grid.T, origin="lower", cmap="autumn", alpha=0.5, interpolation="nearest")
+print(f"{100 * (~on_grid).mean():.1f}% of this T1 slice maps off the MRSI grid (shown in red)")
+```
+
+Each check is one MRSI voxel. They are visibly wider than they are tall — that is the anisotropy
+from the printout above — and the brain does not sit neatly inside them.
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
@@ -129,6 +184,53 @@ half = target_halfwidths(tgt_from_mask)
 print(f"one mask voxel spans {(2 * half).round(4)} of a target voxel, per axis")
 ```
 
+In one dimension the whole argument fits in a picture. A mask voxel is the shaded box; the target
+bins are the cells between the dashed edges. Nearest-bin gives the entire box to whichever bin
+holds its centre. Splitting gives each bin the share it actually covers:
+
+```{code-cell} ipython3
+# The real box is ~0.085 of a target voxel -- too thin to see. Drawn 4x wider here; the
+# arithmetic below is the same either way.
+draw_width = 4 * 2 * half[0]
+centre = 3.5 - 0.35 * draw_width  # placed so it straddles the edge at 3.5
+lo, hi = centre - draw_width / 2, centre + draw_width / 2
+left = (min(hi, 3.5) - lo) / draw_width
+right = 1.0 - left
+
+fig, ax = plt.subplots(figsize=(7, 2.0), layout="constrained")
+for edge in np.arange(2.5, 5.6, 1.0):
+    ax.axvline(edge, color="0.4", ls="--", lw=1)
+for n in (3, 4, 5):
+    ax.text(n, 0.80, f"bin {n}", ha="center", fontsize=9, color="0.35")
+
+ax.axvspan(lo, hi, ymin=0.2, ymax=0.6, color="tab:blue", alpha=0.5)
+ax.plot([centre], [0.4], "o", color="tab:blue", ms=6)
+ax.annotate(
+    "nearest bin: all of it to bin 3",
+    xy=(centre, 0.4),
+    xytext=(2.60, 0.06),
+    fontsize=8,
+    color="tab:red",
+    arrowprops={"arrowstyle": "->", "color": "tab:red"},
+)
+ax.text(
+    3.62,
+    0.66,
+    f"split: {left:.2f} to bin 3, {right:.2f} to bin 4",
+    ha="left",
+    fontsize=9,
+    color="tab:blue",
+)
+ax.set_xlim(2.5, 5.5)
+ax.set_ylim(0, 0.95)
+ax.set_yticks([])
+ax.set_xlabel("target index")
+print(f"drawn {draw_width:.3f} wide; the true box is {2 * half[0]:.3f} of a target voxel")
+```
+
+The box is well under one target voxel wide, so it reaches at most two bins per axis — eight
+combinations in 3-D, which is exactly what the implementation loops over.
+
 Now the failure. Take a mask that is `1` **everywhere**, so every target voxel sitting fully
 inside the mask's field of view must come out at exactly 100 % coverage. Assign each mask voxel to
 its nearest bin only, and count:
@@ -137,7 +239,9 @@ its nearest bin only, and count:
 ones = np.ones(brain_mask.shape, dtype=np.float32)
 
 idx = np.indices(brain_mask.shape, dtype=np.float64)
-coords = np.einsum("ab,bijk->aijk", tgt_from_mask[:3, :3], idx) + tgt_from_mask[:3, 3, None, None, None]
+coords = (
+    np.einsum("ab,bijk->aijk", tgt_from_mask[:3, :3], idx) + tgt_from_mask[:3, 3, None, None, None]
+)
 nearest = np.floor(coords + 0.5).astype(int)
 
 inside = np.ones(nearest.shape[1:], dtype=bool)
@@ -169,7 +273,9 @@ for corner in corners:
 nearest_coverage = (counts.reshape(-1) / nominal)[interior]
 print(f"{interior.sum()} fully-interior target voxels")
 print(f"nearest-bin coverage spans {nearest_coverage.min():.3f} to {nearest_coverage.max():.3f}")
-print(f"that is a spread of {(nearest_coverage.max() - nearest_coverage.min()) * 100:.1f} points on voxels that are 100% covered")
+print(
+    f"that is a spread of {(nearest_coverage.max() - nearest_coverage.min()) * 100:.1f} points on voxels that are 100% covered"
+)
 ```
 
 Those ratios from step 1 are the cause: at 11.75 mask voxels per target voxel, a target voxel
@@ -211,6 +317,32 @@ print(f"overlap-split coverage spans {split_coverage.min():.6f} to {split_covera
 Exactly 1.0 everywhere it should be. The weights of one mask voxel sum to 1 by construction, so
 nothing is created or lost — the mass simply lands in the right proportions.
 
+Side by side on a mid-grid slice, with the same colour scale, the difference is not subtle. Both
+maps *should* be a flat field of 1.0 across the interior:
+
+```{code-cell} ipython3
+nearest_map = (counts / nominal).astype(float)
+split_map = (total / nominal).reshape(target.nii.shape)
+interior_map = interior.reshape(target.nii.shape)
+k = target.nii.shape[2] // 2
+
+fig, axes = plt.subplots(1, 3, figsize=(11, 3.3), layout="constrained")
+h0 = panel(axes[0], nearest_map[:, :, k], "nearest bin", cmap="RdBu_r", vmin=0.85, vmax=1.15)
+panel(axes[1], split_map[:, :, k], "overlap split", cmap="RdBu_r", vmin=0.85, vmax=1.15)
+fig.colorbar(h0, ax=axes[:2], fraction=0.046, label="coverage")
+
+axes[2].hist(nearest_map[interior_map], bins=40, alpha=0.7, label="nearest bin")
+axes[2].hist(split_map[interior_map], bins=40, alpha=0.9, label="overlap split")
+axes[2].axvline(1.0, color="k", ls="--", lw=1)
+axes[2].set_title("coverage on fully-interior voxels", fontsize=9)
+axes[2].set_xlabel("coverage")
+axes[2].legend(fontsize=8)
+```
+
+The left panel is the lattice beating against the anatomy grid; the middle panel is the constant
+it should have been all along. The histogram is the same story in one dimension — a smear across
+0.89–1.05 collapsing to a single spike at 1.0.
+
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
@@ -221,9 +353,7 @@ assert nearest_coverage.max() - nearest_coverage.min() > 0.10, "nearest-bin shou
 assert (nearest_coverage < 0.9).sum() > 0, "nearest-bin should spuriously drop full voxels"
 np.testing.assert_allclose(split_coverage, 1.0, atol=1e-9)
 
-_library = mask_occupancy(
-    ones, target, mask_affine=A_mask, min_coverage=0.0
-).coverage.values
+_library = mask_occupancy(ones, target, mask_affine=A_mask, min_coverage=0.0).coverage.values
 np.testing.assert_allclose(_library, (total / nominal).reshape(target.nii.shape), atol=1e-6)
 assert total.sum() <= ones.size + 1e-6
 ```
@@ -276,7 +406,9 @@ measure against. Those come back NaN in `occupancy` and are explained by `covera
 ```{code-cell} ipython3
 n_nan = int(np.isnan(pv.occupancy).sum())
 print(f"{n_nan} of {pv.occupancy.size} voxels are NaN (coverage < {pv.attrs['min_coverage']})")
-print(f"every one of them has low coverage: {bool((pv.coverage.values[np.isnan(pv.occupancy.values[0])] < 0.9).all())}")
+print(
+    f"every one of them has low coverage: {bool((pv.coverage.values[np.isnan(pv.occupancy.values[0])] < 0.9).all())}"
+)
 ```
 
 ```{code-cell} ipython3
@@ -294,7 +426,9 @@ would be quietly wrong exactly when obliquity matters:
 
 ```{code-cell} ipython3
 print(pv.x.dims, pv.x.shape)
-print(f"voxel (0,0,0) sits at ({float(pv.x[0, 0, 0]):.1f}, {float(pv.y[0, 0, 0]):.1f}, {float(pv.z[0, 0, 0]):.1f}) mm")
+print(
+    f"voxel (0,0,0) sits at ({float(pv.x[0, 0, 0]):.1f}, {float(pv.y[0, 0, 0]):.1f}, {float(pv.z[0, 0, 0]):.1f}) mm"
+)
 ```
 
 Both affines travel with the result in `.attrs`, flattened row-major rather than nested — netCDF
@@ -321,9 +455,7 @@ with tempfile.TemporaryDirectory() as tmp:
     pv.to_netcdf(path)
     reloaded = xr.open_dataset(path)
     np.testing.assert_allclose(reloaded.x.values, pv.x.values)
-    np.testing.assert_allclose(
-        reloaded.occupancy.values, pv.occupancy.values, equal_nan=True
-    )
+    np.testing.assert_allclose(reloaded.occupancy.values, pv.occupancy.values, equal_nan=True)
     reloaded.close()
 ```
 
@@ -390,12 +522,34 @@ grid_affine[:3, 3] = -tvs * tn / 2
 world_x = edge_affine[0, 0] * np.indices((n, n, n))[0] + edge_affine[0, 3]
 half_space = nib.Nifti1Image((world_x >= 0).astype(np.float32), edge_affine)
 
-edge = mask_occupancy(
-    half_space, np.zeros((tn,) * 3), target_affine=grid_affine, min_coverage=0.0
-)
+edge = mask_occupancy(half_space, np.zeros((tn,) * 3), target_affine=grid_affine, min_coverage=0.0)
 profile = edge.occupancy.values[0, :, tn // 2, tn // 2]
 print(f"occupancy along x: {profile.round(3)}")
 print(f"the voxel centred on the edge reads {profile[tn // 2]:.4f} (expected 0.5)")
+```
+
+A hard 0-to-1 step with exactly one half-valued voxel on the boundary, and no smearing into its
+neighbours — which is what a correctly centred, volume-conserving split looks like:
+
+```{code-cell} ipython3
+fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.0), layout="constrained")
+
+axes[0].step(np.arange(tn), profile, where="mid", color="tab:blue")
+axes[0].plot([tn // 2], [profile[tn // 2]], "o", color="tab:red", ms=7)
+axes[0].axhline(0.5, color="0.6", ls="--", lw=1)
+axes[0].axvline(tn // 2, color="0.6", ls="--", lw=1)
+axes[0].set_xlabel("target index along x")
+axes[0].set_ylabel("occupancy")
+axes[0].set_title("occupancy across a known edge", fontsize=9)
+
+panel(
+    axes[1],
+    edge.occupancy.values[0, :, :, tn // 2],
+    "the same edge, in plane",
+    cmap="magma",
+    vmin=0,
+    vmax=1,
+)
 ```
 
 ```{code-cell} ipython3
@@ -427,6 +581,28 @@ pv_auto = mask_occupancy(tissue_seg, target, min_coverage=0.0)
 shortfall = (pv_auto.coverage.values - pv_auto.occupancy.sum("label").values).max()
 print(f"auto-detected labels: {pv_auto.label.values.tolist()}")
 print(f"largest shortfall vs coverage (the background): {shortfall:.3f}")
+```
+
+Each label gets its own map, and they add up. The rightmost panel is the sum of the three tissue
+maps — every voxel's remaining share is background:
+
+```{code-cell} ipython3
+k_seg = target.nii.shape[2] // 2
+names = ["csf", "gm", "wm"]
+
+fig, axes = plt.subplots(1, 4, figsize=(12, 3.1), layout="constrained")
+for ax, label, name in zip(axes[:3], pv_auto.label.values, names, strict=True):
+    handle = panel(
+        ax,
+        pv_auto.occupancy.sel(label=label).values[:, :, k_seg],
+        f"label {label} ({name})",
+        cmap="magma",
+        vmin=0,
+        vmax=1,
+    )
+total_tissue = pv_auto.occupancy.sum("label").values[:, :, k_seg]
+panel(axes[3], total_tissue, "sum of all three", cmap="magma", vmin=0, vmax=1)
+fig.colorbar(handle, ax=axes, fraction=0.03, label="occupancy")
 ```
 
 ```{code-cell} ipython3
@@ -464,6 +640,7 @@ print(f"axis-aligned {volume_in / 1000:.2f} mL   oblique {oblique_volume / 1000:
 assert oblique_volume <= volume_in * (1 + 1e-6)
 assert oblique_volume > volume_in * 0.90, "an in-plane rotation should not lose much of the brain"
 ```
+
 :::
 
 (nifti-partial-volume-look)=
@@ -471,29 +648,47 @@ assert oblique_volume > volume_in * 0.90, "an in-plane rotation should not lose 
 
 The point of all of the above is a map you can lay over the anatomy and believe:
 
-```{code-cell} ipython3
-import matplotlib.pyplot as plt
+The map only means something laid over the anatomy it came from. To do that honestly, the T1 slice
+has to be the one the MRSI slice actually sits on — found by mapping the target slice index back
+through the transform rather than guessed:
 
+```{code-cell} ipython3
 occ = pv.occupancy.sel(label="mask").values
 k = occ.shape[2] // 2
 
-fig, axes = plt.subplots(1, 3, figsize=(10, 3.4), layout="constrained")
-axes[0].imshow(t1.images()[:, :, t1.nii.shape[2] // 2].T, cmap="gray", origin="lower")
-axes[0].set_title("T1 (mask grid)")
-im1 = axes[1].imshow(occ[:, :, k].T, cmap="magma", origin="lower", vmin=0, vmax=1)
-axes[1].set_title(f"occupancy, k={k}")
-im2 = axes[2].imshow(pv.coverage.values[:, :, k].T, cmap="viridis", origin="lower", vmin=0, vmax=1)
-axes[2].set_title(f"coverage, k={k}")
-for ax in axes:
-    ax.set_xticks([])
-    ax.set_yticks([])
-fig.colorbar(im1, ax=axes[1], fraction=0.046)
-fig.colorbar(im2, ax=axes[2], fraction=0.046)
+# Which T1 slice does target slice k correspond to?
+z_t1 = int(round(affines.apply_affine(mask_from_tgt, [target.nii.shape[0] / 2, target.nii.shape[1] / 2, k])[2]))
+print(f"target slice k={k}  ->  T1 slice z={z_t1}")
+
+fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), layout="constrained")
+
+panel(axes[0], t1_data[:, :, z_t1], f"T1, z={z_t1}", cmap="gray")
+
+panel(axes[1], t1_data[:, :, z_t1], f"occupancy over T1, k={k}", cmap="gray")
+extent = (-0.5, t1_data.shape[0] - 0.5, -0.5, t1_data.shape[1] - 0.5)
+h_occ = axes[1].imshow(
+    np.ma.masked_invalid(occ[:, :, k]).T,
+    origin="lower",
+    cmap="magma",
+    vmin=0,
+    vmax=1,
+    alpha=0.6,
+    extent=extent,
+    interpolation="nearest",
+)
+fig.colorbar(h_occ, ax=axes[1], fraction=0.046, label="occupancy")
+
+h_cov = panel(
+    axes[2], pv.coverage.values[:, :, k], f"coverage, k={k}", cmap="viridis", vmin=0, vmax=1
+)
+fig.colorbar(h_cov, ax=axes[2], fraction=0.046, label="coverage")
 ```
 
 Occupancy falls off smoothly at the brain's edge — those are the genuinely partial voxels, and
-their value is the fraction you would multiply a concentration by. Coverage is flat at 1 across
-the interior and drops only where the MRSI grid runs past the T1.
+their value is the fraction you would multiply a concentration by. The blanks in the middle panel
+are the NaNs: MRSI voxels the T1 never reached. Coverage, on the right, is flat at 1 across the
+interior and drops only where the MRSI grid runs past the T1 — which is exactly the red border
+from the lattice figure at the top of the page.
 
 :::{seealso}
 [The diary entry](../diary/2026-08-24-mask-partial-volume.md) records why this is forward binning
