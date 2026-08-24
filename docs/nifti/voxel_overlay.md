@@ -222,7 +222,7 @@ points at the wrong pixel *unless* you shift it back by the crop's own offset.
 
 ```{code-cell} ipython3
 from mnutils.GESeries import MRISeries, MRSISeries
-from mnutils.plotting.images import draw_voxel_overlays_on_ax, overlay_image_data_on_T1_on_ax
+from mnutils.plotting.images import draw_voxel_overlays_on_ax, overlay_image_data_on_T1
 from mnutils.utils.nifti import get_display_affine, resample_and_orient_nifti
 
 hevo18_data = build_fake_exam("brain_mrs_mrsi_exam") / "data"
@@ -239,7 +239,7 @@ y_slice, x_slice = slice(140, 200), slice(90, 150)
 x_offset, y_offset = x_slice.start, y_slice.start
 
 fig, ax = plt.subplots(figsize=(4, 4))
-overlay_image_data_on_T1_on_ax(
+overlay_image_data_on_T1(
     t1_full[y_slice, x_slice, demo_voxel[2]],
     mrsi_full[y_slice, x_slice, demo_voxel[2]],
     ax=ax,
@@ -266,7 +266,7 @@ The recipe, generalized:
 
 1. Build `mrsi_to_display_affine = inv(get_display_affine(T1)) @ MRSI.RAW_exp.nii.affine`.
 2. Crop both anatomical and (resampled) MRSI images with the same `(y_slice, x_slice, z)` bounds.
-3. Plot the cropped images with `overlay_image_data_on_T1_on_ax`.
+3. Plot the cropped images with `overlay_image_data_on_T1(..., ax=...)`.
 4. Draw the voxel box with `draw_voxel_overlays_on_ax(ax, voxel, mrsi_to_display_affine, ...)` —
    still in full-image coordinates.
 5. Shift the patch: `patch.set_xy(patch.get_xy() - np.array([x_offset, y_offset]))`.
