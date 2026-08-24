@@ -13,7 +13,8 @@ These four rules govern everything under `docs/` — explanation articles, tutor
 and edits to any of them. This section is their single source of truth; the `docs-page` and
 `dev-diary` skills route here for the rules and restate only what binds their own genre.
 *Exception: guides under `docs/contribute/` are exempt from the motivated-narrative rule — a
-numbered list of commands is the right shape for a setup page.*
+numbered list of commands is the right shape for a setup page. `docs/changelog.md` is exempt from
+all four: it is a reference genre owned by the `changelog` skill, scanned rather than read.*
 
 - **Motivated narrative, never a FAQ.** One driving question the reader already has, with every
   decision arriving as the answer to a tension they just felt. A cold "Why X?" heading makes a
@@ -102,3 +103,12 @@ rather than auto-applying `ruff format .`.
 Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`), matching current
 history (e.g. `fix(nifti): ...`, `refactor: ...`). No enforced branch-protection rules on this repo
 yet — don't assume PR-only workflow or required CI checks until they actually exist.
+
+## Releases and the changelog
+
+The changelog lives at `docs/changelog.md` and is written by the **`changelog`** skill; the root
+`CHANGELOG.md` is a pointer file, never a second copy. Releases go through the **`release`** skill,
+which is user-triggered only (`disable-model-invocation: true`) — never start one on your own.
+Publishing is a `vX.Y.Z` tag pushed to `ci-publish.yml`; `uv publish` is never run by hand, and a
+PyPI version can never be reused once uploaded. The narrative for both lives under
+`docs/contribute/`.
