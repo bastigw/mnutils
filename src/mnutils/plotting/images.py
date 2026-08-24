@@ -241,6 +241,7 @@ def display_images(
     vmax: float | None = None,
     v_percentile: float = 1.0,
     zeros_as_nan: bool = False,
+    zooms: tuple[float, float] | None = None,
     **kwargs,
 ) -> None:
     """Display a grid of 2D/3D/4D images, with a slice slider for 3D/4D input.
@@ -283,6 +284,13 @@ def display_images(
         default 1.0.
     zeros_as_nan : bool, optional
         If True, treat zero values as NaN for display, by default False.
+    zooms : tuple[float, float], optional
+        Physical `(row_spacing, col_spacing)` of the *displayed* in-plane
+        axes (e.g. the column norms of `utils.nifti.get_display_affine`'s
+        first two columns). When given, panels are rendered at this physical
+        aspect ratio instead of a square-pixel one, so anisotropic voxels
+        don't render stretched. Omit to keep today's pixel-count-based
+        aspect ratio.
     **kwargs
         Accepted and ignored: axis parameters such as `aspect`, `xlabel` or
         `xticks` have no Axes to apply to. Kept so existing call sites keep
@@ -394,6 +402,15 @@ def display_images(
         vmax=vmax,
         per_panel_bounds=colorbar_mode == "each",
     )
+    # A panel's own pixel aspect (cols/rows) times the physical
+    # col-spacing/row-spacing ratio gives the aspect it should actually be
+    # rendered at; the JS falls back to the pixel aspect when zooms is None.
+    panel_aspect = None
+    if zooms is not None:
+        row_spacing, col_spacing = zooms
+        panel_aspect = (images.shape[1] / images.shape[0]) * (col_spacing / row_spacing)
+        logger.trace(f"Setting panel display aspect to {panel_aspect:.3g} from zooms {zooms}.")
+
     ipy_display(
         ImageGridWidget(
             frames=frames,
@@ -404,6 +421,7 @@ def display_images(
             fig_title=fig_title,
             colorbar_mode=colorbar_mode,
             initial_index=slice_idx,
+            panel_aspect=panel_aspect,
         )
     )
     return None

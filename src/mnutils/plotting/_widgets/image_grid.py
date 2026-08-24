@@ -51,6 +51,12 @@ class ImageGridWidget:
         Slice shown on first display, by default 0.
     slice_label : str, optional
         Label next to the slider, by default ``"Slice"``.
+    panel_aspect : float, optional
+        Physical width/height each panel should be rendered at. When given,
+        this overrides the raster's own pixel aspect ratio (and the panels
+        are stretched to it via `object-fit: fill`) so anisotropic voxels
+        display at their true proportions. `None` (the default) keeps the
+        pixel aspect ratio, read from the first decoded frame.
     """
 
     def __init__(
@@ -64,6 +70,7 @@ class ImageGridWidget:
         colorbar_mode: str = "",
         initial_index: int = 0,
         slice_label: str = "Slice",
+        panel_aspect: float | None = None,
     ) -> None:
         self._data: dict[str, Any] = {
             "frames": [
@@ -80,6 +87,7 @@ class ImageGridWidget:
             "colorbar_mode": colorbar_mode,
             "initial_index": initial_index,
             "slice_label": slice_label,
+            "panel_aspect": panel_aspect,
         }
 
     def _repr_html_(self) -> str:

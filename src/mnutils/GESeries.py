@@ -132,7 +132,9 @@ class NiiBase:
     ) -> None:
         """Display the image, optionally masked, via plotting.images.display_images.
 
-        Displays an interactive image-grid widget and returns nothing.
+        Displays an interactive image-grid widget and returns nothing. Panels
+        are rendered at this image's physical in-plane voxel aspect ratio by
+        default; pass `zooms=None` in `kwargs` to fall back to square pixels.
         """
         # Check if orientation or display_plane is provided in kwargs and orient images
         logger.debug(
@@ -145,6 +147,22 @@ class NiiBase:
                 images = self.apply_mask(mask)
             except ValueError as e:
                 logger.error(f"Error applying mask: {e}. Displaying unmasked images.")
+
+        # The two in-plane axes of the displayed grid, scaled by the display
+        # affine's column norms, give the physical row/col spacing to render
+        # the panel at -- correct even for oblique affines, unlike reading
+        # header zooms post-transpose.
+        resolved_orientation = (
+            self.orientation if orientation is None and display_plane is None else orientation
+        )
+        display_affine = nifti.get_display_affine(
+            self.nii, orientation=resolved_orientation, display_plane=display_plane
+        )
+        zooms = (
+            float(np.linalg.norm(display_affine[:3, 0])),
+            float(np.linalg.norm(display_affine[:3, 1])),
+        )
+        kwargs.setdefault("zooms", zooms)
 
         plotting.images.display_images(images, **kwargs)
 

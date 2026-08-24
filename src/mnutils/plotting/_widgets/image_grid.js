@@ -63,6 +63,7 @@ function renderWidget(data, el) {
     colorbar_mode: colorbarMode,
     initial_index: initialIndex,
     slice_label: sliceLabel,
+    panel_aspect: panelAspect,
   } = data;
 
   // WebP with an alpha channel: values the colormap marks "bad" (NaN, and so
@@ -104,6 +105,12 @@ function renderWidget(data, el) {
     img.className = "mnutils-image-grid-image";
     img.src = urls[initialIndex][p];
     img.alt = titles[p] ? `Panel: ${titles[p]}` : `Panel ${p + 1}`;
+    if (panelAspect) {
+      // The physical aspect ratio overrides the raster's own pixel aspect,
+      // so the pixel grid has to be stretched (not letterboxed) to fill it.
+      img.style.aspectRatio = String(panelAspect);
+      img.style.objectFit = "fill";
+    }
     images.push(img);
     cell.append(img);
 
@@ -149,9 +156,14 @@ function renderWidget(data, el) {
   };
 
   // The frames' aspect ratio decides how wide the panels want to be, and so
-  // how wide the whole widget is allowed to grow (see --mnu-panel-w-cap).
-  // Only measurable once a frame has decoded, hence the load handler.
+  // how wide the whole widget is allowed to grow (see --mnu-panel-w-cap). With
+  // no explicit panel_aspect this is only measurable once a frame has
+  // decoded, hence the load handler; with one, it's known up front.
+  if (panelAspect) {
+    viewer.style.setProperty("--mnu-aspect", String(panelAspect));
+  }
   const syncAspect = () => {
+    if (panelAspect) return;
     const img = images.find((candidate) => candidate.naturalWidth);
     if (img) viewer.style.setProperty("--mnu-aspect", String(img.naturalWidth / img.naturalHeight));
   };

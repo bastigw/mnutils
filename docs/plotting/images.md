@@ -233,6 +233,29 @@ wide.shape  # (30, 90, 1, 3): three wide panels, one slice
 display_images(wide, titles=["t = 0", "t = 1", "t = 2"], colorbar=True)
 ```
 
+(plotting-images-zooms)=
+
+## Anisotropic voxels: physical aspect via `zooms`
+
+Pixel count is a proxy for physical size only when voxels are cubes. A sagittal series
+reoriented to axial can end up with, say, 1 mm spacing along one in-plane axis and 0.5 mm along
+the other — the array above is `(30, 90)` in *pixels*, but if the row spacing is twice the column
+spacing, a voxel is physically square and the panel should render square too, not 3x wider than
+tall. `display_images` doesn't resample the array to fix this — that would throw away the
+original grid just to look at it — it just needs to be told the physical spacing:
+
+```{code-cell} ipython3
+display_images(wide[:, :, 0, 0], zooms=(2.0, 1.0))  # row spacing 2mm, col spacing 1mm
+```
+
+`zooms` is `(row_spacing, col_spacing)` for the two in-plane axes of the panel actually shown —
+the same pair [`utils.nifti.get_display_affine`](#mnutils.utils.nifti.get_display_affine) derives
+from a NIfTI's affine, which is where `NiiBase.display()` gets it automatically. Passed here
+directly, a `2.0`/`1.0` split doubles the physical height for the same pixel grid, so the panel
+above renders roughly square instead of the 4x-wider-than-tall shape the same array had further
+up this page. Omit `zooms` (the default) and panels keep the pixel-count aspect ratio shown
+throughout the rest of this page.
+
 :::{note}
 Panels fill their column and the column shrinks with the space available, so a narrow editor pane
 produces smaller panels rather than clipped ones — down to a floor. `--mnu-panel-min-h` and
