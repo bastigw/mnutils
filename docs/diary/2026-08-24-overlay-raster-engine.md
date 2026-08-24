@@ -45,14 +45,22 @@ mnutils.plotting.overlay_image_data_on_T1(t1, pdff, mask=roi)
 overlay_image_data_on_T1(t1_slice, pdff_slice, ax=fig.add_subplot(1, 3, 3))
 ```
 
-The raster branch reuses `_render_frames` exactly as `inspect_MRSI_spectra` already calls it — a
-gray T1 layer, a colormapped data layer, alpha-blended — once per panel (T1 / data / overlay), fed
-into the same `ImageGridWidget` the plain grid already uses. No new renderer.
+`_render_overlay_raster_frames` calls `_render_frames` up to three times per widget — once per
+panel (T1: one gray layer; Data: one colormapped layer; Overlay: both, alpha-blended) — with a
+`jobs = [(s,) for s in range(n_slices)]` job per slice, the same job shape
+`inspect_MRSI_spectra`'s left panel already used. Bounds for the T1 panel come from `fast_bounds`
+at the same `(1.0, 99.0)` percentiles `_draw_single_axis_overlay` uses for its anatomical layer;
+Data/Overlay bounds come from `_resolve_display_bounds`, honouring `vmin`/`vmax`/`v_percentile`
+the same way the matplotlib engine does. Frames are assembled `frames[slice][panel]` and handed to
+the existing `ImageGridWidget` — the same widget `display_images` already drives, so this ships no
+new frontend code.
 
 :::{dropdown} Why not keep `_on_ax` as a separate function?
 The repo has no enforced back-compat policy, and a thin wrapper forwarding to `ax=` would be dead
 weight the moment every internal caller moves. Removing it outright was cheaper than maintaining
-two names for one code path.
+two names for one code path. Its `ax is None: create own figure` branch went with it too — no call
+site (internal or in the docs) ever used it; `only_overlay=True` with `engine="matplotlib"` is the
+equivalent for a caller that still wants a single-panel `Figure`.
 :::
 
 :::{dropdown} Why not default to matplotlib for single-slice input, raster otherwise?
@@ -63,13 +71,27 @@ interactive-display function returns `None`, not a return value it has to keep f
 :::
 
 `mask_contour` has no cheap raster equivalent (no contour tracing in `_render_frames`); on the
-raster engine it's a warning and gets ignored rather than silently drawn or erroring. Plain mask
-*fill* stays a simple alpha composite either engine.
+raster engine it's a `logger.warning` and gets dropped (checked as `mask_contour is not None and
+mask_contour is not False`, since a truthiness check on an ndarray mask raises) rather than
+silently drawn or erroring. Plain mask *fill* stays a simple `np.where(mask, data, nan)` composite
+on either engine.
 
-:::{attention} Assumptions to verify
-- That the raster engine's T1/data panel bounds (`fast_bounds`, `_resolve_display_bounds`) produce
-  a visual match close enough to the matplotlib engine's that switching the default doesn't read
-  as a regression to existing notebooks.
-- That routing `inspect_MRSI_spectra`'s existing `_render_frames` call and the new overlay panels
-  through the same layer shapes doesn't surface a bounds/alpha edge case neither caller hit alone.
-:::
+(diary-overlay-raster-engine-changed)=
+
+## What changed from the plan
+
+The plan's first draft proposed collapsing `inspect_MRSI_spectra`'s inline
+`_render_frames` call and the new Overlay panel into one shared helper, since both build the exact
+same gray-T1-plus-alpha-data layer stack. That idea didn't survive review: `_render_frames` itself
+stays exactly as it was — a single generic compositor, not split or wrapped further — and
+`_render_overlay_raster_frames` calls it directly, the same way `inspect_MRSI_spectra` always has.
+The two call sites still read identically side by side; consolidating them into a third function
+would have bought a few lines at the cost of one more name to hold in mind for a shape that's
+already legible by inspection.
+
+The type-safety question that prompted the idea landed on `overlay_image_data_on_T1` instead: its
+three call shapes (`ax=`, `engine="matplotlib"`, `engine="raster"`/default) get their own
+`@overload`s, matching numpy's dtype-dependent overload pattern, rather than one function
+returning a three-way union. `_Layer.bounds`'s `tuple | list[tuple]` union — the thing that would
+have motivated splitting `_render_frames` — stays exactly where it already was, confined to
+`_render_image_grid_frames`'s per-panel autoscale mode; the overlay engine never needs it.
