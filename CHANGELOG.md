@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-25
+
+### Added
+
+- Fast raster engine for `overlay_image_data_on_T1`: overlays are composited at pixel level
+  instead of drawn as per-voxel patches, so large MRSI grids render in a fraction of the time
+  ([#36](https://github.com/bastigw/mnutils/issues/36)).
+
+### Changed
+
+- README documents installing MNUtils from PyPI rather than from a git URL.
+- Dev-tooling dependencies bumped (`dev-tools` group).
+
 ## [1.2.0] - 2026-08-20
 
 First release published to PyPI.
@@ -28,5 +41,6 @@ First release published to PyPI.
 - Plotting falls back to system sans-serif fonts when Arial is unavailable.
 - Packaged sdist/wheel no longer ships the local `.ruff_cache` lint cache.
 
-[Unreleased]: https://github.com/bastigw/mnutils/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/bastigw/mnutils/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/bastigw/mnutils/releases/tag/v1.2.1
 [1.2.0]: https://github.com/bastigw/mnutils/releases/tag/v1.2.0
