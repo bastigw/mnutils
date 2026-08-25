@@ -241,6 +241,7 @@ def display_images(
     vmax: float | None = None,
     v_percentile: float = 1.0,
     zeros_as_nan: bool = False,
+    zooms: tuple[float, float] | None = None,
     **kwargs,
 ) -> None:
     """Display a grid of 2D/3D/4D images, with a slice slider for 3D/4D input.
@@ -283,6 +284,13 @@ def display_images(
         default 1.0.
     zeros_as_nan : bool, optional
         If True, treat zero values as NaN for display, by default False.
+    zooms : tuple[float, float], optional
+        Physical (row, col) voxel edge lengths of the displayed slice, e.g.
+        from `utils.nifti.get_display_zooms`. When given, panels are rendered
+        with an aspect ratio that matches real anatomy instead of one square
+        pixel per voxel; the through-plane spacing is irrelevant since only
+        one 2D slice is ever on screen at a time. Defaults to the pixel-count
+        aspect ratio (square voxels) when omitted.
     **kwargs
         Accepted and ignored: axis parameters such as `aspect`, `xlabel` or
         `xticks` have no Axes to apply to. Kept so existing call sites keep
@@ -404,6 +412,7 @@ def display_images(
             fig_title=fig_title,
             colorbar_mode=colorbar_mode,
             initial_index=slice_idx,
+            pixel_aspect=None if zooms is None else zooms[1] / zooms[0],
         )
     )
     return None

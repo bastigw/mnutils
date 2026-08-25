@@ -143,16 +143,23 @@
    the panel grows *wider* to reach --mnu-panel-min-h instead of being
    letterboxed into it. `min-height` stays as a backstop for the one case the
    columns can't fix -- a pane too narrow for even a single minimum-width
-   column -- and, with `object-fit: contain`, for a frame so tall that the
-   height cap bites before the width one. Either way the frame keeps its
-   aspect ratio; only the padding around it changes. */
+   column -- and for a frame so tall that the height cap bites before the
+   width one. Either way the box keeps the `--mnu-aspect` ratio below; only
+   its size changes. */
 .mnutils-image-grid-image {
   display: block;
   width: 100%;
   height: auto;
+  /* Defaults to the frame's own pixel-count ratio (see syncAspect in the JS),
+     so nothing changes for callers that don't pass `zooms`. When they do,
+     this is the physical row/col ratio instead, and `object-fit: fill`
+     stretches the square-sampled pixels to it -- letterboxing (`contain`)
+     would keep them square and just pad the box, which is the wrong fix for
+     anisotropic voxels. */
+  aspect-ratio: var(--mnu-aspect, auto);
   min-height: var(--mnu-panel-min-h);
   max-height: var(--mnu-panel-max-h);
-  object-fit: contain;
+  object-fit: fill;
   /* Set per image by the JS: `pixelated` whenever the frame is being scaled
      up, so a 20x20 array reads as 400 big square pixels instead of a blur,
      and `auto` when it is being scaled down, where nearest-neighbour would

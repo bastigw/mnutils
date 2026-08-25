@@ -63,6 +63,7 @@ function renderWidget(data, el) {
     colorbar_mode: colorbarMode,
     initial_index: initialIndex,
     slice_label: sliceLabel,
+    pixel_aspect: pixelAspect,
   } = data;
 
   // WebP with an alpha channel: values the colormap marks "bad" (NaN, and so
@@ -151,9 +152,14 @@ function renderWidget(data, el) {
   // The frames' aspect ratio decides how wide the panels want to be, and so
   // how wide the whole widget is allowed to grow (see --mnu-panel-w-cap).
   // Only measurable once a frame has decoded, hence the load handler.
+  // `pixelAspect` (col spacing / row spacing) corrects the pixel-count ratio
+  // to the physical one so anisotropic voxels don't render square.
   const syncAspect = () => {
     const img = images.find((candidate) => candidate.naturalWidth);
-    if (img) viewer.style.setProperty("--mnu-aspect", String(img.naturalWidth / img.naturalHeight));
+    if (img) {
+      const pixelRatio = img.naturalWidth / img.naturalHeight;
+      viewer.style.setProperty("--mnu-aspect", String(pixelRatio * (pixelAspect ?? 1)));
+    }
   };
 
   for (const img of images) {

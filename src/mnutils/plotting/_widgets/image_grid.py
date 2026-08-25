@@ -51,6 +51,11 @@ class ImageGridWidget:
         Slice shown on first display, by default 0.
     slice_label : str, optional
         Label next to the slider, by default ``"Slice"``.
+    pixel_aspect : float, optional
+        Physical col-spacing / row-spacing of the displayed voxels. When
+        given, scales the panels' rendered aspect ratio away from the frames'
+        own pixel-count ratio so anisotropic voxels don't render square.
+        Defaults to None (square pixels, i.e. no correction).
     """
 
     def __init__(
@@ -64,6 +69,7 @@ class ImageGridWidget:
         colorbar_mode: str = "",
         initial_index: int = 0,
         slice_label: str = "Slice",
+        pixel_aspect: float | None = None,
     ) -> None:
         self._data: dict[str, Any] = {
             "frames": [
@@ -80,6 +86,7 @@ class ImageGridWidget:
             "colorbar_mode": colorbar_mode,
             "initial_index": initial_index,
             "slice_label": slice_label,
+            "pixel_aspect": pixel_aspect,
         }
 
     def _repr_html_(self) -> str:
