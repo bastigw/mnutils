@@ -66,9 +66,13 @@ def get_all_dicom_series_ids(data_folder: str | Path) -> tuple[list[int], list[i
     series_numbers.sort()
     logger.debug(f"Found series IDs: {series_numbers}")
 
-    # This should now be an increasing list of numbers without any missing ones
-    # Briefly check if any indices are missing and raise.
-    missing = sorted(set(range(series_numbers[0], series_numbers[-1] + 1)) - set(series_numbers))
+    # Only flag gaps within the low, dense protocol-step range (series <= 99).
+    # Series >= 100 are reformats/resaves with sparse-by-design numbering
+    # (e.g. 500/501, 40003) and must never be flagged as "missing".
+    missing = []
+    if series_numbers[0] <= 99:
+        dense_range = range(series_numbers[0], min(series_numbers[-1], 99) + 1)
+        missing = sorted(set(dense_range) - set(series_numbers))
     if missing:
         logger.error(f"Missing series IDs: {missing}. DOUBLE CHECK DATA FOLDER!")
 
