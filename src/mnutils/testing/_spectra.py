@@ -181,6 +181,54 @@ def grid_own_affine(
     return affine
 
 
+def rescale_affine_xy(affine: np.ndarray, old_matrix_xy: int, new_matrix_xy: int) -> np.ndarray:
+    """Same affine, x/y voxel size rescaled for a different in-plane matrix.
+
+    `GESeries.MRSISeries.create_MRSI_affine()` derives `RAW_exp`'s affine from this one's voxel
+    size via a shift correction tuned assuming the own NIfTI's resolution roughly matches the
+    blocky MRSI grid's (`own_diag/2`, meant to be a half-*blocky*-voxel nudge). A much finer own
+    NIfTI (e.g. an interpolated pseudo image) makes that term negligible instead, dragging
+    `RAW_exp`'s translation off by about half the *old* voxel size. Shifting this affine's own
+    translation by `(new_voxel - old_voxel) / 2` exactly cancels that drift, so
+    `create_MRSI_affine()`'s output is unchanged no matter this affine's own resolution.
+    """
+    scaled = affine.copy()
+    old_voxel = np.array([affine[0, 0], affine[1, 1]])
+    new_voxel = old_voxel * (old_matrix_xy / new_matrix_xy)
+    scaled[0, 0], scaled[1, 1] = new_voxel
+    scaled[:2, 3] += (new_voxel - old_voxel) / 2
+    return scaled
+
+
+def compute_pseudo_image(spec: np.ndarray, npts: int = 4) -> np.ndarray:
+    """A simplified port of the scanner's own MRSI pseudo-image algorithm (`mrsi2pseu.m`).
+
+    `how2ind=2` mode: RMS of the `npts` spectral points with the most energy, averaged over
+    every voxel, real-valued, at the spectrum's native `(i, j, k)` grid resolution. `spec` is
+    `(n_freq, i, j, k)`, matching `simulate_grid`'s output.
+    """
+    power_spec = np.abs(spec) ** 2
+    mean_power = power_spec.mean(axis=(1, 2, 3))
+    top_idx = np.argsort(mean_power)[-npts:]
+    return np.sqrt(power_spec[top_idx].mean(axis=0)).astype(np.float32)
+
+
+def fourier_zerofill_interpolate(data: np.ndarray, new_shape: tuple[int, ...]) -> np.ndarray:
+    """Zero-fill k-space interpolation onto `new_shape`.
+
+    Adds no new frequency content -- the same way a scanner console builds its higher-resolution
+    pseudo-image display from the native low-res MRSI grid.
+    """
+    orig_shape = np.array(data.shape)
+    new_shape_arr = np.maximum(np.array(new_shape), orig_shape)
+    kspace = np.fft.ifftshift(np.fft.ifftn(data))
+    padded = np.zeros(tuple(new_shape_arr), dtype=complex)
+    start = (new_shape_arr - orig_shape) // 2
+    end = start + orig_shape
+    padded[tuple(slice(s, e) for s, e in zip(start, end, strict=True))] = kspace
+    return np.fft.fftn(np.fft.fftshift(padded))
+
+
 # --- Sphere-ring phantom (NIST-style) -----------------------------------------------------------
 
 

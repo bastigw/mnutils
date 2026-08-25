@@ -28,6 +28,10 @@ from . import _spectra
 
 _RNG_SEED = 20260819
 
+# In-plane matrix an MRSI series' own "pseudo" NIfTI is interpolated up to for display -- matches
+# a real scanner console's zero-filled pseudo-image output, not the native spectral grid.
+_PSEUDO_IMAGE_MATRIX = 128
+
 
 def _mat_header(
     *,
@@ -93,9 +97,17 @@ def _write_own_nii(path: Path, data: np.ndarray, affine: np.ndarray) -> None:
 
 
 def _write_mat(path: Path, *, spec: np.ndarray, fov_mm: float, seed: int, **header_kwargs) -> None:
+    # MRSI's `spec` is `(n_freq, i, j, k)` -- `bb` is the real pseudo image the scanner derives
+    # from it. MRS's `spec` is `(n_freq, n_specs)`, no spatial grid to derive a pseudo image
+    # from, so `bb` stays a placeholder there (unread outside the MRSI case).
+    bb = (
+        _spectra.compute_pseudo_image(spec)
+        if spec.ndim == 4
+        else _rng(seed, "bb").standard_normal((4, 4))
+    )
     recon = {
         "h": _mat_header(fov_mm=fov_mm, **header_kwargs),
-        "bb": _rng(seed, "bb").standard_normal((4, 4)),
+        "bb": bb,
         "spec": spec,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,7 +168,7 @@ def _write_mrsi_mat(
     seed: int,
     intensity_map: np.ndarray | None = None,
     **header_kwargs,
-) -> None:
+) -> np.ndarray:
     if intensity_map is None:
         intensity_map = np.full(grid, 0.5, dtype=np.float32)
     spec = _spectra.simulate_grid(
@@ -178,6 +190,7 @@ def _write_mrsi_mat(
         centre_freq_x1e7=_CENTRE_FREQ_X1E7,
         **header_kwargs,
     )
+    return spec
 
 
 def _write_raw_fids_h5(series_folder: Path, series_id: int, fids: np.ndarray) -> None:
@@ -208,14 +221,9 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
     # The real T1 template, cropped to the head -- see _spectra._TEMPLATE_ATTRIBUTION.
     _spectra.write_template_t1(data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz")
 
-    # Series 8's own NIfTI seeds create_MRSI_nii/create_MRSI_affine *and* doubles as the
-    # per-grid-cell intensity map below -- real brain signal in, brain-shaped spectra out.
+    # Series 8's intensity map seeds create_MRSI_affine's reference voxel size *and* the
+    # per-grid-cell simulate_grid scaling below -- real brain signal in, brain-shaped spectra out.
     own_affine, intensity_map = _spectra.template_grid_intensity(grid)
-    _write_own_nii(
-        data / "008_MRSI_pseudo_S64_X10_Y10_Z10_T1_C1" / "8_MRSI_pseudo.nii.gz",
-        intensity_map * 200,
-        own_affine,
-    )
     # create_MRSI_affine() rescales x/y from the header's fov_mm/mtx[0] against own_affine's x
     # voxel size -- derive fov_mm from that same affine so the two agree (a mismatched hardcoded
     # value here inflates the MRSI grid relative to the real brain extent it's drawn over).
@@ -250,7 +258,7 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
         sctime=300_000_000.0,
     )
 
-    _write_mrsi_mat(
+    spec8 = _write_mrsi_mat(
         exam / "Series8" / "ScanArchive_Series8.mat",
         npts=700,
         grid=grid,
@@ -260,6 +268,20 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
         protocol="MRSI_pseudo",
         description="008_MRSI_pseudo_S64_X10_Y10_Z10_T1_C1",
         exam_number=1801,
+    )
+    # Series 8's own NIfTI (create_MRSI_nii/create_MRSI_affine's seed) is the scanner's own
+    # pseudo image: the native-grid pseudo image -- same algorithm as the .mat's `bb` -- zero-fill
+    # interpolated up for display, not an array faked independently of the spectra above.
+    pseudo_native8 = _spectra.compute_pseudo_image(spec8)
+    pseudo_interp8 = np.abs(
+        _spectra.fourier_zerofill_interpolate(
+            pseudo_native8, (_PSEUDO_IMAGE_MATRIX, _PSEUDO_IMAGE_MATRIX, pseudo_native8.shape[2])
+        )
+    )
+    _write_own_nii(
+        data / "008_MRSI_pseudo_S64_X10_Y10_Z10_T1_C1" / "8_MRSI_pseudo.nii.gz",
+        pseudo_interp8,
+        _spectra.rescale_affine_xy(own_affine, grid[0], _PSEUDO_IMAGE_MATRIX),
     )
 
     for series_id, npts in ((9, 700), (11, 700), (12, 1678)):
@@ -320,13 +342,8 @@ def _build_nist_phantom_exam(root: Path) -> None:
         grid, fov_mm=fov_mm, z_extent_mm=z_extent_mm, rings=rings
     )
     own_affine = _spectra.grid_own_affine(grid, (voxel_xy, voxel_xy, z_extent_mm / grid[2]))
-    _write_own_nii(
-        data / "005_MRSI_pseudo_S64_X12_Y12_Z3_T1_C1" / "5_MRSI_pseudo.nii.gz",
-        intensity_map * 200,
-        own_affine,
-    )
 
-    _write_mrsi_mat(
+    spec5 = _write_mrsi_mat(
         exam / "Series5" / "ScanArchive_Series5.mat",
         npts=700,
         grid=grid,
@@ -336,6 +353,18 @@ def _build_nist_phantom_exam(root: Path) -> None:
         protocol="MRSI_pseudo",
         description="005_MRSI_pseudo_S64_X12_Y12_Z3_T1_C1",
         exam_number=408,
+    )
+    # Series 5's own NIfTI: same scanner-pseudo-image relationship as the brain exam above.
+    pseudo_native5 = _spectra.compute_pseudo_image(spec5)
+    pseudo_interp5 = np.abs(
+        _spectra.fourier_zerofill_interpolate(
+            pseudo_native5, (_PSEUDO_IMAGE_MATRIX, _PSEUDO_IMAGE_MATRIX, pseudo_native5.shape[2])
+        )
+    )
+    _write_own_nii(
+        data / "005_MRSI_pseudo_S64_X12_Y12_Z3_T1_C1" / "5_MRSI_pseudo.nii.gz",
+        pseudo_interp5,
+        _spectra.rescale_affine_xy(own_affine, grid[0], _PSEUDO_IMAGE_MATRIX),
     )
 
 
