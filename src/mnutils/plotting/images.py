@@ -401,6 +401,7 @@ def display_images(
         vmin=vmin,
         vmax=vmax,
         per_panel_bounds=colorbar_mode == "each",
+        pixel_aspect=None if zooms is None else zooms[1] / zooms[0],
     )
     ipy_display(
         ImageGridWidget(
@@ -412,7 +413,6 @@ def display_images(
             fig_title=fig_title,
             colorbar_mode=colorbar_mode,
             initial_index=slice_idx,
-            pixel_aspect=None if zooms is None else zooms[1] / zooms[0],
         )
     )
     return None
@@ -446,6 +446,26 @@ class _Layer(NamedTuple):
     alpha: float = 1.0
 
 
+def _stretch_to_pixel_aspect(array: npt.NDArray, pixel_aspect: float) -> npt.NDArray:
+    """Nearest-neighbour-upscale one axis so the raster's own pixels are voxel-shaped.
+
+    `pixel_aspect` is physical col-spacing / row-spacing. Only ever upscales
+    -- the smaller-per-mm axis grows to match the other -- so no resolution is
+    lost on either axis, unlike scaling both to a common isotropic spacing.
+    Nearest-neighbour (voxel duplication) rather than interpolation: this is a
+    display-only raster, not the analysis data, and duplication is what keeps
+    a hard voxel edge hard instead of blurring it.
+    """
+    rows, cols = array.shape[:2]
+    row_scale = max(1.0, 1.0 / pixel_aspect)
+    col_scale = max(1.0, pixel_aspect)
+    new_rows, new_cols = max(1, round(rows * row_scale)), max(1, round(cols * col_scale))
+    if (new_rows, new_cols) == (rows, cols):
+        return array
+    resized = PIL.Image.fromarray(array).resize((new_cols, new_rows), PIL.Image.NEAREST)
+    return np.asarray(resized)
+
+
 def _render_frames(
     layers: Sequence[_Layer],
     jobs: Sequence[tuple[int, ...]],
@@ -453,6 +473,7 @@ def _render_frames(
     quality: int,
     lossless: bool = False,
     keep_alpha: bool = False,
+    pixel_aspect: float | None = None,
     max_workers: int = 8,
 ) -> list[bytes]:
     """Render a batch of colormapped rasters to WebP bytes, one per job.
@@ -485,6 +506,11 @@ def _render_frames(
     small hard-edged images, where the ringing shows and the payload argument
     disappears. `keep_alpha` carries the colormap's "bad" pixels (NaN) through
     as transparent instead of flattening them onto a baked-in background.
+    `pixel_aspect`, when given, upscales one axis of the composite (see
+    `_stretch_to_pixel_aspect`) so the frame's own dimensions already encode
+    the physical voxel aspect ratio -- the browser then needs no separate
+    aspect correction and stays on the same natural-size sizing path as the
+    unscaled case.
 
     WebP encoding releases the GIL, so frames are encoded on a thread pool.
     """
@@ -519,6 +545,8 @@ def _render_frames(
             ) // 255
 
         assert composite is not None, "at least one layer is required"
+        if pixel_aspect is not None:
+            composite = _stretch_to_pixel_aspect(composite, pixel_aspect)
         if keep_alpha:
             return _encode_webp(composite, "RGBA", quality=quality, lossless=lossless)
         return _encode_webp(
@@ -550,6 +578,7 @@ def _render_image_grid_frames(
     vmin: float | None,
     vmax: float | None,
     per_panel_bounds: bool,
+    pixel_aspect: float | None = None,
     quality: int = GRID_FRAME_QUALITY,
     max_workers: int = 8,
 ) -> tuple[list[list[bytes]], list[list[tuple[float, float]]]]:
@@ -588,6 +617,7 @@ def _render_image_grid_frames(
         quality=quality,
         lossless=images.shape[0] * images.shape[1] <= GRID_LOSSLESS_MAX_PIXELS,
         keep_alpha=True,
+        pixel_aspect=pixel_aspect,
         max_workers=max_workers,
     )
     return [rendered[s * num_images : (s + 1) * num_images] for s in range(n_slices)], bounds
