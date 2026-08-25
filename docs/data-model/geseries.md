@@ -51,6 +51,7 @@ logger.remove()
 from mnutils.GESeries import MRISeries, MRSISeries, MRSSeries, MRSWashinSeries, NiiBase
 from mnutils.plotting.spectra import plot_fid, plot_spectra
 from mnutils.testing import build_fake_exam
+from mnutils.utils.nifti import get_display_zooms
 ```
 
 ```{code-cell} ipython3
@@ -74,9 +75,10 @@ consistently across the toolbox, so plotting code never re-derives it.
 an anatomical scan. It converts the DICOMs to NIfTI on init if no NIfTI exists yet.
 
 :::{note}
-The anatomical volumes in these fake exams are cropped from a real T1 scan — Chris Rorden's
-`chris_t1`, from the [niivue-images](https://github.com/neurolabusc/niivue-images) sample set,
-licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (non-commercial use only).
+The anatomical volumes in these fake exams are cropped from real scans of the same subject —
+Chris Rorden's `chris_t1` and `chris_PD`, from the
+[niivue-images](https://github.com/neurolabusc/niivue-images) sample set, licensed
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (non-commercial use only).
 Downloaded and cached on first use by `mnutils.testing.build_fake_exam()` — see
 [the diary entry](#diary-synthetic-exam-fixtures) for how everything else here is simulated.
 :::
@@ -88,11 +90,53 @@ print(t1.nii.shape)
 ```
 
 ```{code-cell} ipython3
+t1.display(cmap="gray", display_plane="sagittal")
+```
+
+```{code-cell} ipython3
 :tags: [remove-cell]
 
 # STRICT TESTS: MRISeries
 assert isinstance(t1, NiiBase)
 assert t1.nii.ndim == 3
+```
+
+(data-model-geseries-anisotropic-voxels)=
+
+### Anisotropic voxels: `display()`'s `zooms` correction
+
+`t1` above happens to look right in every plane, but only because it was acquired isotropically --
+every voxel is a cube, so a square-pixel render matches real anatomy no matter which axis ends up
+in-plane. A real 2D-acquired scan usually isn't a cube: thin in-plane pixels, thick slices. Reorient
+one of those to a different `display_plane` and the thick axis can land in-plane, where rendering it
+as square pixels stretches or squashes it relative to real anatomy.
+
+`NiiBase.display` derives the physical (row, col) spacing of whichever two axes are currently
+in-plane (`utils.nifti.get_display_zooms`, built on the same reorientation `images()` applies) and
+passes it to `display_images` as `zooms`, so the render stays proportioned to real anatomy in every
+plane -- without resampling the underlying data.
+
+```{code-cell} ipython3
+pd = MRISeries(DATA_FOLDER, 4)  # 004_2D_Ax_PD
+print(f"Voxel size (mm): {pd.nii.header.get_zooms()}")  # thin in-plane, thick slices
+pd.display(cmap="gray", display_plane="axial")
+```
+
+```{code-cell} ipython3
+pd.display(cmap="gray", display_plane="coronal")
+```
+
+```{code-cell} ipython3
+pd.display(cmap="gray", display_plane="sagittal")
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: anisotropic voxels
+assert isinstance(pd, NiiBase)
+row_zoom, col_zoom = get_display_zooms(pd, display_plane="sagittal")
+assert row_zoom != col_zoom
 ```
 
 (data-model-geseries-mrsseries)=
