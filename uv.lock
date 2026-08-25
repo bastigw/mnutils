@@ -1857,6 +1857,7 @@ dependencies = [
     { name = "pillow" },
     { name = "scipy" },
     { name = "seaborn" },
+    { name = "xarray" },
     { name = "xmris", extra = ["fitting"] },
 ]
 
@@ -1898,6 +1899,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "seaborn", specifier = ">=0.13.2" },
     { name = "torch", marker = "extra == 'bet'", specifier = ">=2.10.0" },
+    { name = "xarray", specifier = ">=2025.6.1" },
     { name = "xmris", extras = ["fitting"], git = "https://github.com/andrewendlinger/xmris.git" },
 ]
 provides-extras = ["2025a", "bet"]

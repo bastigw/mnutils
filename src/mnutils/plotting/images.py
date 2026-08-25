@@ -4,7 +4,7 @@ import io
 import zlib
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, NamedTuple, TypedDict, Unpack
+from typing import Any, Literal, NamedTuple, TypedDict, Unpack, overload
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -667,44 +667,161 @@ def overlay_nifti_data_on_T1(
     return overlay_image_data_on_T1(t1_images, data_images, mask=mask_to_pass_on, **kwargs)
 
 
+def _render_overlay_raster_frames(
+    t1_images: npt.NDArray,
+    data_images: npt.NDArray,
+    mask: npt.NDArray[np.bool_] | None,
+    only_overlay: bool,
+    cmap: str = DEFAULT_PARAMS["cmap"],
+    alpha: float = 0.5,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    v_percentile: float = 1.0,
+) -> tuple[list[list[bytes]], list[list[tuple[float, float]]], list[str]]:
+    """Render `overlay_image_data_on_T1`'s panels straight to raster, one job per slice.
+
+    Reuses `_render_frames` exactly as `inspect_MRSI_spectra` already does --
+    a gray T1 layer, a colormapped data layer, alpha-blended for the overlay
+    panel -- rather than a matplotlib `Figure`/`savefig` round-trip. `mask`
+    (fill, non-contour) is applied the same way the matplotlib engine applies
+    it: `np.where(mask, data, nan)` before the data layer is built. Panel
+    bounds are computed the same way `_draw_single_axis_overlay` computes
+    them, for visual parity between engines.
+    """
+    n_slices = t1_images.shape[2]
+    jobs = [(s,) for s in range(n_slices)]
+
+    anat_bounds = fast_bounds(t1_images, p_lower=1.0, p_upper=99.0)
+    masked_data = np.where(mask, data_images, np.nan) if mask is not None else data_images
+    data_bounds = _resolve_display_bounds(masked_data, vmin, vmax, v_percentile)
+
+    panels: list[tuple[str, list[_Layer], tuple[float, float]]] = []
+    if not only_overlay:
+        panels.append(("T1 Image", [_Layer(t1_images, "gray", anat_bounds)], anat_bounds))
+        panels.append(("Resampled Data", [_Layer(masked_data, cmap, data_bounds)], data_bounds))
+    panels.append(
+        (
+            "Overlay",
+            [
+                _Layer(t1_images, "gray", anat_bounds),
+                _Layer(masked_data, cmap, data_bounds, alpha=alpha),
+            ],
+            data_bounds,
+        )
+    )
+
+    rendered = [
+        _render_frames(layers, jobs, quality=GRID_FRAME_QUALITY, keep_alpha=True)
+        for _, layers, _ in panels
+    ]
+    frames = [[rendered[p][s] for p in range(len(panels))] for s in range(n_slices)]
+    bounds = [[panel_bounds for _, _, panel_bounds in panels] for _ in range(n_slices)]
+    titles = [title for title, _, _ in panels]
+    return frames, bounds, titles
+
+
+@overload
+def overlay_image_data_on_T1(
+    t1_images: npt.NDArray,
+    data_images: npt.NDArray | None = None,
+    *,
+    ax: Axes,
+    mask: npt.NDArray[np.bool_] | None = None,
+    mask_contour: npt.NDArray[np.bool_] | bool | None = None,
+    mask_kwargs: dict[str, Any] | None = None,
+    **kwargs,
+) -> tuple[list[AxesImage], QuadContourSet | None]: ...
+@overload
 def overlay_image_data_on_T1(
     t1_images: npt.NDArray,
     data_images: npt.NDArray,
+    *,
+    engine: Literal["matplotlib"],
     mask: npt.NDArray[np.bool_] | None = None,
     mask_contour: npt.NDArray[np.bool_] | bool | None = None,
     only_overlay: bool = False,
     mask_kwargs: dict[str, Any] | None = None,
     **kwargs,
-) -> tuple[Figure, list[Axes]] | None:
+) -> tuple[Figure, list[Axes]] | None: ...
+@overload
+def overlay_image_data_on_T1(
+    t1_images: npt.NDArray,
+    data_images: npt.NDArray,
+    *,
+    engine: Literal["raster"] | None = None,
+    mask: npt.NDArray[np.bool_] | None = None,
+    mask_contour: npt.NDArray[np.bool_] | bool | None = None,
+    only_overlay: bool = False,
+    mask_kwargs: dict[str, Any] | None = None,
+    **kwargs,
+) -> None: ...
+def overlay_image_data_on_T1(
+    t1_images: npt.NDArray,
+    data_images: npt.NDArray | None = None,
+    mask: npt.NDArray[np.bool_] | None = None,
+    mask_contour: npt.NDArray[np.bool_] | bool | None = None,
+    only_overlay: bool = False,
+    mask_kwargs: dict[str, Any] | None = None,
+    engine: Literal["raster", "matplotlib"] | None = None,
+    ax: Axes | None = None,
+    **kwargs,
+) -> tuple[Figure, list[Axes]] | tuple[list[AxesImage], QuadContourSet | None] | None:
     """Display T1, resampled data, and overlay images side by side with a slice slider.
 
     Parameters
     ----------
     t1_images : ndarray
         T1-weighted anatomical image data.
-    data_images : ndarray
-        Data image, resampled into T1 space, to overlay.
+    data_images : ndarray, optional
+        Data image, resampled into T1 space, to overlay. Required unless `ax`
+        is given for a T1-only draw.
     mask : ndarray, optional
         Boolean mask applied to the overlay data, by default None.
     mask_contour : ndarray or bool, optional
         Mask (or `True` to reuse `mask`) whose contour is drawn on the
-        overlay axis, by default None.
+        overlay axis. Matplotlib engine only -- the raster engine has no
+        cheap contour equivalent and warns and ignores it.
     only_overlay : bool, optional
         If True, only show the overlay axis instead of T1, data, and
         overlay side by side, by default False.
     mask_kwargs : dict, optional
         Keyword arguments customizing the mask contour's appearance.
+    engine : {"raster", "matplotlib"}, optional
+        Rendering path. Defaults to `"raster"` (fast, no `Figure`) unless
+        `ax` is given, which forces matplotlib -- there is no client-side
+        `Axes` for a raster widget to draw into. If both are given, `ax`
+        wins and a mismatched `engine="raster"` is ignored with a warning.
+    ax : matplotlib.axes.Axes, optional
+        Draw a single overlay panel onto this axis instead of displaying the
+        T1/data/overlay widget. Implies the matplotlib engine.
     **kwargs
-        Additional keyword arguments forwarded to
-        `overlay_image_data_on_T1_on_ax`.
+        Additional keyword arguments forwarded to the resolved rendering path.
 
     Returns
     -------
-    tuple[Figure, list[Axes]] or None
-        For a single-slice input, the created figure and its axes. For
-        multi-slice input, an interactive slice-scrubbing widget is
-        displayed instead and `None` is returned.
+    tuple[Figure, list[Axes]] or tuple[list[AxesImage], QuadContourSet | None] or None
+        `ax` given: the plotted images and contours. `engine="matplotlib"`
+        with no `ax`: `(Figure, axes)` for single-slice input, `None` (widget
+        displayed) for multi-slice. Raster engine (default): always `None`
+        (widget displayed), single-slice included.
     """
+    if ax is not None:
+        if engine == "raster":
+            logger.warning(
+                "`ax` was given, which requires the matplotlib engine; ignoring engine='raster'."
+            )
+        return _draw_single_axis_overlay(
+            t1_images,
+            data_images,
+            mask=mask,
+            mask_contour=mask_contour,
+            ax=ax,
+            mask_kwargs=mask_kwargs,
+            **kwargs,
+        )
+
+    if data_images is None:
+        raise ValueError("data_images is required unless ax is given for a T1-only draw.")
     if data_images.shape != t1_images.shape:
         raise ValueError(
             f"T1 images and data images must have the same shape for overlay. "
@@ -722,31 +839,62 @@ def overlay_image_data_on_T1(
     else:
         slice_idx = t1_images.shape[2] // 2
 
-    # `mask_contour` only draws a contour when it's `True` (reuse `mask`); an
-    # explicit array is not applied here (matches this function's long-standing
-    # behavior; `overlay_image_data_on_T1_on_ax` is the one that honours it).
-    resolved_mask_contour = mask if mask_contour is True else None
-
-    overlay_kwargs = dict(
-        only_overlay=only_overlay,
-        mask=mask,
-        resolved_mask_contour=resolved_mask_contour,
-        mask_kwargs=mask_kwargs,
-        kwargs=kwargs,
-    )
-
-    n_slices = t1_images.shape[2]
-    if n_slices > 1:
-        frames = _render_overlay_frames(
-            t1_images, data_images, list(range(n_slices)), **overlay_kwargs
+    if engine == "matplotlib":
+        # `mask_contour` only draws a contour when it's `True` (reuse `mask`); an
+        # explicit array is not applied here (matches this function's long-standing
+        # behavior; `_draw_single_axis_overlay` is the one that honours it).
+        resolved_mask_contour = mask if mask_contour is True else None
+        overlay_kwargs = dict(
+            only_overlay=only_overlay,
+            mask=mask,
+            resolved_mask_contour=resolved_mask_contour,
+            mask_kwargs=mask_kwargs,
+            kwargs=kwargs,
         )
-        ipy_display(SliceViewerWidget(frames=frames, n_slices=n_slices, initial_index=slice_idx))
-        return None
+        n_slices = t1_images.shape[2]
+        if n_slices > 1:
+            frames = _render_overlay_frames(
+                t1_images, data_images, list(range(n_slices)), **overlay_kwargs
+            )
+            ipy_display(
+                SliceViewerWidget(frames=frames, n_slices=n_slices, initial_index=slice_idx)
+            )
+            return None
 
-    fig = plt.figure(figsize=(12, 4))
-    axes = [fig.subplots(1, 1)] if only_overlay else list(fig.subplots(1, 3))
-    _draw_overlay_slice(fig, axes, t1_images, data_images, slice_idx, **overlay_kwargs)
-    return fig, axes
+        fig = plt.figure(figsize=(12, 4))
+        axes = [fig.subplots(1, 1)] if only_overlay else list(fig.subplots(1, 3))
+        _draw_overlay_slice(fig, axes, t1_images, data_images, slice_idx, **overlay_kwargs)
+        return fig, axes
+
+    if mask_contour is not None and mask_contour is not False:
+        logger.warning(
+            "mask_contour has no raster engine equivalent (no contour tracing in "
+            "_render_frames); ignoring it. Pass engine='matplotlib' to draw a contour."
+        )
+
+    raster_kwarg_names = {"cmap", "alpha", "vmin", "vmax", "v_percentile"}
+    raster_kwargs = {k: v for k, v in kwargs.items() if k in raster_kwarg_names}
+    ignored = {k: v for k, v in kwargs.items() if k not in raster_kwarg_names}
+    if ignored:
+        logger.debug(
+            f"Ignoring matplotlib-only arguments {sorted(ignored)} on the raster engine: "
+            "there is no Axes to configure."
+        )
+
+    frames, bounds, titles = _render_overlay_raster_frames(
+        t1_images, data_images, mask, only_overlay, **raster_kwargs
+    )
+    ipy_display(
+        ImageGridWidget(
+            frames=frames,
+            bounds=bounds,
+            colormap_stops=_colormap_stops(raster_kwargs.get("cmap", DEFAULT_PARAMS["cmap"])),
+            num_cols=len(titles),
+            titles=titles,
+            initial_index=slice_idx,
+        )
+    )
+    return None
 
 
 def _draw_overlay_slice(
@@ -765,16 +913,16 @@ def _draw_overlay_slice(
     """Draw one slice of the `overlay_image_data_on_T1` panels onto given axes."""
     axes_idx = 0
     if not only_overlay:
-        overlay_image_data_on_T1_on_ax(
+        _draw_single_axis_overlay(
             t1_images[:, :, slice_idx], ax=axes[axes_idx], cmap="gray", **kwargs
         )
         axes[axes_idx].set_title("T1 Image")
         axes_idx += 1
-        overlay_image_data_on_T1_on_ax(data_images[:, :, slice_idx], ax=axes[axes_idx], **kwargs)
+        _draw_single_axis_overlay(data_images[:, :, slice_idx], ax=axes[axes_idx], **kwargs)
         axes[axes_idx].set_title("Resampled Data")
         axes_idx += 1
 
-    overlay_image_data_on_T1_on_ax(
+    _draw_single_axis_overlay(
         t1_images[:, :, slice_idx],
         data_images[:, :, slice_idx],
         mask=mask[:, :, slice_idx] if mask is not None else None,
@@ -815,30 +963,25 @@ def _render_overlay_frames(
     return frames
 
 
-def overlay_image_data_on_T1_on_ax(
+def _draw_single_axis_overlay(
     base_image: npt.NDArray,
     overlay_image: npt.NDArray | None = None,
     mask: npt.NDArray[np.bool_] | None = None,
     mask_contour: npt.NDArray[np.bool_] | bool | None = None,
-    ax: Axes | None = None,
+    *,
+    ax: Axes,
     cmap: str = DEFAULT_PARAMS["cmap"],
     alpha: float = 0.5,
     mask_kwargs: dict[str, Any] | None = None,
-    figsize: tuple[int, int] = (4, 4),
     **kwargs,
-) -> (
-    tuple[list[AxesImage], QuadContourSet | None]
-    | tuple[Figure, Axes, list[AxesImage], QuadContourSet | None]
-):
-    """Draw a single 2D anatomical image, optionally with a data overlay/mask.
+) -> tuple[list[AxesImage], QuadContourSet | None]:
+    """Draw one anatomical image, optionally with a data overlay/mask, onto `ax`.
 
-    If `ax` is omitted, creates its own figure and axes and returns them
-    alongside the plotted images/contours.
+    The folded body of the former `overlay_image_data_on_T1_on_ax` --
+    `overlay_image_data_on_T1(..., ax=...)` dispatches straight here. Real
+    matplotlib is unavoidable on this path: there is no client-side `Axes` for
+    a raster widget to draw into.
     """
-    created_fig = None
-    if ax is None:
-        created_fig, ax = plt.subplots(figsize=figsize)
-
     # Copy default image params and update with any provided kwargs
     remove_keys = ["vmin", "vmax", "v_percentile"]
     # Adjust aspect ratio based on image shape
@@ -867,8 +1010,6 @@ def overlay_image_data_on_T1_on_ax(
     # See if vmin and vmax are provided in kwargs and apply to data image
     if overlay_image is None:
         ax.set(**image_params)
-        if created_fig is not None:
-            return created_fig, ax, im, None
         return im, None
 
     vmin, vmax = _resolve_display_bounds(
@@ -920,8 +1061,6 @@ def overlay_image_data_on_T1_on_ax(
         contours = None
 
     ax.set(**image_params)
-    if created_fig is not None:
-        return created_fig, ax, im, contours
     return im, contours
 
 

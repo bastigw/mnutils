@@ -34,6 +34,7 @@ quartodoc:
       desc: DICOM/NIfTI conversion and image utilities.
       contents:
         - utils.nifti
+        - utils.partial_volume
         - utils.images
 
     - title: Plotting

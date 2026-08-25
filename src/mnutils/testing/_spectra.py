@@ -181,6 +181,54 @@ def grid_own_affine(
     return affine
 
 
+def rescale_affine_xy(affine: np.ndarray, old_matrix_xy: int, new_matrix_xy: int) -> np.ndarray:
+    """Same affine, x/y voxel size rescaled for a different in-plane matrix.
+
+    `GESeries.MRSISeries.create_MRSI_affine()` derives `RAW_exp`'s affine from this one's voxel
+    size via a shift correction tuned assuming the own NIfTI's resolution roughly matches the
+    blocky MRSI grid's (`own_diag/2`, meant to be a half-*blocky*-voxel nudge). A much finer own
+    NIfTI (e.g. an interpolated pseudo image) makes that term negligible instead, dragging
+    `RAW_exp`'s translation off by about half the *old* voxel size. Shifting this affine's own
+    translation by `(new_voxel - old_voxel) / 2` exactly cancels that drift, so
+    `create_MRSI_affine()`'s output is unchanged no matter this affine's own resolution.
+    """
+    scaled = affine.copy()
+    old_voxel = np.array([affine[0, 0], affine[1, 1]])
+    new_voxel = old_voxel * (old_matrix_xy / new_matrix_xy)
+    scaled[0, 0], scaled[1, 1] = new_voxel
+    scaled[:2, 3] += (new_voxel - old_voxel) / 2
+    return scaled
+
+
+def compute_pseudo_image(spec: np.ndarray, npts: int = 4) -> np.ndarray:
+    """A simplified port of the scanner's own MRSI pseudo-image algorithm (`mrsi2pseu.m`).
+
+    `how2ind=2` mode: RMS of the `npts` spectral points with the most energy, averaged over
+    every voxel, real-valued, at the spectrum's native `(i, j, k)` grid resolution. `spec` is
+    `(n_freq, i, j, k)`, matching `simulate_grid`'s output.
+    """
+    power_spec = np.abs(spec) ** 2
+    mean_power = power_spec.mean(axis=(1, 2, 3))
+    top_idx = np.argsort(mean_power)[-npts:]
+    return np.sqrt(power_spec[top_idx].mean(axis=0)).astype(np.float32)
+
+
+def fourier_zerofill_interpolate(data: np.ndarray, new_shape: tuple[int, ...]) -> np.ndarray:
+    """Zero-fill k-space interpolation onto `new_shape`.
+
+    Adds no new frequency content -- the same way a scanner console builds its higher-resolution
+    pseudo-image display from the native low-res MRSI grid.
+    """
+    orig_shape = np.array(data.shape)
+    new_shape_arr = np.maximum(np.array(new_shape), orig_shape)
+    kspace = np.fft.ifftshift(np.fft.ifftn(data))
+    padded = np.zeros(tuple(new_shape_arr), dtype=complex)
+    start = (new_shape_arr - orig_shape) // 2
+    end = start + orig_shape
+    padded[tuple(slice(s, e) for s, e in zip(start, end, strict=True))] = kspace
+    return np.fft.fftn(np.fft.fftshift(padded))
+
+
 # --- Sphere-ring phantom (NIST-style) -----------------------------------------------------------
 
 
@@ -336,3 +384,26 @@ def template_grid_intensity(grid: tuple[int, int, int]) -> tuple[np.ndarray, np.
     # cancel exactly, so the correction here is half a *native* voxel, not half the blocky one.
     own_affine[:2, 3] -= voxel_native[:2] / 2
     return own_affine, intensity_map
+
+
+def template_tissue_masks() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A binary head mask and a 3-label tissue segmentation of the cropped T1 template.
+
+    Returns `(brain, seg, affine)`, all on the template's own full-resolution grid. `seg`
+    labels are 1/2/3, split by intensity percentile inside `brain`.
+
+    These are **not** anatomically faithful -- intensity banding is not tissue segmentation.
+    They exist so partial-volume pages have a mask with realistic *shape*: convoluted borders,
+    a solid interior, and an extent that only partly overlaps the MRSI grid. That geometry is
+    what those pages test; which voxel is really grey matter is irrelevant to them.
+    """
+    data, affine = _cropped_template()
+    brain = data > data.max() * 0.15
+
+    seg = np.zeros(data.shape, dtype=np.int16)
+    lo, hi = np.percentile(data[brain], [33.0, 66.0])
+    seg[brain & (data <= lo)] = 1
+    seg[brain & (data > lo) & (data <= hi)] = 2
+    seg[brain & (data > hi)] = 3
+
+    return brain, seg, affine

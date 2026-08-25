@@ -222,7 +222,7 @@ points at the wrong pixel *unless* you shift it back by the crop's own offset.
 
 ```{code-cell} ipython3
 from mnutils.GESeries import MRISeries, MRSISeries
-from mnutils.plotting.images import draw_voxel_overlays_on_ax, overlay_image_data_on_T1_on_ax
+from mnutils.plotting.images import draw_voxel_overlays_on_ax, overlay_image_data_on_T1
 from mnutils.utils.nifti import get_display_affine, resample_and_orient_nifti
 
 hevo18_data = build_fake_exam("brain_mrs_mrsi_exam") / "data"
@@ -239,7 +239,7 @@ y_slice, x_slice = slice(140, 200), slice(90, 150)
 x_offset, y_offset = x_slice.start, y_slice.start
 
 fig, ax = plt.subplots(figsize=(4, 4))
-overlay_image_data_on_T1_on_ax(
+overlay_out = overlay_image_data_on_T1(
     t1_full[y_slice, x_slice, demo_voxel[2]],
     mrsi_full[y_slice, x_slice, demo_voxel[2]],
     ax=ax,
@@ -260,13 +260,18 @@ print(xy.min(axis=0) >= 0, xy.max(axis=0) <= [x_slice.stop - x_offset, y_slice.s
 assert (xy.min(axis=0) >= 0).all()
 assert (xy[:, 0].max() <= x_slice.stop - x_offset)
 assert (xy[:, 1].max() <= y_slice.stop - y_offset)
+
+# STRICT TESTS: ax= is a deterministic call shape -- (list[AxesImage], contours | None)
+overlay_images, overlay_contours = overlay_out
+assert len(overlay_images) == 2
+assert overlay_contours is None
 ```
 
 The recipe, generalized:
 
 1. Build `mrsi_to_display_affine = inv(get_display_affine(T1)) @ MRSI.RAW_exp.nii.affine`.
 2. Crop both anatomical and (resampled) MRSI images with the same `(y_slice, x_slice, z)` bounds.
-3. Plot the cropped images with `overlay_image_data_on_T1_on_ax`.
+3. Plot the cropped images with `overlay_image_data_on_T1(..., ax=...)`.
 4. Draw the voxel box with `draw_voxel_overlays_on_ax(ax, voxel, mrsi_to_display_affine, ...)` —
    still in full-image coordinates.
 5. Shift the patch: `patch.set_xy(patch.get_xy() - np.array([x_offset, y_offset]))`.
@@ -279,6 +284,60 @@ from mnutils.plotting.images import overlay_voxel_on_T1
 
 fig, ax = overlay_voxel_on_T1(t1, mrsi_brain, demo_voxel, figsize=(4, 4))
 plt.show()
+```
+
+(nifti-voxel-overlay-engine)=
+## `ax=` is one of three ways to call `overlay_image_data_on_T1`
+
+The single-`Axes` draw above is what `overlay_image_data_on_T1(..., ax=...)` dispatches to
+whenever `ax` is given -- there is no client-side `Axes` for a fast raster widget to draw into, so
+`ax` always forces matplotlib. Leave `ax` out and the T1/data/overlay slice-scrubbing widget is
+the default, rendered without a `Figure` at all:
+
+```{code-cell} ipython3
+raster_result = overlay_image_data_on_T1(t1_full, mrsi_full)
+print(raster_result)
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: raster is the default engine, always None (widget displayed)
+assert raster_result is None
+```
+
+`engine="matplotlib"` opts back into the pre-raster path, including its `(Figure, axes)` return
+for single-slice input:
+
+```{code-cell} ipython3
+mpl_fig, mpl_axes = overlay_image_data_on_T1(
+    t1_full[:, :, demo_voxel[2]], mrsi_full[:, :, demo_voxel[2]], engine="matplotlib"
+)
+plt.show()
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: engine="matplotlib" keeps the old (Figure, list[Axes]) return
+assert isinstance(mpl_fig, plt.Figure)
+assert len(mpl_axes) == 3
+```
+
+The raster engine has no contour tracing, so `mask_contour` warns and is dropped rather than
+silently doing nothing or erroring:
+
+```{code-cell} ipython3
+demo_mask = np.zeros(t1_full.shape, dtype=bool)
+demo_mask[t1_full.shape[0] // 4 : 3 * t1_full.shape[0] // 4, :, :] = True
+mask_contour_result = overlay_image_data_on_T1(t1_full, mrsi_full, mask=demo_mask, mask_contour=True)
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: mask_contour on the raster engine warns (not asserted here) and still returns None
+assert mask_contour_result is None
 ```
 
 :::{seealso}
