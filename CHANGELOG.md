@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-08-26
+
+### Added
+
+- `display_images` accepts `zooms=(row, col)` to render panels at physical voxel spacing instead of
+  pixel count; `NiiBase.display()` passes it automatically
+  ([#35](https://github.com/bastigw/mnutils/issues/35)).
+- `utils.nifti.get_display_zooms`, and `get_display_affine` now also accepts `display_plane` directly.
+- `docs/nifti/synthetic_dataset_gallery.md`, which checks every synthetic fixture's affine against its
+  own ground truth.
+
+### Fixed
+
+- `get_all_dicom_series_ids` derives the gap-check range from the series that are actually `<= 99` and
+  ends at the highest one present, so an exam containing a reformat series `>= 100` no longer reports
+  every free ID up to 99 as missing. Also fixes an `IndexError` on an empty data folder
+  ([#34](https://github.com/bastigw/mnutils/issues/34)).
+- `create_MRSI_affine` applied a resize shift *and* an extra half-blocky-voxel shift; the interpolated
+  pseudo image's affine was therefore offset by half a native voxel in x/y, visible as a posterior/right
+  shift when overlaid on a T1.
+- `NiiBase.with_new_data()` no longer force-reorients to `("P", "L", "S")`, which silently decoupled the
+  array data from the affine it was paired with.
+- Anisotropic voxels render stretched to their physical shape in the HTML image grid instead of square.
+
+## [1.2.2] - 2026-08-25
+
+### Fixed
+
+- `get_all_dicom_series_ids` no longer treats reformat/resave series IDs (`>= 100`, e.g. 500/501,
+  650/651, 40003) as gaps; only gaps within the dense protocol-step range are logged as errors
+  ([#34](https://github.com/bastigw/mnutils/issues/34)).
+
 ## [1.2.1] - 2026-08-25
 
 ### Added
@@ -41,6 +73,8 @@ First release published to PyPI.
 - Plotting falls back to system sans-serif fonts when Arial is unavailable.
 - Packaged sdist/wheel no longer ships the local `.ruff_cache` lint cache.
 
-[Unreleased]: https://github.com/bastigw/mnutils/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/bastigw/mnutils/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/bastigw/mnutils/releases/tag/v1.2.3
+[1.2.2]: https://github.com/bastigw/mnutils/releases/tag/v1.2.2
 [1.2.1]: https://github.com/bastigw/mnutils/releases/tag/v1.2.1
 [1.2.0]: https://github.com/bastigw/mnutils/releases/tag/v1.2.0
