@@ -243,7 +243,7 @@ class SphereRing:
 
     name: str
     n_spheres: int = 8
-    ring_radius_mm: float = 60.0
+    ring_radius_mm: float = 40.0
     z_offset_mm: float = 20.0
     sphere_radius_mm: float = 10.0
     intensity_range: tuple[float, float] = (0.3, 1.0)
@@ -265,7 +265,32 @@ class SphereRing:
         return out
 
 
-DEFAULT_SPHERE_RINGS: list[SphereRing] = [SphereRing(name="metabolite_ring")]
+DEFAULT_SPHERE_RINGS: list[SphereRing] = [
+    SphereRing(
+        name="metabolite_ring",
+        n_spheres=8,
+        ring_radius_mm=45.0,
+        z_offset_mm=5.0,
+        sphere_radius_mm=12.0,
+        intensity_range=(0.2, 1),
+    )
+]
+
+# A ring with no corresponding spectra -- `sphere_grid_intensity` never sees these, only
+# `sphere_phantom_image` does, so they show up as extra anatomical structure with zero MRSI
+# signal (a real phantom always has more visible structure than the spectroscopy sequence
+# actually excites). Offset to the opposite side of the central slice from DEFAULT_SPHERE_RINGS
+# so the two rings stay visually distinct despite both sitting near z=0.
+ANATOMY_ONLY_SPHERE_RINGS: list[SphereRing] = [
+    SphereRing(
+        name="anatomy_only_ring",
+        n_spheres=6,
+        ring_radius_mm=10.0,
+        z_offset_mm=-5.0,
+        sphere_radius_mm=6.0,
+        intensity_range=(0.4, 0.9),
+    )
+]
 
 
 def sphere_intensity(world_xyz: np.ndarray, rings: list[SphereRing]) -> np.ndarray:

@@ -326,20 +326,24 @@ def _build_nist_phantom_exam(root: Path) -> None:
     data = root / "data"
     exam = data / "ExamNISTanon"
     grid = (16, 16, 16)
-    fov_mm = 300.0  # -> 14 mm in-plane voxels, comfortably resolves the 8-sphere ring
+    fov_mm = 300.0  # -> 14 mm in-plane voxels, comfortably resolves the sphere rings
     z_extent_mm = 300.0
-    rings = _spectra.DEFAULT_SPHERE_RINGS
+    signal_rings = _spectra.DEFAULT_SPHERE_RINGS
+    # The anatomical phantom shows more structure than the spectroscopy sequence excites --
+    # ANATOMY_ONLY_SPHERE_RINGS never reaches sphere_grid_intensity, so those spheres carry no
+    # MRSI signal at all, only a T1-visible presence.
+    anatomy_rings = signal_rings + _spectra.ANATOMY_ONLY_SPHERE_RINGS
 
     _spectra.sphere_phantom_image(
         data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz",
         shape=(128, 128, 100),
         voxel_mm=1,
-        rings=rings,
+        rings=anatomy_rings,
         seed=2,
     )
 
     intensity_map, voxel_xy = _spectra.sphere_grid_intensity(
-        grid, fov_mm=fov_mm, z_extent_mm=z_extent_mm, rings=rings
+        grid, fov_mm=fov_mm, z_extent_mm=z_extent_mm, rings=signal_rings
     )
     own_affine = _spectra.grid_own_affine(grid, (voxel_xy, voxel_xy, z_extent_mm / grid[2]))
 
