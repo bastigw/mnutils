@@ -36,3 +36,6 @@ tests/autogen_notebooks/
 
 # superpowers skill working output (plans/specs) -- local only, not for the repo
 **/superpowers/
+
+# Ignore local environment file
+.env
