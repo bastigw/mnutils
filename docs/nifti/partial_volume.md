@@ -48,7 +48,7 @@ def panel(ax, image_2d, title, **kwargs):
 import nibabel as nib
 import numpy as np
 
-from mnutils.GESeries import MRISeries, MRSISeries
+from mnutils.GESeries import MRISeries, MRSISeries, NiiBase
 from mnutils.testing import build_fake_exam
 from mnutils.utils.partial_volume import mask_occupancy, target_halfwidths
 
@@ -57,28 +57,46 @@ t1 = MRISeries(root / "data", 2)
 mrsi = MRSISeries(root / "data", 8)
 
 # Segmentations of that same T1, written beside the exam by the fixture builder.
-brain_mask = nib.load(root / "derived" / "brain_mask.nii.gz")
-tissue_seg = nib.load(root / "derived" / "tissue_seg.nii.gz")
+brain_mask: nib.Nifti1Image = nib.load(root / "derived" / "brain_mask.nii.gz")  # ty:ignore[invalid-assignment]
+tissue_seg: nib.Nifti1Image = nib.load(root / "derived" / "tissue_seg.nii.gz")  # ty:ignore[invalid-assignment]
 ```
 
-Those are the three volumes on the fine grid — the anatomy, a binary mask of it, and a three-label
-segmentation. Same shape, same affine, one slice through each:
+That is four volumes but only two grids, and the split between them is the whole problem. Look at
+each one before any arithmetic happens — [`display()`](#mnutils.GESeries.NiiBase.display) draws an
+interactive grid with a slice slider rather than a static figure, so scrub through a volume instead
+of trusting whichever slice a figure happened to pick.
+
+The T1 is the fine grid, and the anatomy every other volume on this page is defined against:
 
 ```{code-cell} ipython3
-t1_data = np.asarray(t1.nii.dataobj)
-mask_data = np.asarray(brain_mask.dataobj)
-seg_data = np.asarray(tissue_seg.dataobj)
-
-z = t1_data.shape[2] // 2
-
-fig, axes = plt.subplots(1, 3, figsize=(9, 3.2), layout="constrained")
-panel(axes[0], t1_data[:, :, z], f"T1 anatomy, z={z}", cmap="gray")
-panel(axes[1], mask_data[:, :, z], "brain_mask (binary)", cmap="gray")
-seg_handle = panel(axes[2], seg_data[:, :, z], "tissue_seg (3 labels)", cmap="viridis")
-fig.colorbar(seg_handle, ax=axes[2], fraction=0.046, ticks=[0, 1, 2, 3])
+t1.display(cmap="gray")
 ```
 
-Now the grid they have to be mapped onto:
+The same head, as the spectroscopic acquisition sees it. One voxel per spectrum, a couple of dozen
+across the brain — each of those blocks is what the rest of this page has to attach a fraction to:
+
+```{code-cell} ipython3
+mrsi.RAW_exp.display()
+```
+
+Back on the fine grid, `brain_mask` is that T1 reduced to a binary in-or-out. This is the mask in
+"how much of this MRSI voxel is inside the mask": everything below is about pushing it onto the
+blocky grid above without losing or inventing volume. A bare `nibabel` image gets wrapped in
+`NiiBase` to borrow the same viewer:
+
+```{code-cell} ipython3
+NiiBase(brain_mask).display(cmap="viridis_r")
+```
+
+`tissue_seg` divides that same interior further into three categories. A single mask is the easier
+story, so most of the page uses `brain_mask`; the segmentation returns at the end, where the
+per-label fractions have to add back up to the whole voxel:
+
+```{code-cell} ipython3
+NiiBase(tissue_seg).display(cmap="okabe_ito", colorbar=True)
+```
+
+Fine grid and blocky grid, side by side as numbers — this is the mismatch to reconcile:
 
 ```{code-cell} ipython3
 target = mrsi.RAW_exp  # the blocky MRSI grid, one voxel per spectrum
@@ -115,6 +133,9 @@ mapping off the target grid is hatched — that is the overhang which will come 
 `coverage`:
 
 ```{code-cell} ipython3
+t1_data = np.asarray(t1.nii.dataobj)
+z = t1_data.shape[2] // 2
+
 slice_idx = np.indices(t1_data.shape[:2], dtype=np.float64)
 slice_idx = np.stack([slice_idx[0], slice_idx[1], np.full(t1_data.shape[:2], float(z))])
 slice_tgt = np.einsum("ab,bij->aij", tgt_from_mask[:3, :3], slice_idx) + tgt_from_mask[:3, 3, None, None]
