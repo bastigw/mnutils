@@ -1,6 +1,6 @@
 [project]
 name = "MNutils"
-version = "1.2.2"
+version = "1.2.3"
 
 authors = [
     {name = "Sebastian Bauer", email = "28663646+bastigw@users.noreply.github.com"}
