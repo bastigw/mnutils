@@ -310,11 +310,8 @@ with _PILImage.open(_io.BytesIO(tiny_frames[0][0])) as _im:
 
 Background voxels are often exactly `0`, not a small real value — treating them as data skews a
 colorbar built from `vmin`/`vmax`/percentile clipping toward the background instead of the signal
-you actually care about. Estimating bounds therefore always drops the zeros: that is
-`fast_bounds(..., exclude_zeros=True)` under the hood, and any caller of `fast_bounds` can ask for
-the same.
-
-What you *see* is a separate decision, and it is the one `zeros_as_nan` makes — on by default:
+you actually care about, and paints a slab of colormap-black over whatever you were overlaying
+onto. `zeros_as_nan` handles both, and is on by default:
 
 ```{code-cell} ipython3
 mostly_zero = np.zeros((20, 20))
@@ -324,10 +321,38 @@ display_images(mostly_zero, zeros_as_nan=True, colorbar=True)
 ```
 
 Masked-out voxels are _transparent_, not a colour: the panels are RGBA images, so the background
-of the page shows through them in both light and dark themes. Pass `zeros_as_nan=False` when you
-want the background painted with the colormap's low end instead — the bounds are unaffected either
-way, which is why pinning `vmin`/`vmax` no longer silently changes whether the background shows
-through.
+of the page shows through them in both light and dark themes. Pass `zeros_as_nan=False` to scale
+against — and paint — every voxel including the zeros.
+
+The flag is really two decisions that used to be tangled together, and each now lives with the
+code that acts on it. The numbers come from `fast_bounds`, which any caller can ask to skip zeros:
+
+```{code-cell} ipython3
+from mnutils.plotting.images import fast_bounds
+
+print("zeros counted: ", fast_bounds(mostly_zero))
+print("zeros excluded:", fast_bounds(mostly_zero, exclude_zeros=True))
+```
+
+The pixels come from the renderer, one layer at a time — which is what makes it work for the
+overlays too. `overlay_image_data_on_T1`, `overlay_nifti_data_on_T1`, `inspect_MRSI_spectra` and
+`overlay_voxel_on_T1` mask the *data* layer's zeros by default and leave the anatomical beneath
+alone, on either engine:
+
+```{code-cell} ipython3
+from mnutils.plotting.images import overlay_image_data_on_T1
+
+t1 = rng.random((20, 20, 3)) * 100 + 50
+sparse_data = np.zeros((20, 20, 3))
+sparse_data[8:12, 8:12, :] = rng.random((4, 4, 3)) * 100
+
+overlay_image_data_on_T1(t1, sparse_data, only_overlay=True)
+```
+
+Per layer rather than per call, because the two want opposite answers: an overlay's zeros are
+outside its field of view and should drop out, while the T1's zeros are the air around the head —
+mask those and the page background appears *inside* the skull outline. Pass `zeros_as_nan=False`
+to switch the data layer back off.
 
 :::{seealso}
 Overlaying one image on another (anatomical + MRSI) is `GESeries`-level, not a bare-array
