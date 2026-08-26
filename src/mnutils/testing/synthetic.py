@@ -220,6 +220,10 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
 
     # The real T1 template, cropped to the head -- see _spectra._TEMPLATE_ATTRIBUTION.
     _spectra.write_template_t1(data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz")
+    # Same subject, real 2D-acquired PD scan at its native anisotropic voxel size -- the fixture
+    # docs/data-model/geseries.md uses to show display_images' zooms aspect correction actually
+    # doing something, which the (isotropic) T1 above can't demonstrate.
+    _spectra.write_template_pd(data / "004_2D_Ax_PD" / "4_2D_Ax_PD.nii.gz")
 
     # Series 8's intensity map seeds create_MRSI_affine's reference voxel size *and* the
     # per-grid-cell simulate_grid scaling below -- real brain signal in, brain-shaped spectra out.

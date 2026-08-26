@@ -24,22 +24,66 @@ DEFAULT_RESAMPLE_PARAMS = {
 type DISPLAY_PLANES = Literal["axial", "coronal", "sagittal"]
 
 
+def _resolve_orientation(
+    orientation: tuple[str, str, str] | None, display_plane: DISPLAY_PLANES | None
+) -> tuple[str, str, str]:
+    """Resolve the target axis codes from `orientation`/`display_plane`.
+
+    Shared by `orient_nifti` and `get_display_affine` so the two can't drift apart.
+    """
+    if display_plane is not None:
+        match display_plane:
+            case "axial":
+                orientation = ("L", "P", "S")
+            case "coronal":
+                orientation = ("L", "I", "P")
+            case "sagittal":
+                orientation = ("I", "L", "P")
+            case _:
+                orientation = DEFAULT_PARAMS["orientation"]
+        logger.debug(f"Orienting NIfTI to {display_plane} plane. Using orientation {orientation}.")
+        return orientation
+
+    if orientation is None:
+        logger.debug(
+            f"No orientation specified. Using default orientation: {DEFAULT_PARAMS['orientation']}."
+        )
+        return DEFAULT_PARAMS["orientation"]
+
+    return orientation
+
+
 def get_display_affine(
     nii: spatialimages.SpatialImage | GESeries.NiiBase,
-    orientation: tuple[str, str, str] = ("L", "P", "S"),
+    orientation: tuple[str, str, str] | None = None,
+    display_plane: DISPLAY_PLANES | None = None,
 ) -> npt.NDArray[np.float64]:
     """Return the affine mapping display voxel indices (after orient_nifti) to world mm.
 
     orient_nifti applies apply_orientation then flipud(rot90(k=1)) which equals
     a transpose of axes 0 and 1. This function encodes both steps as an affine.
     Use inv(get_display_affine(t1)) @ mrsi_affine to get mrsi→display mapping.
+
+    Parameters
+    ----------
+    nii : nibabel.spatialimages.SpatialImage or GESeries.NiiBase
+        The image to compute the display affine for.
+    orientation : tuple[str, str, str], optional
+        Target axis codes. Defaults to `DEFAULT_PARAMS["orientation"]` if
+        neither this nor `display_plane` is given.
+    display_plane : {"axial", "coronal", "sagittal"}, optional
+        If given, overrides `orientation` with a preset for the named plane,
+        matching `orient_nifti`.
     """
     if isinstance(nii, GESeries.NiiBase):
         nii: spatialimages.SpatialImage = nii.nii
-    current_ornt = nib.orientations.io_orientation(nii.affine)
+    orientation = _resolve_orientation(orientation, display_plane)
+    # Reorient with the target axcodes applied directly (not composed with the
+    # image's current orientation via ornt_transform) -- orient_nifti does the same on
+    # the data via apply_orientation, and the two must use the identical permutation
+    # or the zooms end up describing axes other than the ones actually displayed.
     target_ornt = nib.orientations.axcodes2ornt(orientation)
-    transform = nib.orientations.ornt_transform(current_ornt, target_ornt)
-    reoriented = nii.as_reoriented(transform)  # pyright: ignore[reportArgumentType]
+    reoriented = nii.as_reoriented(target_ornt)
     oriented_affine = np.asarray(reoriented.affine, dtype=float)
     # flipud(rot90(k=1, axes=(0,1))) = pure transpose of axes 0 and 1.
     # This swaps columns 0 and 1 of the affine.
@@ -47,6 +91,26 @@ def get_display_affine(
     P[0, 0] = P[1, 1] = 0.0
     P[0, 1] = P[1, 0] = 1.0
     return oriented_affine @ P
+
+
+def get_display_zooms(
+    nii: spatialimages.SpatialImage | GESeries.NiiBase,
+    orientation: tuple[str, str, str] | None = None,
+    display_plane: DISPLAY_PLANES | None = None,
+) -> tuple[float, float]:
+    """Return the (row, col) physical voxel edge lengths of the displayed grid, in mm.
+
+    The column norms of `get_display_affine`'s first two columns give the
+    physical spacing along the two in-plane axes `orient_nifti` puts at
+    positions 0 and 1 -- correct even for oblique/rotated affines, unlike
+    reading `nii.header.get_zooms()` and guessing which entries survived the
+    reorientation/transpose. Meant to be passed straight through as
+    `display_images(..., zooms=...)`.
+    """
+    display_affine = get_display_affine(nii, orientation=orientation, display_plane=display_plane)
+    row_spacing = float(np.linalg.norm(display_affine[:3, 0]))
+    col_spacing = float(np.linalg.norm(display_affine[:3, 1]))
+    return row_spacing, col_spacing
 
 
 def orient_nifti(
@@ -82,23 +146,7 @@ def orient_nifti(
     """
     if isinstance(nii, GESeries.NiiBase):
         nii: spatialimages.SpatialImage = nii.nii
-    if display_plane is not None:
-        match display_plane:
-            case "axial":
-                orientation = ("L", "P", "S")
-            case "coronal":
-                orientation = ("L", "I", "P")
-            case "sagittal":
-                orientation = ("I", "L", "P")
-            case _:
-                orientation = DEFAULT_PARAMS["orientation"]
-        logger.debug(f"Orienting NIfTI to {display_plane} plane. Using orientation {orientation}.")
-
-    if orientation is None:
-        logger.debug(
-            f"No orientation specified. Using default orientation: {DEFAULT_PARAMS['orientation']}."
-        )
-        orientation = DEFAULT_PARAMS["orientation"]
+    orientation = _resolve_orientation(orientation, display_plane)
 
     if caching:
         logger.debug(

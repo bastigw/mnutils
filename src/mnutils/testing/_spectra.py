@@ -22,9 +22,15 @@ from loguru import logger
 from numpy.typing import ArrayLike
 
 _TEMPLATE_URL = "https://raw.githubusercontent.com/neurolabusc/niivue-images/main/chris_t1.nii.gz"
+# Same subject, same repo/license as _TEMPLATE_URL -- a real 2D-acquired proton-density scan, kept
+# at its native (anisotropic) voxel size rather than resampled, so it's the fixture that actually
+# exercises display_images' zooms aspect correction (issue #35). See write_template_pd.
+_TEMPLATE_PD_URL = (
+    "https://raw.githubusercontent.com/neurolabusc/niivue-images/main/chris_PD.nii.gz"
+)
 _TEMPLATE_ATTRIBUTION = (
-    "T1 anatomical fixtures are resampled from Chris Rorden's 'chris_t1', part of the "
-    "niivue-images sample set (https://github.com/neurolabusc/niivue-images), licensed "
+    "T1 and PD anatomical fixtures are resampled from Chris Rorden's 'chris_t1'/'chris_PD', part "
+    "of the niivue-images sample set (https://github.com/neurolabusc/niivue-images), licensed "
     "CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/) -- non-commercial use only."
 )
 
@@ -329,25 +335,19 @@ def sphere_grid_intensity(
 # --- Real T1 template (brain-shaped anatomy) ----------------------------------------------------
 
 
-def _template_cache_path() -> Path:
-    return Path(tempfile.gettempdir()) / "mnutils_template_cache" / "chris_t1.nii.gz"
-
-
-def _fetch_t1_template_path() -> Path:
-    """Download the CC BY-NC 4.0 template once per machine, cached under the system temp dir."""
-    cache = _template_cache_path()
+def _download_and_cache(url: str, cache_name: str) -> Path:
+    """Download `url` once per machine, cached under the system temp dir."""
+    cache = Path(tempfile.gettempdir()) / "mnutils_template_cache" / cache_name
     if not cache.is_file():
         cache.parent.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Downloading T1 template fixture from {_TEMPLATE_URL} to {cache}")
-        with urllib.request.urlopen(_TEMPLATE_URL, timeout=30) as response:  # noqa: S310
+        logger.info(f"Downloading template fixture from {url} to {cache}")
+        with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
             cache.write_bytes(response.read())
     return cache
 
 
-@functools.cache
-def _cropped_template() -> tuple[np.ndarray, np.ndarray]:
-    """The template's data cropped to its non-background bounding box, and the matching affine."""
-    img = nib.load(_fetch_t1_template_path())
+def _crop_nonbackground(img: nib.Nifti1Image) -> tuple[np.ndarray, np.ndarray]:
+    """Crop `img`'s data to its non-background bounding box; return data and the matching affine."""
     data = np.asarray(img.get_fdata(), dtype=np.float32)
     mask = data > (data.max() * 0.05)
     idx = np.array(np.where(mask))
@@ -358,9 +358,43 @@ def _cropped_template() -> tuple[np.ndarray, np.ndarray]:
     return cropped, affine
 
 
+def _fetch_t1_template_path() -> Path:
+    """Download the CC BY-NC 4.0 T1 template once per machine, cached under the system temp dir."""
+    return _download_and_cache(_TEMPLATE_URL, "chris_t1.nii.gz")
+
+
+@functools.cache
+def _cropped_template() -> tuple[np.ndarray, np.ndarray]:
+    """T1 template data cropped to its non-background bounding box, and the matching affine."""
+    return _crop_nonbackground(nib.load(_fetch_t1_template_path()))
+
+
 def write_template_t1(path: Path) -> None:
     """Write the cropped, full-resolution template as an anatomical NIfTI."""
     data, affine = _cropped_template()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    nib.save(nib.Nifti1Image(data, affine), path)
+
+
+def _fetch_pd_template_path() -> Path:
+    """Download the CC BY-NC 4.0 PD template once per machine, cached under the system temp dir."""
+    return _download_and_cache(_TEMPLATE_PD_URL, "chris_pd.nii.gz")
+
+
+@functools.cache
+def _cropped_pd_template() -> tuple[np.ndarray, np.ndarray]:
+    """PD template data cropped to its non-background bounding box, and the matching affine."""
+    return _crop_nonbackground(nib.load(_fetch_pd_template_path()))
+
+
+def write_template_pd(path: Path) -> None:
+    """Write the cropped, full-resolution PD template as an anatomical NIfTI.
+
+    Unlike `write_template_t1`, this is kept at its native 0.86x0.86x2.4mm voxel size -- a real 2D
+    -acquired scan's in-plane vs. slice-thickness anisotropy, not resampled to isotropic -- so it's
+    the fixture that exercises `display_images`' `zooms` aspect correction (issue #35).
+    """
+    data, affine = _cropped_pd_template()
     path.parent.mkdir(parents=True, exist_ok=True)
     nib.save(nib.Nifti1Image(data, affine), path)
 

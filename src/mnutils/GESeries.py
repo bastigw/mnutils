@@ -148,6 +148,10 @@ class NiiBase:
             except ValueError as e:
                 logger.error(f"Error applying mask: {e}. Displaying unmasked images.")
 
+        kwargs.setdefault(
+            "zooms",
+            nifti.get_display_zooms(self, orientation=orientation, display_plane=display_plane),
+        )
         plotting.images.display_images(images, **kwargs)
 
     def overlay_on_T1(

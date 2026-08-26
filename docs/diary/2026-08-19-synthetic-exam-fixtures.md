@@ -1,7 +1,7 @@
 (diary-synthetic-exam-fixtures)=
 # CI can't see a scanner, so the test exam has to be born on disk
 
-<span style="color: gray; font-size: 0.9em;">Last edited: 2026-08-19</span>
+<span style="color: gray; font-size: 0.9em;">Last edited: 2026-08-25</span>
 
 CI (#3) ran green locally and failed for real: `tests/datasets/` is `.gitignore`d, so `HeVo-18`,
 `HeVo-23`, `LG_D19`, and `20250408-NIST-Mag2` (now `brain_mrs_mrsi_exam`, `brain_extraction_exam`,
@@ -117,12 +117,21 @@ only**. `_fetch_t1_template_path()` downloads it once per machine into the syste
 (`mnutils_template_cache/`) and reuses that cache on every later call; nothing is checked into the
 repo, and every CI run either downloads or reuses its own runner-local copy.
 
+`brain_mrs_mrsi_exam` also carries a second, sibling volume from the same subject/repo/license:
+**`chris_PD`**, series 4 (`004_2D_Ax_PD`), fetched and cropped the same way
+(`_fetch_pd_template_path()`/`write_template_pd()`) but — unlike the T1 above — kept at its native
+0.86x0.86x2.4mm voxel size rather than resampled to isotropic. It exists specifically because the T1
+can't demonstrate anything about voxel shape: every axis of a cube looks right regardless of which
+one ends up in-plane. `chris_PD`'s real in-plane/slice-thickness anisotropy is what
+[the GESeries class hierarchy](#data-model-geseries-anisotropic-voxels) page uses to show
+`display()`'s `zooms` correction (issue #35) actually doing something across `display_plane`s.
+
 :::{dropdown} Why not skip the download and use a procedural phantom instead?
 A layered-ellipsoid/Shepp-Logan-style skull-brain model would need no network access and no
 attribution, but it isn't real anatomy — the whole point here was to stop looking at noise. The
-template is small (~4 MB), cached after the first fetch, and CC BY-NC 4.0 is easy to honor for a
-non-commercial open-source test fixture (attribution above, and in
-[the GESeries class hierarchy](#data-model-geseries) page where it's first loaded).
+templates are small (~4-5 MB combined), cached after the first fetch, and CC BY-NC 4.0 is easy to
+honor for a non-commercial open-source test fixture (attribution above, and in
+[the GESeries class hierarchy](#data-model-geseries) page where they're first loaded).
 :::
 
 (diary-synthetic-exam-fixtures-cleanup)=

@@ -150,7 +150,11 @@ function renderWidget(data, el) {
 
   // The frames' aspect ratio decides how wide the panels want to be, and so
   // how wide the whole widget is allowed to grow (see --mnu-panel-w-cap).
-  // Only measurable once a frame has decoded, hence the load handler.
+  // Only measurable once a frame has decoded, hence the load handler. When
+  // `zooms` was passed to `display_images`, the frame itself was already
+  // rendered at a physically-correct pixel size (see image_grid.py /
+  // images.py), so naturalWidth/naturalHeight already *is* the physical
+  // ratio -- no separate correction needed here.
   const syncAspect = () => {
     const img = images.find((candidate) => candidate.naturalWidth);
     if (img) viewer.style.setProperty("--mnu-aspect", String(img.naturalWidth / img.naturalHeight));
