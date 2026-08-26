@@ -78,10 +78,12 @@ def get_display_affine(
     if isinstance(nii, GESeries.NiiBase):
         nii: spatialimages.SpatialImage = nii.nii
     orientation = _resolve_orientation(orientation, display_plane)
-    current_ornt = nib.orientations.io_orientation(nii.affine)
+    # Reorient with the target axcodes applied directly (not composed with the
+    # image's current orientation via ornt_transform) -- orient_nifti does the same on
+    # the data via apply_orientation, and the two must use the identical permutation
+    # or the zooms end up describing axes other than the ones actually displayed.
     target_ornt = nib.orientations.axcodes2ornt(orientation)
-    transform = nib.orientations.ornt_transform(current_ornt, target_ornt)
-    reoriented = nii.as_reoriented(transform)  # pyright: ignore[reportArgumentType]
+    reoriented = nii.as_reoriented(target_ornt)
     oriented_affine = np.asarray(reoriented.affine, dtype=float)
     # flipud(rot90(k=1, axes=(0,1))) = pure transpose of axes 0 and 1.
     # This swaps columns 0 and 1 of the affine.
