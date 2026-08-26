@@ -399,11 +399,13 @@ def rc_context(rc: dict[str, Any]) -> Iterator[RcParams]:
         contain dots, so there is no keyword-argument form -- a mapping is the
         only way to spell them.
 
-    Yields
-    ------
+    Returns
+    -------
     RcParams
-        The live mapping, so it can be inspected or further modified inside
-        the block.
+        The live mapping, bound by ``as`` inside the block, so it can be
+        inspected or further modified there. (NumPy convention would call
+        this a ``Yields`` section; quartodoc's renderer raises on one, so it
+        is spelled ``Returns`` here.)
 
     Examples
     --------
