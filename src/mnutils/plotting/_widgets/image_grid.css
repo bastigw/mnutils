@@ -107,7 +107,7 @@
 /* `auto-fit` + `minmax(--mnu-panel-min-w-eff, 1fr)`: as many columns as fit at
    a readable size, wrapping to a new row when they don't -- where "readable"
    is both floors above, whichever binds. The nominal column count
-   (`GRID_MAX_COLS`, five) is enforced from above by the widget's max-width
+   (`rcParams["grid.max_cols"]`, five by default) is enforced from above by the widget's max-width
    rather than by a fixed track list -- a fixed list is what cut the fourth
    panel off in a narrow editor pane, since grid columns never wrap.
    `min(..., 100%)` keeps the minimum itself from overflowing a pane narrower

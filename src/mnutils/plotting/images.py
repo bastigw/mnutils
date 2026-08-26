@@ -23,6 +23,7 @@ from matplotlib.image import AxesImage
 from nibabel import affines, spatialimages
 
 from .. import GESeries, utils
+from ..rcparams import rcParams, resolve_rc
 from ._widgets import ImageGridWidget, MRSIVoxelInspectorWidget, SliceViewerWidget
 
 # WebP quality for the MRSI inspector's anatomical frames. These are display
@@ -45,9 +46,6 @@ GRID_FRAME_QUALITY = 92
 # a 700-panel grid) to fix artifacts nobody can see at that scale.
 GRID_LOSSLESS_MAX_PIXELS = 64 * 64
 
-# Panels per row in a `display_images` grid, before it wraps to a new one.
-GRID_MAX_COLS = 5
-
 # float16 tops out at 65504, and raw spectra routinely exceed that, so the
 # buffer is divided by a scale factor before the cast and multiplied back in
 # the browser. 32000 leaves an octave of headroom under the limit.
@@ -56,23 +54,6 @@ _F16_TARGET_MAX = 32000.0
 # Warn past this uncompressed spectra size -- a big grid can otherwise silently
 # produce a notebook hundreds of MB wide.
 _SPECTRA_WARN_BYTES = 32 * 1024**2
-
-DEFAULT_IMAGE_AX_PARAMS = {
-    "xlabel": "",
-    "xticks": [],
-    "ylabel": "",
-    "yticks": [],
-}
-
-DEFAULT_PARAMS = {
-    "cmap": "magma",
-    "ticker_steps": [1, 2, 4],
-}
-
-DEFAULT_MASK_PARAMS = {
-    "colors": "green",
-    "linewidths": 3,
-}
 
 
 def fast_bounds(
@@ -232,7 +213,7 @@ def display_images(
     images: npt.NDArray | list,
     titles: list[str] | None = None,
     fig_title: str = "",
-    cmap: str = DEFAULT_PARAMS["cmap"],
+    cmap: str | None = None,
     imshow_kws: dict[str, Any] | None = None,
     colorbar: bool = False,
     colorbar_kws: dict[str, Any] | None = None,
@@ -261,7 +242,7 @@ def display_images(
     fig_title : str, optional
         Overall figure title, by default "".
     cmap : str, optional
-        Colormap to use, by default the module's default colormap.
+        Colormap to use. Defaults to `rcParams["image.cmap"]`.
     imshow_kws : dict, optional
         Accepted and ignored: there is no `imshow` call left to forward them
         to. Kept so existing call sites keep working.
@@ -302,6 +283,7 @@ def display_images(
         The grid is displayed as a widget. For a single-slice input the
         widget simply has no slider.
     """
+    cmap = resolve_rc(cmap, "image.cmap")
     if titles is None:
         titles = []
 
@@ -328,9 +310,10 @@ def display_images(
         num_images = images.shape[3]
         # Nominal columns per row. The widget wraps to fewer when the pane is
         # too narrow for them, so this is the *most* a row will ever hold.
-        num_cols = min(GRID_MAX_COLS, num_images)
+        max_cols = rcParams["grid.max_cols"]
+        num_cols = min(max_cols, num_images)
         slice_idx = images.shape[2] // 2
-        num_rows = -(-num_images // GRID_MAX_COLS)
+        num_rows = -(-num_images // max_cols)
         logger.debug(f"Displaying {num_images} images in a {num_rows}x{num_cols} grid.")
         # Check that 3rd dimension is the same for all images
         for i in range(1, num_images):
@@ -711,7 +694,7 @@ def _render_overlay_raster_frames(
     data_images: npt.NDArray,
     mask: npt.NDArray[np.bool_] | None,
     only_overlay: bool,
-    cmap: str = DEFAULT_PARAMS["cmap"],
+    cmap: str | None = None,
     alpha: float = 0.5,
     vmin: float | None = None,
     vmax: float | None = None,
@@ -727,6 +710,7 @@ def _render_overlay_raster_frames(
     bounds are computed the same way `_draw_single_axis_overlay` computes
     them, for visual parity between engines.
     """
+    cmap = resolve_rc(cmap, "image.cmap")
     n_slices = t1_images.shape[2]
     jobs = [(s,) for s in range(n_slices)]
 
@@ -927,7 +911,7 @@ def overlay_image_data_on_T1(
         ImageGridWidget(
             frames=frames,
             bounds=bounds,
-            colormap_stops=_colormap_stops(raster_kwargs.get("cmap", DEFAULT_PARAMS["cmap"])),
+            colormap_stops=_colormap_stops(resolve_rc(raster_kwargs.get("cmap"), "image.cmap")),
             num_cols=len(titles),
             titles=titles,
             initial_index=slice_idx,
@@ -1009,7 +993,7 @@ def _draw_single_axis_overlay(
     mask_contour: npt.NDArray[np.bool_] | bool | None = None,
     *,
     ax: Axes,
-    cmap: str = DEFAULT_PARAMS["cmap"],
+    cmap: str | None = None,
     alpha: float = 0.5,
     mask_kwargs: dict[str, Any] | None = None,
     **kwargs,
@@ -1021,13 +1005,14 @@ def _draw_single_axis_overlay(
     matplotlib is unavoidable on this path: there is no client-side `Axes` for
     a raster widget to draw into.
     """
+    cmap = resolve_rc(cmap, "image.cmap")
     # Copy default image params and update with any provided kwargs
     remove_keys = ["vmin", "vmax", "v_percentile"]
     # Adjust aspect ratio based on image shape
     aspect_ratio = base_image.shape[1] / base_image.shape[0]
     kwargs.setdefault("aspect", aspect_ratio)
     logger.trace(f"Setting image aspect ratio to {kwargs['aspect']:.2f}.")
-    image_params = DEFAULT_IMAGE_AX_PARAMS.copy()
+    image_params = rcParams.group("image.ax")
     image_params.update(kwargs)
     image_params = {k: v for k, v in image_params.items() if k not in remove_keys}
 
@@ -1091,7 +1076,7 @@ def _draw_single_axis_overlay(
 
     if mask_contour is not None:
         mask_contour = mask_contour.astype(np.bool_)
-        contour_kwargs = DEFAULT_MASK_PARAMS.copy()
+        contour_kwargs = rcParams.group("image.mask")
         if mask_kwargs is not None:
             contour_kwargs.update(mask_kwargs)
         logger.debug(f"Applying mask contour with parameters: {contour_kwargs}")
@@ -1539,7 +1524,7 @@ def overlay_voxel_on_T1(
     logger.debug(f"Displaying slice index: {slice_idx}")
 
     default_image_kwargs: dict[str, Any] = {"cmap": "gray"}
-    default_overlay_kwargs: dict[str, Any] = {"cmap": "magma", "alpha": 0.5}
+    default_overlay_kwargs: dict[str, Any] = {"cmap": rcParams["image.cmap"], "alpha": 0.5}
 
     # Update default kwargs with provided kwargs
     img_vmin, img_vmax = fast_bounds(t1_images[:, :, slice_idx])
