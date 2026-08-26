@@ -5,7 +5,6 @@ from functools import cached_property
 from pathlib import Path
 
 import h5py
-import nibabel as nib
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -96,13 +95,16 @@ class NiiBase:
             else:
                 affine = self.nii.affine
 
-        # Image data is to be oriented the following
-        orientated_data = nib.orientations.apply_orientation(
-            new_data, nib.orientations.axcodes2ornt(("P", "L", "S"))
-        )
+        # new_data's axes already match the index space `affine` describes (e.g. spec's own
+        # (i, j, k) grid, scaled by create_MRSI_affine()) -- no reorientation is warranted here.
+        # A previous version of this method applied a hardcoded apply_orientation(..., ("P", "L",
+        # "S")) permute+flip unconditionally, silently decoupling the stored array from the affine
+        # it was paired with (e.g. RAW_exp's data ending up several voxels from where its own
+        # affine said it was).
+        image_data = np.asarray(new_data)
 
         new_nii = self.nii.__class__(
-            orientated_data,  # pyright: ignore[reportArgumentType]
+            image_data,  # pyright: ignore[reportArgumentType]
             affine=affine.copy(),
             header=self.nii.header,
             extra=self.nii.extra,
