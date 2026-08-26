@@ -61,8 +61,8 @@ brain_mask: nib.Nifti1Image = nib.load(root / "derived" / "brain_mask.nii.gz")  
 tissue_seg: nib.Nifti1Image = nib.load(root / "derived" / "tissue_seg.nii.gz")  # ty:ignore[invalid-assignment]
 ```
 
-That is four volumes but only two grids, and the split between them is the whole problem. Before
-any arithmetic, look at each one — [`display()`](#mnutils.GESeries.NiiBase.display) draws an
+That is four volumes but only two grids, and the split between them is the whole problem. Look at
+each one before any arithmetic happens — [`display()`](#mnutils.GESeries.NiiBase.display) draws an
 interactive grid with a slice slider rather than a static figure, so scrub through a volume instead
 of trusting whichever slice a figure happened to pick.
 
@@ -80,24 +80,23 @@ mrsi.RAW_exp.display()
 ```
 
 Back on the fine grid, `brain_mask` is that T1 reduced to a binary in-or-out. This is the mask in
-the question at the top of the page: everything below is about pushing it onto the blocky grid
-without losing or inventing volume. A bare `nibabel` image gets wrapped in `NiiBase` to borrow the
-same viewer:
+"how much of this MRSI voxel is inside the mask": everything below is about pushing it onto the
+blocky grid above without losing or inventing volume. A bare `nibabel` image gets wrapped in
+`NiiBase` to borrow the same viewer:
 
 ```{code-cell} ipython3
 NiiBase(brain_mask).display(cmap="viridis_r")
 ```
 
-`tissue_seg` divides that same interior further — `0` background, `1` CSF, `2` grey matter, `3`
-white matter. A single mask is the easier story, so most of the page works with `brain_mask`; the
-segmentation returns at the end, where the per-label fractions have to add back up to the whole
-voxel:
+`tissue_seg` divides that same interior further into three categories. A single mask is the easier
+story, so most of the page uses `brain_mask`; the segmentation returns at the end, where the
+per-label fractions have to add back up to the whole voxel:
 
 ```{code-cell} ipython3
-NiiBase(tissue_seg).display(cmap="viridis_r")
+NiiBase(tissue_seg).display(cmap="okabe_ito", colorbar=True)
 ```
 
-Now the grid they have to be mapped onto:
+Fine grid and blocky grid, side by side as numbers — this is the mismatch to reconcile:
 
 ```{code-cell} ipython3
 target = mrsi.RAW_exp  # the blocky MRSI grid, one voxel per spectrum
