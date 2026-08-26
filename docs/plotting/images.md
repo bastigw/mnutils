@@ -230,7 +230,9 @@ wide.shape  # (30, 90, 1, 3): three wide panels, one slice
 ```
 
 ```{code-cell} ipython3
-display_images(wide, titles=["t = 0", "t = 1", "t = 2"], colorbar=True)
+titles = [f"t = {i}" for i in range(wide.shape[-1])]
+
+display_images(wide, titles=titles, colorbar=True)
 ```
 
 :::{note}
@@ -344,9 +346,11 @@ from mnutils.plotting.images import overlay_image_data_on_T1
 
 t1 = rng.random((20, 20, 3)) * 100 + 50
 sparse_data = np.zeros((20, 20, 3))
-sparse_data[8:12, 8:12, :] = rng.random((4, 4, 3)) * 100
+sparse_data[8:12, 8:12, :] = rng.random((4, 4, 3))
 
-overlay_image_data_on_T1(t1, sparse_data, only_overlay=True)
+overlay_image_data_on_T1(
+    t1, sparse_data, only_overlay=False, exclude_zeros=True, alpha=1, cmap="okabe_ito"
+)
 ```
 
 Per layer rather than per call, because the two want opposite answers: an overlay's zeros are

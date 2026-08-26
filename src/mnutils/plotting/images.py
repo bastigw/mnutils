@@ -797,8 +797,12 @@ def _render_overlay_raster_frames(
         )
     )
 
+    # Same encoder rule as the `display_images` grid: without it a small
+    # panel here came out lossy while the identical array rendered losslessly
+    # there, and WebP's ringing on hard voxel edges made the two disagree.
+    lossless = t1_images.shape[0] * t1_images.shape[1] <= GRID_LOSSLESS_MAX_PIXELS
     rendered = [
-        _render_frames(layers, jobs, quality=GRID_FRAME_QUALITY, keep_alpha=True)
+        _render_frames(layers, jobs, quality=GRID_FRAME_QUALITY, lossless=lossless, keep_alpha=True)
         for _, layers, _ in panels
     ]
     frames = [[rendered[p][s] for p in range(len(panels))] for s in range(n_slices)]
