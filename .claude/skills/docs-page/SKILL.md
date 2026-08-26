@@ -9,6 +9,17 @@ Hand-authored pages are MyST notebooks — jupytext frontmatter plus a kernelspe
 can reach for live `code-cell`s, real output and plots. What separates the two genres is **shape,
 reader, and where the cells are executed.**
 
+## 0. Git handoff — you stage, the user commits
+
+**Never run `git commit` yourself.** Stage the files (`git add`) and hand the change back: name
+what changed, quote the commit message you would have used, and let the user read the diff and
+commit it themselves. This binds in auto-accept mode too — a queued commit is still an unreviewed
+commit.
+
+**Never touch a remote without explicit confirmation.** `git push`, creating a remote branch or
+repo (`gh repo create`), opening a PR — ask with `AskUserQuestion` and wait for a yes. A yes
+covers that one action, not the next one.
+
 ## 1. Route by genre — read one template, not both
 
 | | **Tutorial** | **Guide** |
@@ -44,8 +55,8 @@ Every one of these is enforced by `check_docs.py` — run it before you finish (
 silent about all of them; the checker is not.
 
 - **Frontmatter is exact**, and `display_name: .venv` is the frozen kernel label. If
-  your local Jupyter rewrites it (to `Python 3 (ipykernel)` or similar), fix it back before
-  committing. Execution is unaffected either way; `name: python3` resolves to the uv venv.
+  your local Jupyter rewrites it (to `Python 3 (ipykernel)` or similar), fix it back before you
+  hand the change over. Execution is unaffected either way; `name: python3` resolves to the uv venv.
 - **Nothing before `(target)=` + `# H1`.** mystmd lifts the first heading into the page title but
   only *removes* it from the body when it leads the page. Put anything first — even a hidden
   `remove-cell` — and the title renders **twice**. The setup cell always comes *after* the H1.
@@ -58,7 +69,7 @@ silent about all of them; the checker is not.
   relative `.md` path.
 - **TOC entry in `docs/myst.yml` is mandatory** (except `testonly_`). The sidebar shows the TOC
   title — keep it consistent with the H1. A page missing from the TOC never renders.
-- **Commit only the `.md`.** `docs/**/*.ipynb` is gitignored; edits made in an `.ipynb` twin are
+- **Stage only the `.md`.** `docs/**/*.ipynb` is gitignored; edits made in an `.ipynb` twin are
   invisible to both tests and docs until synced back (`uv run jupytext --sync <file>`).
 
 Tone across both genres: conversational, sharp, concise, no filler — but never assuming expertise.
@@ -114,5 +125,6 @@ Two pathspec traps:
 - [ ] TOC entry in `docs/myst.yml` (unless `testonly_`); no `.ipynb` links
 - [ ] `check_docs.py` passes on the page (0 errors)
 - [ ] Tutorial only: notebook test run is green
-- [ ] Only the `.md` staged
+- [ ] Only the `.md` staged — staged, not committed; commit message proposed to the user
+- [ ] Remote actions (push, PR, remote branch) confirmed by the user first
 <!-- excerpt:end -->
