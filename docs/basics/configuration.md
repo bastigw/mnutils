@@ -39,17 +39,33 @@ memory transfers, including the escape hatches.
 | [`rcdefaults()`](#mnutils.rcparams.rcdefaults) | restores the built-ins |
 | [`rc_presets`](#mnutils.rcparams) | named override bundles (`"poster"`, `"talk"`, `"paper"`) |
 | [`display_images()`](#mnutils.plotting.images.display_images) | the grid whose panel size the last section retunes |
+| [`MRISeries`](#mnutils.GESeries.MRISeries) | the anatomical series every example here displays |
+| [`get_display_zooms()`](#mnutils.utils.nifti.get_display_zooms) | the physical (row, col) voxel spacing that keeps the render proportioned |
 
 (basics-configuration-what)=
 ## What is in there
 
 ```{code-cell} ipython3
-import numpy as np
-
 import mnutils
+from mnutils.GESeries import MRISeries
 from mnutils.plotting.images import display_images
+from mnutils.testing import build_fake_exam
+from mnutils.utils.nifti import get_display_zooms
 
 sorted(mnutils.rcParams)
+```
+
+Every example below displays one anatomical volume, from a fake exam built on the fly by
+`mnutils.testing.build_fake_exam` -- the same fixtures
+[the GESeries page](#data-model-geseries) uses:
+
+```{code-cell} ipython3
+DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam") / "data"
+
+t1 = MRISeries(DATA_FOLDER, 2)  # 002_3D_Ax_T1_BRAVO
+anatomical = t1.images()
+zooms = get_display_zooms(t1.nii)
+anatomical.shape, zooms
 ```
 
 The names are dotted and grouped by what they configure: `image.*` for how image panels are drawn,
@@ -68,11 +84,10 @@ Assign, and every later call picks it up:
 ```{code-cell} ipython3
 mnutils.rcParams["image.cmap"] = "viridis"
 
-rng = np.random.default_rng(1337)
-volume = rng.random((32, 32, 6))
-
-display_images(volume, fig_title="viridis, because rcParams says so")
+display_images(anatomical, zooms=zooms, fig_title="viridis, because rcParams says so")
 ```
+
+An anatomical scan wants `"gray"`, of course -- which is what the next section is for.
 
 :::{dropdown} Why this works at all — and why it didn't before
 A default that lives in a function signature is evaluated **once, at import**:
@@ -187,13 +202,13 @@ anatomical slice at that size throws away most of what is in the data — so `gr
 exists, and so does a per-call argument for the one figure that needs it:
 
 ```{code-cell} ipython3
-anatomical = rng.random((160, 160, 8))
+mnutils.rcParams["image.cmap"] = "gray"
 
-display_images(anatomical, fig_title="default panel height")
+display_images(anatomical, zooms=zooms, fig_title="default panel height")
 ```
 
 ```{code-cell} ipython3
-display_images(anatomical, panel_height="30rem", fig_title="panel_height='30rem'")
+display_images(anatomical, zooms=zooms, panel_height="30rem", fig_title="panel_height='30rem'")
 ```
 
 Pass `grid_max_height` alongside it when the taller panels start scrolling inside their box, and
@@ -214,7 +229,7 @@ flowchart LR
 
 # STRICT TESTS: an explicit argument beats rcParams, and doesn't leak into it
 mnutils.rcParams["grid.panel_height"] = "12rem"
-display_images(anatomical[:, :, :2], panel_height="30rem")
+display_images(anatomical[:, :, :2], zooms=zooms, panel_height="30rem")
 assert mnutils.rcParams["grid.panel_height"] == "12rem"
 
 # ...and a bare number is read as rem by the same validator the rcParam uses
@@ -222,4 +237,5 @@ assert mnutils.rcparams.validate_css_length(30) == "30rem"
 
 mnutils.rcdefaults()
 assert mnutils.rcParams["grid.panel_height"] == "17rem"
+assert mnutils.rcParams["image.cmap"] == "magma"
 ```
