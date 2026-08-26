@@ -10,16 +10,7 @@ from loguru import logger
 from nibabel import processing, spatialimages
 
 from .. import GESeries
-
-DEFAULT_PARAMS = {
-    "orientation": ("L", "P", "S"),
-}
-
-DEFAULT_RESAMPLE_PARAMS = {
-    "order": 0,
-    "mode": "grid-constant",
-    "cval": np.nan,
-}
+from ..rcparams import rcParams
 
 type DISPLAY_PLANES = Literal["axial", "coronal", "sagittal"]
 
@@ -40,15 +31,14 @@ def _resolve_orientation(
             case "sagittal":
                 orientation = ("I", "L", "P")
             case _:
-                orientation = DEFAULT_PARAMS["orientation"]
+                orientation = rcParams["nifti.orientation"]
         logger.debug(f"Orienting NIfTI to {display_plane} plane. Using orientation {orientation}.")
         return orientation
 
     if orientation is None:
-        logger.debug(
-            f"No orientation specified. Using default orientation: {DEFAULT_PARAMS['orientation']}."
-        )
-        return DEFAULT_PARAMS["orientation"]
+        default = rcParams["nifti.orientation"]
+        logger.debug(f"No orientation specified. Using default orientation: {default}.")
+        return default
 
     return orientation
 
@@ -69,7 +59,7 @@ def get_display_affine(
     nii : nibabel.spatialimages.SpatialImage or GESeries.NiiBase
         The image to compute the display affine for.
     orientation : tuple[str, str, str], optional
-        Target axis codes. Defaults to `DEFAULT_PARAMS["orientation"]` if
+        Target axis codes. Defaults to `rcParams["nifti.orientation"]` if
         neither this nor `display_plane` is given.
     display_plane : {"axial", "coronal", "sagittal"}, optional
         If given, overrides `orientation` with a preset for the named plane,
@@ -130,7 +120,7 @@ def orient_nifti(
     nii : spatialimages.SpatialImage or GESeries.NiiBase
         The image to orient.
     orientation : tuple[str, str, str], optional
-        Target axis codes. Defaults to `DEFAULT_PARAMS["orientation"]` if
+        Target axis codes. Defaults to `rcParams["nifti.orientation"]` if
         neither this nor `display_plane` is given.
     display_plane : {"axial", "coronal", "sagittal"}, optional
         If given, overrides `orientation` with a preset for the named plane.
@@ -224,7 +214,7 @@ def resample_nifti(
     target_nii : spatialimages.SpatialImage or GESeries.NiiBase
         The image whose grid to resample onto.
     **kwargs
-        Overrides for `DEFAULT_RESAMPLE_PARAMS`, passed to
+        Overrides for the `nifti.resample.*` rcParams, passed to
         `nibabel.processing.resample_from_to`.
 
     Returns
@@ -237,7 +227,7 @@ def resample_nifti(
     if isinstance(target_nii, GESeries.NiiBase):
         target_nii: spatialimages.SpatialImage = target_nii.nii
     # Resample data_nifti to base_nifti space
-    resample_kwargs = DEFAULT_RESAMPLE_PARAMS.copy()
+    resample_kwargs = rcParams.group("nifti.resample")
     resample_kwargs.update(kwargs)
     logger.debug(f"Resampling with parameters: {resample_kwargs}")
 
@@ -250,7 +240,7 @@ def resample_nifti(
 def resample_and_orient_nifti(
     source_nii: spatialimages.SpatialImage | GESeries.NiiBase,
     target_nii: spatialimages.SpatialImage | GESeries.NiiBase,
-    orientation: tuple[str, str, str] | None = DEFAULT_PARAMS["orientation"],
+    orientation: tuple[str, str, str] | None = None,
     display_plane: DISPLAY_PLANES | None = None,
     **kwargs: Any,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
@@ -264,7 +254,7 @@ def resample_and_orient_nifti(
         The image whose grid to resample onto.
     orientation : tuple[str, str, str], optional
         Target axis codes passed to `orient_nifti`. Defaults to
-        `DEFAULT_PARAMS["orientation"]`.
+        `rcParams["nifti.orientation"]`.
     display_plane : {"axial", "coronal", "sagittal"}, optional
         If given, overrides `orientation` with a preset for the named plane.
     **kwargs

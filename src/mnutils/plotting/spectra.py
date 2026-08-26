@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -10,33 +10,34 @@ import xarray as xr
 from matplotlib.axes import Axes
 from xmris import DIMS
 
-DEFAULT_SPECTRA_AX_PARAMS = {
-    "xlim": (8.1, -2.1),
-    "xlabel": "$^2$H chemical shift [ppm]",
-    "ylabel": "signal [a.u.]",
-}
+from ..rcparams import rcParams
 
 
-class DefaultTickerParams:
-    """Default tick locator parameters used by `set_default_ticks`."""
+def _spectra_ax_params() -> dict[str, Any]:
+    """The `spectra.*` rcParams that are `Axes.set` keywords, as such a mapping.
 
-    yticker_bins: int | Literal["auto"] = "auto"
-    xticker_bins: int | Literal["auto"] = "auto"
-    ticker_steps: list[int] = [1, 2, 5]
+    `rcParams.group("spectra")` would also hand back the ticker keys, which
+    `Axes.set` has no idea what to do with -- hence the explicit list.
+    """
+    return {
+        "xlim": rcParams["spectra.xlim"],
+        "xlabel": rcParams["spectra.xlabel"],
+        "ylabel": rcParams["spectra.ylabel"],
+    }
 
 
 def set_default_ticks(ax: Axes) -> None:
     """Set default tick parameters for a given Axes object."""
     ax.yaxis.set_major_locator(
         ticker.MaxNLocator(
-            nbins=DefaultTickerParams.yticker_bins,
-            steps=DefaultTickerParams.ticker_steps,
+            nbins=rcParams["spectra.yticker_bins"],
+            steps=rcParams["spectra.ticker_steps"],
         )
     )
     ax.xaxis.set_major_locator(
         ticker.MaxNLocator(
-            nbins=DefaultTickerParams.xticker_bins,
-            steps=DefaultTickerParams.ticker_steps,
+            nbins=rcParams["spectra.xticker_bins"],
+            steps=rcParams["spectra.ticker_steps"],
         )
     )
     # By default override stylesheets behaviour of hiding ticks and set bottom and left to true
@@ -45,7 +46,7 @@ def set_default_ticks(ax: Axes) -> None:
 
 def set_default_spectra_ax_params(ax: Axes, **kwargs) -> None:
     """Set default spectra axis parameters for a given Axes object."""
-    spectra_params = DEFAULT_SPECTRA_AX_PARAMS.copy()
+    spectra_params = _spectra_ax_params()
     spectra_params.update(kwargs)
     ax.set(**spectra_params)
 
@@ -335,7 +336,7 @@ def plot_spectra_over_time(
             )
 
     # 3. Apply standard spectral convention (reverse x-axis)
-    spectra_grid.set(**DEFAULT_SPECTRA_AX_PARAMS)  # Apply default spectra plotting params
+    spectra_grid.set(**_spectra_ax_params())  # Apply default spectra plotting params
     # Set x limits from 10 to 0 ppm
     spectra_grid.set(xlim=(10, -2))
     spectra_grid.set(**kwargs)

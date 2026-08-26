@@ -1,4 +1,9 @@
-"""Saving matplotlib figures with per-context (poster/talk/paper) presets."""
+"""Saving matplotlib figures with per-context (poster/talk/paper) presets.
+
+The presets are `rcparams.rc_presets` entries, not dicts of their own: a
+context is just "these `save.*` rcParams, for this call", which is what
+`rc_context` already means.
+"""
 
 from datetime import datetime
 from pathlib import Path
@@ -7,38 +12,20 @@ from typing import Literal
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
+from ..rcparams import rc_context, rc_presets, rcParams
 from ..utils import file_helpers
 
 contexts = ["poster", "talk", "paper"]
 
-DEFAULT_SAVE_PARAMS = {
-    "dpi": 150,
-    "format": "png",
-    "transparent": False,
-    "bbox_inches": "tight",
-}
 
-POSTER_SAVE_PARAMS = DEFAULT_SAVE_PARAMS.copy()
-POSTER_SAVE_PARAMS.update(
-    {
-        "dpi": 300,
-    }
-)
+def _save_params() -> dict:
+    """The current `save.*` rcParams as `savefig` keywords.
 
-TALK_SAVE_PARAMS = DEFAULT_SAVE_PARAMS.copy()
-TALK_SAVE_PARAMS.update(
-    {
-        "transparent": True,
-    }
-)
-
-PAPER_SAVE_PARAMS = DEFAULT_SAVE_PARAMS.copy()
-PAPER_SAVE_PARAMS.update(
-    {
-        "dpi": 300,
-        "pad_inches": 0.1,
-    }
-)
+    `None` values are dropped rather than forwarded: `save.pad_inches` is
+    unset by default, and passing ``pad_inches=None`` to `savefig` is not the
+    same as leaving it out.
+    """
+    return {key: value for key, value in rcParams.group("save").items() if value is not None}
 
 
 def save_figure(
@@ -68,7 +55,8 @@ def save_figure(
         Whether to move old files with the same name to an "old" folder
         first. Defaults to True.
     context : {"poster", "talk", "paper"}, optional
-        Preset save parameters (dpi, transparency, padding) to use.
+        Named `rc_presets` bundle of `save.*` overrides (dpi, transparency,
+        padding) to apply for this call.
     modify_folder_path : bool, optional
         If True and `context` is given, append `context` to `folder` when
         it isn't already the folder's last component. Defaults to True.
@@ -80,16 +68,10 @@ def save_figure(
     if modify_folder_path and context is not None and folder.name != context:
         folder = folder / context
 
-    # Combine default save parameters with any provided kwargs
-    match context:
-        case "poster":
-            save_params = POSTER_SAVE_PARAMS.copy()
-        case "talk":
-            save_params = TALK_SAVE_PARAMS.copy()
-        case "paper":
-            save_params = PAPER_SAVE_PARAMS.copy()
-        case None:
-            save_params = DEFAULT_SAVE_PARAMS.copy()
+    # Combine the current save.* rcParams -- through the context preset, if
+    # one was named -- with any provided kwargs.
+    with rc_context(rc_presets[context] if context is not None else {}):
+        save_params = _save_params()
     save_params.update(kwargs)
 
     # Create folder if it doesn't exist
@@ -100,7 +82,7 @@ def save_figure(
     if prepend_date:
         date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{date_str}_{filename}"
-    file_extension = save_params.get("format", DEFAULT_SAVE_PARAMS["format"])
+    file_extension = save_params.get("format", rcParams["save.format"])
     full_path = folder / f"{filename}.{file_extension}"
 
     fig.savefig(full_path, **save_params)
@@ -128,10 +110,6 @@ def save_current_figure(
 
 
 __all__ = [
-    "DEFAULT_SAVE_PARAMS",
-    "POSTER_SAVE_PARAMS",
-    "TALK_SAVE_PARAMS",
-    "PAPER_SAVE_PARAMS",
     "contexts",
     "save_figure",
     "save_current_figure",
