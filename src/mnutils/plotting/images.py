@@ -80,6 +80,7 @@ def fast_bounds(
     max_target_samples: int = 50000,
     p_lower: float = 1.0,
     p_upper: float = 99.0,
+    exclude_zeros: bool = False,
 ) -> tuple[float, float]:
     """Quickly estimate lower/upper display bounds by sampling a subset of the data.
 
@@ -99,6 +100,12 @@ def fast_bounds(
     p_upper : float, optional
         The upper percentile to calculate. Defaults to 99.0 (the 99th
         percentile).
+    exclude_zeros : bool, optional
+        If True, drop exact zeros before taking the percentiles. Background
+        voxels are usually exactly 0 and would otherwise dominate the lower
+        percentile and flatten the contrast of the anatomy itself. Ignored
+        when the data is all zeros -- a warning is logged and the zeros are
+        kept so the bounds stay finite. Defaults to False.
 
     Returns
     -------
@@ -114,6 +121,15 @@ def fast_bounds(
     # First filter out nan values and then sample the data to ensure we are
     # sampling valid values for bounds estimation
     sampled_data = data[np.isfinite(data)]
+    if exclude_zeros:
+        nonzero_data = sampled_data[sampled_data != 0]
+        if nonzero_data.size == 0 and sampled_data.size > 0:
+            logger.warning(
+                "All finite values are 0, so keeping the zeros for bounds estimation "
+                "to avoid discarding the whole array."
+            )
+        elif nonzero_data.size > 0:
+            sampled_data = nonzero_data
     sampled_data = sampled_data[::sample_step]
 
     if sampled_data.size == 0:
@@ -137,16 +153,24 @@ def _resolve_display_bounds(
     vmin: float | None,
     vmax: float | None,
     v_percentile: float = 1.0,
+    exclude_zeros: bool = False,
 ) -> tuple[float, float]:
     """Fill in whichever of `vmin`/`vmax` was not given from the data itself.
 
     A caller is allowed to pin one bound and leave the other to the data, so
     the estimate has to run whenever *either* is missing and then replace only
-    the missing one.
+    the missing one. `exclude_zeros` is handed straight to `fast_bounds`, so
+    background zeros can be kept out of the estimate without also being masked
+    out of what is drawn.
     """
     if vmin is not None and vmax is not None:
         return vmin, vmax
-    new_vmin, new_vmax = fast_bounds(data, p_lower=v_percentile, p_upper=100 - v_percentile)
+    new_vmin, new_vmax = fast_bounds(
+        data,
+        p_lower=v_percentile,
+        p_upper=100 - v_percentile,
+        exclude_zeros=exclude_zeros,
+    )
     return (new_vmin if vmin is None else vmin, new_vmax if vmax is None else vmax)
 
 
@@ -240,7 +264,7 @@ def display_images(
     vmin: float | None = None,
     vmax: float | None = None,
     v_percentile: float = 1.0,
-    zeros_as_nan: bool = False,
+    zeros_as_nan: bool = True,
     zooms: tuple[float, float] | None = None,
     **kwargs,
 ) -> None:
@@ -283,7 +307,9 @@ def display_images(
         Percentile used to estimate `vmin`/`vmax` when not given, by
         default 1.0.
     zeros_as_nan : bool, optional
-        If True, treat zero values as NaN for display, by default False.
+        If True, treat zero values as NaN, which renders them transparent
+        instead of as the colormap's low end, by default True. Zeros are kept
+        out of the estimate of `vmin`/`vmax` either way.
     zooms : tuple[float, float], optional
         Physical (row, col) voxel edge lengths of the displayed slice, e.g.
         from `utils.nifti.get_display_zooms`. When given, panels are rendered
@@ -341,24 +367,24 @@ def display_images(
     else:
         raise ValueError("Input images must be either 3D or 4D.")
 
-    # Set 0 values in images to nan for better visualization and colorbar scaling
-    if vmin is None or vmax is None or zeros_as_nan:
-        logger.debug(
-            "Setting 0 values in images to NaN for better visualization and colorbar scaling."
-        )
+    # Masking zeros is a *display* choice: it makes the background transparent.
+    # Keeping them out of the bounds estimate is a separate one, handled by
+    # `fast_bounds(exclude_zeros=True)` below, so pinned bounds no longer drag
+    # the mask along with them.
+    if zeros_as_nan:
+        logger.debug("Setting 0 values in images to NaN so the background renders transparent.")
         zeros_nan_images = images.copy()
         zeros_nan_images[zeros_nan_images == 0] = np.nan
         # Check that now not all values are nan
         if np.isnan(zeros_nan_images).all():
             logger.warning(
-                "All values in images are 0, so setting zeros_as_nan to False "
+                "All values in images are 0, so ignoring zeros_as_nan "
                 "to avoid all values being NaN."
             )
-            zeros_as_nan = False
-            zeros_nan_images = images
-        images = zeros_nan_images
+        else:
+            images = zeros_nan_images
 
-    vmin, vmax = _resolve_display_bounds(images, vmin, vmax, v_percentile)
+    vmin, vmax = _resolve_display_bounds(images, vmin, vmax, v_percentile, exclude_zeros=True)
 
     if vmin == vmax or vmin is None or vmax is None or np.isnan([vmin, vmax]).any():
         logger.debug(
