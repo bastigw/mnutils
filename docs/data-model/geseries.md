@@ -42,16 +42,20 @@ The examples below load fixtures generated on the fly by `mnutils.testing.build_
 see [the diary entry](#diary-synthetic-exam-fixtures) for why nothing here is a real scan.
 
 ```{code-cell} ipython3
+:tags: [remove-cell]
+
 from loguru import logger
 
 logger.remove()
 ```
 
 ```{code-cell} ipython3
+import numpy as np
+
 from mnutils.GESeries import MRISeries, MRSISeries, MRSSeries, MRSWashinSeries, NiiBase
 from mnutils.plotting.spectra import plot_fid, plot_spectra
 from mnutils.testing import build_fake_exam
-from mnutils.utils.nifti import get_display_zooms
+from mnutils.utils.nifti import get_display_affine, get_display_zooms
 ```
 
 ```{code-cell} ipython3
@@ -85,12 +89,26 @@ Downloaded and cached on first use by `mnutils.testing.build_fake_exam()` — se
 
 ```{code-cell} ipython3
 t1 = MRISeries(DATA_FOLDER, 2)  # 002_3D_Ax_T1_BRAVO
-t1.display(cmap="gray")
-print(t1.nii.shape)
+print(f"Data shape: {t1.nii.shape}")
+print(f"Voxel size (mm): {t1.nii.header.get_zooms()}")  # thin in-plane, thick slices
+display_plane = "axial"
+print(f"Display affine:\n{get_display_affine(t1.nii, display_plane=display_plane)}")
+print(f"Display zooms (mm): {get_display_zooms(t1.nii, display_plane=display_plane)}")
+t1.display(cmap="gray")  # Axial is the default
 ```
 
 ```{code-cell} ipython3
-t1.display(cmap="gray", display_plane="sagittal")
+display_plane = "coronal"
+print(f"Display affine:\n{get_display_affine(t1.nii, display_plane=display_plane)}")
+print(f"Display zooms (mm): {get_display_zooms(t1.nii, display_plane=display_plane)}")
+t1.display(cmap="gray", display_plane=display_plane)
+```
+
+```{code-cell} ipython3
+display_plane = "sagittal"
+print(f"Display affine:\n{get_display_affine(t1.nii, display_plane=display_plane)}")
+print(f"Display zooms (mm): {get_display_zooms(t1.nii, display_plane=display_plane)}")
+t1.display(cmap="gray", display_plane=display_plane)
 ```
 
 ```{code-cell} ipython3
@@ -118,25 +136,98 @@ plane -- without resampling the underlying data.
 
 ```{code-cell} ipython3
 pd = MRISeries(DATA_FOLDER, 4)  # 004_2D_Ax_PD
+print(f"Data shape: {pd.nii.shape}")
 print(f"Voxel size (mm): {pd.nii.header.get_zooms()}")  # thin in-plane, thick slices
-pd.display(cmap="gray", display_plane="axial")
+display_plane = "axial"
+print(f"Display affine:\n{get_display_affine(pd.nii, display_plane=display_plane)}")
+print(f"Display zooms (mm): {get_display_zooms(pd.nii, display_plane=display_plane)}")
+pd.display(cmap="gray")
 ```
 
 ```{code-cell} ipython3
-pd.display(cmap="gray", display_plane="coronal")
+display_plane = "coronal"
+print(f"Display affine:\n{get_display_affine(pd.nii, display_plane=display_plane)}")
+print(f"Display zooms (mm): {get_display_zooms(pd.nii, display_plane=display_plane)}")
+pd.display(cmap="gray", display_plane=display_plane)
 ```
 
 ```{code-cell} ipython3
-pd.display(cmap="gray", display_plane="sagittal")
+display_plane = "sagittal"
+print(f"Display affine:\n{get_display_affine(pd.nii, display_plane=display_plane)}")
+print(f"Display zooms (mm): {get_display_zooms(pd.nii, display_plane=display_plane)}")
+pd.display(cmap="gray", display_plane=display_plane)
 ```
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
 # STRICT TESTS: anisotropic voxels
+atol = 0.001
 assert isinstance(pd, NiiBase)
-row_zoom, col_zoom = get_display_zooms(pd, display_plane="sagittal")
-assert row_zoom != col_zoom
+axial_row_zoom, axial_col_zoom = get_display_zooms(pd, display_plane="axial")
+# Row zoom should be around 0.859 and col zoom around 0.857
+assert np.isclose(axial_row_zoom, 0.859, atol=atol)
+assert np.isclose(axial_col_zoom, 0.857, atol=atol)
+assert np.isclose(axial_row_zoom, axial_col_zoom, atol=0.1)  # Axial zooms should be equal
+# Row zoom should be around 2.4 and col zoom around 0.857
+coronal_row_zoom, coronal_col_zoom = get_display_zooms(pd, display_plane="coronal")
+assert np.isclose(coronal_row_zoom, 2.4, atol=atol)
+assert np.isclose(coronal_col_zoom, 0.857, atol=atol)
+assert coronal_row_zoom != coronal_col_zoom
+
+sag_row_zoom, sag_col_zoom = get_display_zooms(pd, display_plane="sagittal")
+# Row zoom should be around 2.4 and col zoom around 0.859
+assert np.isclose(sag_row_zoom, 2.4, atol=atol)
+assert np.isclose(sag_col_zoom, 0.859, atol=atol)
+assert sag_row_zoom != sag_col_zoom
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# Test a local dataset. If env path not defined - skip this test. This is a local dataset and not part of the repo.
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+LOCAL_TEST_DATASET_PATH = os.getenv("LOCAL_TEST_DATASET")
+if LOCAL_TEST_DATASET_PATH is not None and Path(LOCAL_TEST_DATASET_PATH).exists():
+    t1_patient = MRISeries(Path(LOCAL_TEST_DATASET_PATH), 2)
+else:
+    t1_patient = None
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+if t1_patient is not None:
+    display_plane = "axial"
+    print(f"Display affine:\n{get_display_affine(t1_patient.nii, display_plane=display_plane)}")
+    print(f"Display zooms (mm): {get_display_zooms(t1_patient.nii, display_plane=display_plane)}")
+    t1_patient.display(display_plane=display_plane, cmap="gray")
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+if t1_patient is not None:
+    display_plane = "coronal"
+    print(f"Display affine:\n{get_display_affine(t1_patient.nii, display_plane=display_plane)}")
+    print(f"Display zooms (mm): {get_display_zooms(t1_patient.nii, display_plane=display_plane)}")
+    t1_patient.display(display_plane=display_plane, cmap="gray")
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+if t1_patient is not None:
+    display_plane = "sagittal"
+    print(f"Display affine:\n{get_display_affine(t1_patient.nii, display_plane=display_plane)}")
+    print(f"Display zooms (mm): {get_display_zooms(t1_patient.nii, display_plane=display_plane)}")
+    t1_patient.display(display_plane=display_plane, cmap="gray")
 ```
 
 (data-model-geseries-mrsseries)=
