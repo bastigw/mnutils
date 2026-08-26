@@ -211,7 +211,11 @@ overlay helpers plot under the hood:
 ```{code-cell} ipython3
 from mnutils.plotting.images import overlay_nifti_data_on_T1
 
-overlay_nifti_data_on_T1(t1.nii, mrsi.nii, aspect=1)
+overlay_nifti_data_on_T1(t1.nii, mrsi.nii)
+```
+
+```{code-cell} ipython3
+overlay_nifti_data_on_T1(t1.nii, mrsi.RAW_exp.nii)
 ```
 
 `MRSISeries` carries a few more properties worth knowing about beyond `spec`: an SNR-based mask

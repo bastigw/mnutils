@@ -184,13 +184,13 @@ def grid_own_affine(
 def rescale_affine_xy(affine: np.ndarray, old_matrix_xy: int, new_matrix_xy: int) -> np.ndarray:
     """Same affine, x/y voxel size rescaled for a different in-plane matrix.
 
-    `GESeries.MRSISeries.create_MRSI_affine()` derives `RAW_exp`'s affine from this one's voxel
-    size via a shift correction tuned assuming the own NIfTI's resolution roughly matches the
-    blocky MRSI grid's (`own_diag/2`, meant to be a half-*blocky*-voxel nudge). A much finer own
-    NIfTI (e.g. an interpolated pseudo image) makes that term negligible instead, dragging
-    `RAW_exp`'s translation off by about half the *old* voxel size. Shifting this affine's own
-    translation by `(new_voxel - old_voxel) / 2` exactly cancels that drift, so
-    `create_MRSI_affine()`'s output is unchanged no matter this affine's own resolution.
+    Both affines use the standard NIfTI convention (index `i`'s *center* sits at
+    `world = voxel_size * i + translation`) and describe the same field of view at different
+    resolutions, so their voxel-0 centers differ by exactly half the voxel-size change --
+    `new_translation = old_translation + (new_voxel - old_voxel) / 2`. That is also exactly what
+    `GESeries.MRSISeries.create_MRSI_affine()` does going the other way (fine -> blocky), so
+    `create_MRSI_affine()` applied to this function's output reproduces `affine`'s own
+    translation exactly, regardless of `affine`'s own resolution.
     """
     scaled = affine.copy()
     old_voxel = np.array([affine[0, 0], affine[1, 1]])
@@ -243,7 +243,7 @@ class SphereRing:
 
     name: str
     n_spheres: int = 8
-    ring_radius_mm: float = 60.0
+    ring_radius_mm: float = 40.0
     z_offset_mm: float = 20.0
     sphere_radius_mm: float = 10.0
     intensity_range: tuple[float, float] = (0.3, 1.0)
@@ -265,7 +265,32 @@ class SphereRing:
         return out
 
 
-DEFAULT_SPHERE_RINGS: list[SphereRing] = [SphereRing(name="metabolite_ring")]
+DEFAULT_SPHERE_RINGS: list[SphereRing] = [
+    SphereRing(
+        name="metabolite_ring",
+        n_spheres=8,
+        ring_radius_mm=45.0,
+        z_offset_mm=5.0,
+        sphere_radius_mm=12.0,
+        intensity_range=(0.2, 1),
+    )
+]
+
+# A ring with no corresponding spectra -- `sphere_grid_intensity` never sees these, only
+# `sphere_phantom_image` does, so they show up as extra anatomical structure with zero MRSI
+# signal (a real phantom always has more visible structure than the spectroscopy sequence
+# actually excites). Offset to the opposite side of the central slice from DEFAULT_SPHERE_RINGS
+# so the two rings stay visually distinct despite both sitting near z=0.
+ANATOMY_ONLY_SPHERE_RINGS: list[SphereRing] = [
+    SphereRing(
+        name="anatomy_only_ring",
+        n_spheres=6,
+        ring_radius_mm=10.0,
+        z_offset_mm=-5.0,
+        sphere_radius_mm=6.0,
+        intensity_range=(0.4, 0.9),
+    )
+]
 
 
 def sphere_intensity(world_xyz: np.ndarray, rings: list[SphereRing]) -> np.ndarray:
@@ -375,14 +400,13 @@ def template_grid_intensity(grid: tuple[int, int, int]) -> tuple[np.ndarray, np.
     intensity_map = np.maximum(intensity_map, 0.0)
     own_affine = np.diag([*voxel_size, 1.0])
     own_affine[:3, 3] = affine[:3, 3]
-    # MRSISeries.create_MRSI_affine() always adds an extra half-*blocky*-voxel shift in x/y on top
-    # of its resize shift (tuned for real GE headers, where the "fine" reference affine needs it).
     # For grid_mode=True zoom, blocky voxel i's true center is:
     #   native_translation + blocky_voxel*(i + 0.5) - native_voxel/2
-    # i.e. own_affine's translation should be native_translation - native_voxel/2 to land there once
-    # create_MRSI_affine's own +blocky_voxel/2 shift is added back on top -- the blocky_voxel terms
-    # cancel exactly, so the correction here is half a *native* voxel, not half the blocky one.
-    own_affine[:2, 3] -= voxel_native[:2] / 2
+    # i.e. as a diag affine's translation (the world position of index 0): native_translation +
+    # blocky_voxel/2 - native_voxel/2. This holds on every axis, independent of
+    # `create_MRSI_affine()`/`rescale_affine_xy()` -- own_affine is this function's own ground
+    # truth, derived purely from how the template was downsampled.
+    own_affine[:3, 3] += voxel_size / 2 - voxel_native / 2
     return own_affine, intensity_map
 
 

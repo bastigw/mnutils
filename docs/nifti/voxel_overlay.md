@@ -177,35 +177,46 @@ assert edge_clamped[1] <= 75
 ```
 
 (nifti-voxel-overlay-mrsi-affine)=
-## `create_MRSI_affine`: why the shift has two terms
+## `create_MRSI_affine`: why the shift is half a voxel-size change
 
 [`MRSISeries.create_MRSI_affine()`](#data-model-geseries-niibase-ops) builds the "blocky" grid
 affine (one cell per acquired voxel) from the fine, interpolated `nii.affine` it started from.
-Scaling the voxel size alone gets the field of view right but leaves the grid offset by half a
-fine voxel — so the origin shift is applied in two parts: first to re-center for the size change,
-then an *additional* half of the new (blocky) voxel size on top.
+Both affines use the standard NIfTI convention — index `i`'s *center* sits at
+`world = voxel_size * i + translation` — and both describe the *same* field of view, just at
+different resolutions. Scaling the voxel size alone keeps voxel 0's world position pinned to the
+fine grid's corner instead of its own center, so the origin needs a shift too: exactly half of how
+much the voxel size changed, `(new_voxel - old_voxel) / 2`.
 
 ```{code-cell} ipython3
-from mnutils.GESeries import MRSISeries
+from mnutils.GESeries import MRISeries, MRSISeries
 from mnutils.testing import build_fake_exam
 
+t1_nist = MRISeries(build_fake_exam("nist_phantom_exam") / "data", 2)
 mrsi = MRSISeries(build_fake_exam("nist_phantom_exam") / "data", 5)
+```
 
+```{code-cell} ipython3
+mrsi.RAW_exp.overlay_on_T1(t1_nist)
+```
+
+```{code-cell} ipython3
+t1_nist.display()
+```
+
+```{code-cell} ipython3
 fine_affine = mrsi.nii.affine
 blocky_affine = mrsi.create_MRSI_affine()
 
 resize_shift = (np.diag(blocky_affine[:3]) - np.diag(fine_affine[:3])) / 2
-half_voxel_shift = np.array([blocky_affine[0, 0], blocky_affine[1, 1], 0]) / 2
-total_shift = resize_shift + half_voxel_shift
 
-print(np.allclose(blocky_affine[:3, 3], fine_affine[:3, 3] + total_shift, atol=1e-3))
+print(np.allclose(blocky_affine[:3, 3], fine_affine[:3, 3] + resize_shift, atol=1e-3))
 ```
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
-# STRICT TESTS: create_MRSI_affine's two-term shift, and RAW_exp uses the same affine
-np.testing.assert_allclose(blocky_affine[:3, 3], fine_affine[:3, 3] + total_shift, atol=1e-3)
+# STRICT TESTS: create_MRSI_affine's shift, and RAW_exp uses the same affine
+np.testing.assert_allclose(blocky_affine[:3, 3], fine_affine[:3, 3] + resize_shift, atol=1e-3)
 np.testing.assert_allclose(mrsi.RAW_exp.nii.affine, blocky_affine, atol=1e-4)
 ```
 
@@ -258,8 +269,8 @@ print(xy.min(axis=0) >= 0, xy.max(axis=0) <= [x_slice.stop - x_offset, y_slice.s
 
 # STRICT TESTS: shifted patch lands inside the cropped axes' bounds
 assert (xy.min(axis=0) >= 0).all()
-assert (xy[:, 0].max() <= x_slice.stop - x_offset)
-assert (xy[:, 1].max() <= y_slice.stop - y_offset)
+assert xy[:, 0].max() <= x_slice.stop - x_offset
+assert xy[:, 1].max() <= y_slice.stop - y_offset
 
 # STRICT TESTS: ax= is a deterministic call shape -- (list[AxesImage], contours | None)
 overlay_images, overlay_contours = overlay_out
@@ -330,7 +341,9 @@ silently doing nothing or erroring:
 ```{code-cell} ipython3
 demo_mask = np.zeros(t1_full.shape, dtype=bool)
 demo_mask[t1_full.shape[0] // 4 : 3 * t1_full.shape[0] // 4, :, :] = True
-mask_contour_result = overlay_image_data_on_T1(t1_full, mrsi_full, mask=demo_mask, mask_contour=True)
+mask_contour_result = overlay_image_data_on_T1(
+    t1_full, mrsi_full, mask=demo_mask, mask_contour=True
+)
 ```
 
 ```{code-cell} ipython3

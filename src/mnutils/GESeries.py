@@ -5,7 +5,6 @@ from functools import cached_property
 from pathlib import Path
 
 import h5py
-import nibabel as nib
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -96,13 +95,16 @@ class NiiBase:
             else:
                 affine = self.nii.affine
 
-        # Image data is to be oriented the following
-        orientated_data = nib.orientations.apply_orientation(
-            new_data, nib.orientations.axcodes2ornt(("P", "L", "S"))
-        )
+        # new_data's axes already match the index space `affine` describes (e.g. spec's own
+        # (i, j, k) grid, scaled by create_MRSI_affine()) -- no reorientation is warranted here.
+        # A previous version of this method applied a hardcoded apply_orientation(..., ("P", "L",
+        # "S")) permute+flip unconditionally, silently decoupling the stored array from the affine
+        # it was paired with (e.g. RAW_exp's data ending up several voxels from where its own
+        # affine said it was).
+        image_data = np.asarray(new_data)
 
         new_nii = self.nii.__class__(
-            orientated_data,  # pyright: ignore[reportArgumentType]
+            image_data,  # pyright: ignore[reportArgumentType]
             affine=affine.copy(),
             header=self.nii.header,
             extra=self.nii.extra,
@@ -745,13 +747,12 @@ class MRSISeries(RawMRISeries):
         # Round voxel sizes to 3 decimal places to avoid floating point issues
         new_affine[0:3, 0:3] = np.round(new_affine[0:3, 0:3], 3)
 
-        # Offset x and y by centre offset
-        # The shift is important as we want to make sure the overlay is in the correct position
-        # The correct shift is the following
+        # Offset x and y by centre offset.
+        # Both affines use the standard NIfTI convention (index i's *center* sits at
+        # world = voxel_size * i + translation), and both describe the same field of view at
+        # different resolutions, so their voxel-0 centers differ by exactly half the voxel-size
+        # change: new_translation = old_translation + (new_voxel - old_voxel) / 2.
         shift = (np.diag(new_affine[:3]) - np.diag(self.nii.affine[:3])).round(3) / 2
-        # However this creates the correct FOV but the overlay is not in the correct position
-        # For a correct shift we need to add an additonal half voxel
-        shift += np.array([new_affine[0, 0], new_affine[1, 1], 0]) / 2
         logger.trace(
             f"Calculated shift for new affine: {shift}. "
             f"Original affine translation: {self.nii.affine[:3, 3]}"

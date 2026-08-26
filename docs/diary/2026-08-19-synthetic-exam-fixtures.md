@@ -19,8 +19,9 @@ nothing real to point at.
 `mnutils.testing.build_fake_exam()` fabricates every on-disk shape the real datasets used to
 provide, but the *content* is real where it's cheap to make real: spectra come from
 `xmris.simulate_fid` (HDO/Glucose/Glx peaks, not noise), brain anatomy is cropped from a real
-downloaded T1 template, and the phantom dataset is a ring of 8 spheres with strictly increasing
-signal intensity that the spectral simulation reads directly off.
+downloaded T1 template, and the phantom dataset is a ring of spheres with strictly increasing
+signal intensity that the spectral simulation reads directly off (plus a second, smaller ring with
+no spectral signal at all -- extra anatomical structure the sequence simply doesn't excite).
 :::
 
 (diary-synthetic-exam-fixtures-shape)=
@@ -64,10 +65,12 @@ being constant:
   downsampled onto the spec grid — that same downsampled array *is* the per-voxel
   intensity/clarity map, so "inside the brain" literally means "where the real template has
   signal."
-- **`nist_phantom_exam`**: a `SphereRing` (8 spheres, evenly spaced around a 60 mm-radius circle,
-  offset 20 mm off the z=0 plane) assigns each sphere a distinct intensity, linearly increasing
+- **`nist_phantom_exam`**: a `SphereRing` (12 spheres, evenly spaced around a 60 mm-radius circle
+  close to the central S/I slice) assigns each sphere a distinct intensity, linearly increasing
   around the ring; grid cells inside a sphere take that sphere's intensity, everything else is
-  near-silent.
+  near-silent. `ANATOMY_ONLY_SPHERE_RINGS` adds a second, smaller ring that only feeds the
+  anatomical phantom image, never `sphere_grid_intensity` -- those spheres are visible on the T1
+  but carry no MRSI signal at all.
 
 Every repetition/voxel also gets a small, independently-seeded B0 (`b0_ppm`) and zero-order phase
 (`phase_deg`) jitter — real MRS drifts shot-to-shot, real MRSI drifts voxel-to-voxel, and a stack of

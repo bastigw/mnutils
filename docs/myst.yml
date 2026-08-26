@@ -51,6 +51,8 @@ project:
           title: Drawing an MRSI voxel on an anatomical slice
         - file: nifti/partial_volume.md
           title: How much of this MRSI voxel is inside the mask?
+        - file: nifti/synthetic_dataset_gallery.md
+          title: Every fake dataset, checked against its own ground truth
 
     - title: MATLAB bridge
       children:
