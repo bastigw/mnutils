@@ -23,7 +23,7 @@ from matplotlib.image import AxesImage
 from nibabel import affines, spatialimages
 
 from .. import GESeries, utils
-from ..rcparams import rcParams, resolve_rc
+from ..rcparams import rcParams, resolve_rc, validate_css_length
 from ._widgets import ImageGridWidget, MRSIVoxelInspectorWidget, SliceViewerWidget
 
 # WebP quality for the MRSI inspector's anatomical frames. These are display
@@ -223,6 +223,8 @@ def display_images(
     v_percentile: float = 1.0,
     zeros_as_nan: bool = False,
     zooms: tuple[float, float] | None = None,
+    panel_height: str | float | None = None,
+    grid_max_height: str | float | None = None,
     **kwargs,
 ) -> None:
     """Display a grid of 2D/3D/4D images, with a slice slider for 3D/4D input.
@@ -272,6 +274,15 @@ def display_images(
         pixel per voxel; the through-plane spacing is irrelevant since only
         one 2D slice is ever on screen at a time. Defaults to the pixel-count
         aspect ratio (square voxels) when omitted.
+    panel_height : str or float, optional
+        How tall a single panel may grow, as a CSS length (`"30rem"`,
+        `"400px"`) or a bare number read as rem. The compact default suits a
+        row of low-resolution panels; raise it to read a high-resolution
+        anatomical series. Defaults to `rcParams["grid.panel_height"]`.
+    grid_max_height : str or float, optional
+        How tall the panel box may grow before it scrolls, same units. Worth
+        raising alongside `panel_height` for a tall single-column view.
+        Defaults to `rcParams["grid.max_height"]`.
     **kwargs
         Accepted and ignored: axis parameters such as `aspect`, `xlabel` or
         `xticks` have no Axes to apply to. Kept so existing call sites keep
@@ -386,6 +397,12 @@ def display_images(
         per_panel_bounds=colorbar_mode == "each",
         pixel_aspect=None if zooms is None else zooms[1] / zooms[0],
     )
+    size_vars = {
+        "--mnu-panel-max-h": validate_css_length(resolve_rc(panel_height, "grid.panel_height")),
+        "--mnu-grid-max-h": validate_css_length(resolve_rc(grid_max_height, "grid.max_height")),
+        "--mnu-panel-min-h": rcParams["grid.panel_min_height"],
+        "--mnu-panel-min-w": rcParams["grid.panel_min_width"],
+    }
     ipy_display(
         ImageGridWidget(
             frames=frames,
@@ -396,6 +413,7 @@ def display_images(
             fig_title=fig_title,
             colorbar_mode=colorbar_mode,
             initial_index=slice_idx,
+            size_vars=size_vars,
         )
     )
     return None

@@ -51,6 +51,12 @@ class ImageGridWidget:
         Slice shown on first display, by default 0.
     slice_label : str, optional
         Label next to the slider, by default ``"Slice"``.
+    size_vars : dict[str, str], optional
+        CSS custom properties set on the widget's root element, e.g.
+        ``{"--mnu-panel-max-h": "30rem"}``. `plotting.images` fills these from
+        the ``grid.*`` rcParams; omitted, the stylesheet's own values apply.
+        Values must already be validated CSS lengths -- they land in a `style`
+        attribute (see `rcparams.validate_css_length`).
     """
 
     def __init__(
@@ -64,6 +70,7 @@ class ImageGridWidget:
         colorbar_mode: str = "",
         initial_index: int = 0,
         slice_label: str = "Slice",
+        size_vars: dict[str, str] | None = None,
     ) -> None:
         self._data: dict[str, Any] = {
             "frames": [
@@ -80,6 +87,7 @@ class ImageGridWidget:
             "colorbar_mode": colorbar_mode,
             "initial_index": initial_index,
             "slice_label": slice_label,
+            "size_vars": size_vars or {},
         }
 
     def _repr_html_(self) -> str:

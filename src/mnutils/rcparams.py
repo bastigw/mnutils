@@ -101,8 +101,13 @@ def _validate_cmap(value: Any) -> str:
     return name
 
 
-def _validate_css_length(value: Any) -> str:
-    """Accept ``"30rem"``/``"400px"``/``"60vh"``, or a bare number read as rem."""
+def validate_css_length(value: Any) -> str:
+    """Accept ``"30rem"``/``"400px"``/``"60vh"``, or a bare number read as rem.
+
+    Public because call-site overrides (`plotting.images.display_images`'s
+    ``panel_height``) bypass `rcParams` and so bypass its validation, while
+    ending up in the same `style` attribute.
+    """
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return f"{float(value):g}rem"
     text = _validate_str(value)
@@ -230,10 +235,10 @@ _VALIDATORS: dict[str, Callable[[Any], Any]] = {
     # The `display_images` grid widget. Lengths land in the widget's CSS
     # custom properties, so their units are CSS units.
     "grid.max_cols": _validate_positive_int,
-    "grid.max_height": _validate_css_length,
-    "grid.panel_height": _validate_css_length,
-    "grid.panel_min_height": _validate_css_length,
-    "grid.panel_min_width": _validate_css_length,
+    "grid.max_height": validate_css_length,
+    "grid.panel_height": validate_css_length,
+    "grid.panel_min_height": validate_css_length,
+    "grid.panel_min_width": validate_css_length,
     # Spectra axes -- `plotting.spectra`
     "spectra.xlim": _validate_limits,
     "spectra.xlabel": _validate_str,
@@ -431,4 +436,5 @@ __all__ = [
     "rc_presets",
     "rcdefaults",
     "resolve_rc",
+    "validate_css_length",
 ]
