@@ -112,6 +112,11 @@ any integers skipped in that range (a genuinely missing/corrupt series, not just
 doesn't exist because numbering starts at 1"). `ExamBase` uses this internally to build its
 overview.
 
+Only IDs ≤ 99 are checked for gaps, and only up to the highest one that exists. Those are the
+protocol steps, numbered densely as the exam runs, so a hole there means something really is
+absent. Everything from 100 up — reformats, resaves, late additions like `500`/`501` or `40003` —
+is sparse by design, and neither gets flagged nor stretches the checked range.
+
 ```{code-cell} ipython3
 found, missing = fh.get_all_dicom_series_ids(build_fake_exam("brain_mrs_mrsi_exam") / "data")
 print(f"{len(found)} series found, gaps at {missing}")
@@ -126,6 +131,26 @@ print(f"{len(found)} series found, gaps at {missing}")
 assert 13 in missing
 assert 13 not in found
 assert found == sorted(found)
+
+# The <= 99 rule, pinned. This regressed once (#34): bounding the checked range by the
+# largest series present reported every unused integer below 100 as missing as soon as
+# any reformat/resave series existed.
+import tempfile
+
+
+def missing_for(series_ids):
+    """Report the gaps for an exam folder holding exactly these series IDs."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for series_id in series_ids:
+            (Path(tmp) / f"{series_id:03d}_series").mkdir()
+        return fh.get_all_dicom_series_ids(tmp)[1]
+
+
+# Sparse IDs neither get flagged nor stretch the range up to 99.
+assert missing_for([*range(1, 15), 113, 200, 300, 500, 501, 650, 651, 40003]) == []
+assert missing_for([1, 2, 4, 113]) == [3]  # a real gap between protocol steps still counts
+assert missing_for([113, 500]) == []  # nothing <= 99, so nothing to check
+assert missing_for([]) == []  # an empty folder is not an error
 ```
 
 (basics-file-discovery-archiving)=

@@ -68,11 +68,13 @@ def get_all_dicom_series_ids(data_folder: str | Path) -> tuple[list[int], list[i
 
     # Only flag gaps within the low, dense protocol-step range (series <= 99).
     # Series >= 100 are reformats/resaves with sparse-by-design numbering
-    # (e.g. 500/501, 40003) and must never be flagged as "missing".
+    # (e.g. 500/501, 40003) and must never be flagged as "missing" -- nor may
+    # they stretch the checked range: it ends at the last series <= 99 that
+    # actually exists, not at 99.
+    dense = [n for n in series_numbers if n <= 99]
     missing = []
-    if series_numbers[0] <= 99:
-        dense_range = range(series_numbers[0], min(series_numbers[-1], 99) + 1)
-        missing = sorted(set(dense_range) - set(series_numbers))
+    if dense:
+        missing = sorted(set(range(dense[0], dense[-1] + 1)) - set(dense))
     if missing:
         logger.error(f"Missing series IDs: {missing}. DOUBLE CHECK DATA FOLDER!")
 
