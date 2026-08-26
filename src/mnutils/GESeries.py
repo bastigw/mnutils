@@ -747,13 +747,12 @@ class MRSISeries(RawMRISeries):
         # Round voxel sizes to 3 decimal places to avoid floating point issues
         new_affine[0:3, 0:3] = np.round(new_affine[0:3, 0:3], 3)
 
-        # Offset x and y by centre offset
-        # The shift is important as we want to make sure the overlay is in the correct position
-        # The correct shift is the following
+        # Offset x and y by centre offset.
+        # Both affines use the standard NIfTI convention (index i's *center* sits at
+        # world = voxel_size * i + translation), and both describe the same field of view at
+        # different resolutions, so their voxel-0 centers differ by exactly half the voxel-size
+        # change: new_translation = old_translation + (new_voxel - old_voxel) / 2.
         shift = (np.diag(new_affine[:3]) - np.diag(self.nii.affine[:3])).round(3) / 2
-        # However this creates the correct FOV but the overlay is not in the correct position
-        # For a correct shift we need to add an additonal half voxel
-        shift += np.array([new_affine[0, 0], new_affine[1, 1], 0]) / 2
         logger.trace(
             f"Calculated shift for new affine: {shift}. "
             f"Original affine translation: {self.nii.affine[:3, 3]}"
