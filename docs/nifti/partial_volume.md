@@ -138,7 +138,9 @@ z = t1_data.shape[2] // 2
 
 slice_idx = np.indices(t1_data.shape[:2], dtype=np.float64)
 slice_idx = np.stack([slice_idx[0], slice_idx[1], np.full(t1_data.shape[:2], float(z))])
-slice_tgt = np.einsum("ab,bij->aij", tgt_from_mask[:3, :3], slice_idx) + tgt_from_mask[:3, 3, None, None]
+slice_tgt = (
+    np.einsum("ab,bij->aij", tgt_from_mask[:3, :3], slice_idx) + tgt_from_mask[:3, 3, None, None]
+)
 slice_bins = np.floor(slice_tgt + 0.5).astype(int)
 
 on_grid = np.ones(slice_bins.shape[1:], dtype=bool)
@@ -678,7 +680,13 @@ occ = pv.occupancy.sel(label="mask").values
 k = occ.shape[2] // 2
 
 # Which T1 slice does target slice k correspond to?
-z_t1 = int(round(affines.apply_affine(mask_from_tgt, [target.nii.shape[0] / 2, target.nii.shape[1] / 2, k])[2]))
+z_t1 = int(
+    round(
+        affines.apply_affine(mask_from_tgt, [target.nii.shape[0] / 2, target.nii.shape[1] / 2, k])[
+            2
+        ]
+    )
+)
 print(f"target slice k={k}  ->  T1 slice z={z_t1}")
 
 fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), layout="constrained")
