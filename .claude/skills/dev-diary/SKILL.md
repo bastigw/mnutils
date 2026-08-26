@@ -35,6 +35,19 @@ Two entries may touch the same concept when their decisions differ; neither is t
 When a concept needs a permanent home it graduates into an explainer under `docs/concepts/`,
 which is `docs-page`'s job, not this skill's.
 
+## 0. Git handoff — you stage, the user commits
+
+**Never run `git commit` yourself.** Stage the files (`git add`) and hand the change back: name
+what changed, quote the commit message you would have used, and let the user read the diff and
+commit it themselves. This binds in auto-accept mode too — a queued commit is still an unreviewed
+commit.
+
+**Never touch a remote without explicit confirmation.** `git push`, creating a remote branch or
+repo (`gh repo create`), opening a PR — ask with `AskUserQuestion` and wait for a yes. A yes
+covers that one action, not the next one.
+
+Every "propose the commit message …" below means exactly that: stage, propose, stop.
+
 ## 1. Assess the triggers, then ask — always
 
 **Never decide this autonomously.** Assess, then put it to the user with `AskUserQuestion` and
@@ -64,7 +77,7 @@ later in the same change.
 ## 2. Pass 1 — from the plan, as the branch's first commit
 
 Read `templates/entry.md` and follow its skeleton. File: `docs/diary/YYYY-MM-DD-<topic-slug>.md`.
-Commit as `docs: diary entry for <topic>`.
+Stage it and propose the commit message `docs: diary entry for <topic>` — the user commits it.
 
 **Budget: one screen rendered.** ≤500 words of prose, at most one diagram and one table. The
 budget is the feature — it forces the entry up to the altitude where the decision is visible.
@@ -87,8 +100,9 @@ only moment an assumption matters. Inline `:::{attention} Assumption` boxes only
 qualifies a single specific passage. A pass-1 entry with no assumptions marked usually means none
 were looked for.
 
-**Then stop — the draft is the gate.** Commit, name the page, tell the user how to preview it
-(`uv run docs-mnutils`), and **end the turn**. Implementation, verification, further commits — everything
+**Then stop — the draft is the gate.** Stage the page, name it, propose the commit message, tell
+the user how to preview it (`uv run docs-mnutils`), and **end the turn**. The commit itself is
+theirs. Implementation, verification, anything further — everything
 waits until the user responds; a bare "go" is approval. This binds in auto-accept mode too: the
 handoff is the last thing in the turn, with nothing queued behind it. Rolling past an unreviewed
 draft defeats the entry's purpose, which is catching a bad decision *before* it is built.
@@ -134,12 +148,13 @@ Split by **who** rejected it:
 
 ## 4. Pass 2 — reconcile into the story of how it is now
 
-Re-read the entry **against the merged code**, not from memory. Commit as
-`docs: reconcile diary entry for <topic>`. Not re-asked — accepting pass 1 commits to it.
+Re-read the entry **against the merged code**, not from memory. Stage it and propose the commit
+message `docs: reconcile diary entry for <topic>`. Whether pass 2 happens is not re-asked —
+accepting pass 1 commits to it — but the commit itself is still the user's to make.
 
 The deliverable is a coherent article about **how it is now and why** — not the draft plus
 patches, and not a delta log. The plan file lives outside the repo and does not survive the merge,
-so after this commit the entry and the PR body are the only reasoning record:
+so once this lands the entry and the PR body are the only reasoning record:
 
 1. Update the `Last edited` line to the reconcile date, appending the merged PR numbers.
 2. **Rewrite drifted prose in place** — real paths, real snippets, the argument as you would make
@@ -181,7 +196,7 @@ with pass 2 outstanding, by design. Each intermediate PR that changes described 
 its own reconcile hunk; batching them to the end reproduces the failure above. For a single-PR
 change the opposite holds: do not merge with pass 2 outstanding.
 
-**Invoked mid-work?** Do not rewrite history to fake a first commit. Commit the entry now, run
+**Invoked mid-work?** Do not rewrite history to fake a first commit. Stage the entry now, run
 pass 2 as usual, and note the mid-flight start in the PR body.
 
 ## 6. Register and link
@@ -197,11 +212,13 @@ pass 2 as usual, and note the mid-flight start in the PR body.
 <!-- excerpt:start -->
 - [ ] Trigger named (decision-weight, not category) and the choice **put to the user** — including
       update-an-existing-entry when one already tells this decision's story
+- [ ] Entry staged, never committed by you; commit message proposed and left to the user
+- [ ] Remote actions (push, PR, remote branch) confirmed by the user first
 - [ ] Entry is the branch's first commit (or mid-flight start noted in the PR body)
 - [ ] One screen: ≤500 words, no restated plan steps, driving question named in the PR body
 - [ ] `Last edited` line present; assumptions in a **rendered** block; rejections in dropdowns
 - [ ] **Pass 1 ends the turn**: page named, preview handoff given, implementation not started
-- [ ] Pass 2 committed last, rewritten into how it is now and read against the code — error
+- [ ] Pass 2 staged last, rewritten into how it is now and read against the code — error
       strings, diagram branches, guardrail scopes and snippets all verified against `src/`
 - [ ] `git grep -nF "{attention} Assumption" -- 'docs/diary/*.md'` is empty
 - [ ] `## What changed from the plan` only where the divergence teaches — each bullet readable
