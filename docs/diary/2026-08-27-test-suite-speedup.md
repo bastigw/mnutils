@@ -76,6 +76,7 @@ both via a private `_force_general_path` test hook and asserts they agree to `at
 practice the two are bit-identical on the fixture's masks.
 :::
 
+(diary-test-suite-speedup-changed)=
 ## What changed from the plan
 
 The plan assumed the fixture cache only needed to be *written* race-safely (lock + atomic rename).
