@@ -1,19 +1,24 @@
 """Synthetic GE exam fixtures for docs pages and tests -- no real scanner data required.
 
 See docs/diary/2026-08-19-synthetic-exam-fixtures.md for why this exists, what it does and doesn't
-fake, and where the spectra/anatomy come from. `build_fake_exam(dataset)` writes the requested
-dataset under a process-local temp directory (via `tempfile.mkdtemp`) the first time it's called,
-caches each dataset's path for the rest of the process, and registers an `atexit` cleanup so
-nothing survives past the process that created it.
+fake, and docs/diary/2026-08-27-test-suite-speedup.md for why the cache below is keyed by content
+hash rather than per-process. `build_fake_exam(dataset)` writes the requested dataset under a
+machine-wide cache directory keyed by a hash of this module's and `_spectra.py`'s source, so every
+notebook kernel/process that shares a checkout shares one build instead of rebuilding from scratch.
+Editing a builder changes the hash, so a stale fixture from before the edit is never reused. An
+`mkdir`-based lock per dataset serializes concurrent builders (see `build_fake_exam`), so `-n auto`
+never has two kernels build -- or half-build -- the same dataset at once.
 
 `_TEMPLATE_ATTRIBUTION` in `_spectra.py` covers the one piece of real (downloaded, cached) data
 used here -- a CC BY-NC 4.0 T1 template.
 """
 
-import atexit
 import functools
+import hashlib
+import os
 import shutil
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -393,28 +398,88 @@ _DATASETS: dict[str, tuple[Callable[[Path], None], str]] = {
 }
 
 
+_CACHE_DIR_NAME = "mnutils_fake_exam_cache"
+
+#: How long an mkdir-lock can sit unclaimed before a builder crash (not just a slow build) is
+#: assumed and another process reclaims it. Every builder in `_DATASETS` finishes in single-digit
+#: seconds, so this only ever fires on an abandoned lock.
+_LOCK_STALE_SECONDS = 300
+_LOCK_POLL_SECONDS = 0.05
+
+
 @functools.cache
-def _fake_exam_root() -> Path:
-    root = Path(tempfile.mkdtemp(prefix="mnutils_fake_exam_"))
-    atexit.register(shutil.rmtree, root, ignore_errors=True)
+def _sources_hash() -> str:
+    """Hash this module's and `_spectra.py`'s source, so editing a builder busts the cache."""
+    h = hashlib.sha256()
+    for name in ("synthetic.py", "_spectra.py"):
+        h.update(Path(__file__).with_name(name).read_bytes())
+    return h.hexdigest()[:12]
+
+
+def _fake_exam_cache_root() -> Path:
+    """The machine-wide cache directory for the current builder sources, pruning stale hashes."""
+    parent = Path(tempfile.gettempdir()) / _CACHE_DIR_NAME
+    root = parent / _sources_hash()
+    root.mkdir(parents=True, exist_ok=True)
+    for stale in parent.iterdir():
+        if stale != root:
+            shutil.rmtree(stale, ignore_errors=True)
     return root
 
 
 @functools.cache
 def build_fake_exam(dataset: str) -> Path:
-    """Build (on first call) and return the path to one synthetic dataset.
+    """Build (if not already cached) and return the path to one synthetic dataset.
 
     `dataset` is one of `_DATASETS`' keys -- the same names and shapes docs pages and tests
-    previously read from `tests/datasets/`, entirely fabricated (see the diary entry for what's
-    simulated vs. downloaded). Every dataset lives under one shared `tempfile.mkdtemp` directory
-    (created on first call to any dataset) removed by an `atexit` hook when the process exits, so
-    nothing accumulates across runs. Each dataset is built at most once per process.
+    previously read from `tests/datasets/`, entirely fabricated (see the diary entries for what's
+    simulated vs. downloaded, and for why this cache is keyed by content hash). Every dataset
+    lives under `<tempdir>/mnutils_fake_exam_cache/<sha256(sources)[:12]>/<dataset>`, shared by
+    every process on the machine -- built once, reused by every later kernel/worker until the
+    builder sources change.
+
+    Two processes racing to build the same dataset never observe a half-written tree: the first
+    to `mkdir` a `.lock` sibling directory (atomic -- `mkdir` on an existing path raises) builds
+    it via a `.tmp` sibling and `os.replace`; everyone else polls until either the lock clears or
+    `final_path` appears, then reuses it instead of building their own copy.
     """
     if dataset not in _DATASETS:
         raise ValueError(
             f"Unknown fake-exam dataset {dataset!r}; choose one of {sorted(_DATASETS)}"
         )
     builder, filename = _DATASETS[dataset]
-    path = _fake_exam_root() / filename
-    builder(path)
-    return path
+    final_path = _fake_exam_cache_root() / filename
+    if final_path.exists():
+        return final_path
+
+    lock_dir = final_path.with_name(f"{final_path.name}.lock")
+    while True:
+        try:
+            lock_dir.mkdir()
+        except FileExistsError:
+            if final_path.exists():
+                return final_path
+            try:
+                age = time.time() - lock_dir.stat().st_mtime
+            except FileNotFoundError:
+                continue  # the lock was released between our mkdir and this stat
+            if age > _LOCK_STALE_SECONDS:
+                shutil.rmtree(lock_dir, ignore_errors=True)
+            else:
+                time.sleep(_LOCK_POLL_SECONDS)
+        else:
+            break
+
+    try:
+        if final_path.exists():  # another process built it while we waited for the lock
+            return final_path
+        tmp_path = final_path.with_name(f"{final_path.name}.tmp")
+        if tmp_path.is_dir():
+            shutil.rmtree(tmp_path, ignore_errors=True)
+        elif tmp_path.exists():
+            tmp_path.unlink()
+        builder(tmp_path)
+        os.replace(tmp_path, final_path)
+    finally:
+        shutil.rmtree(lock_dir, ignore_errors=True)
+    return final_path
