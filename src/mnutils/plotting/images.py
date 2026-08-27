@@ -80,6 +80,7 @@ def fast_bounds(
     max_target_samples: int = 50000,
     p_lower: float = 1.0,
     p_upper: float = 99.0,
+    exclude_zeros: bool = False,
 ) -> tuple[float, float]:
     """Quickly estimate lower/upper display bounds by sampling a subset of the data.
 
@@ -99,6 +100,12 @@ def fast_bounds(
     p_upper : float, optional
         The upper percentile to calculate. Defaults to 99.0 (the 99th
         percentile).
+    exclude_zeros : bool, optional
+        If True, drop exact zeros before taking the percentiles. Background
+        voxels are usually exactly 0 and would otherwise dominate the lower
+        percentile and flatten the contrast of the anatomy itself. Ignored
+        when the data is all zeros -- a warning is logged and the zeros are
+        kept so the bounds stay finite. Defaults to False.
 
     Returns
     -------
@@ -114,6 +121,15 @@ def fast_bounds(
     # First filter out nan values and then sample the data to ensure we are
     # sampling valid values for bounds estimation
     sampled_data = data[np.isfinite(data)]
+    if exclude_zeros:
+        nonzero_data = sampled_data[sampled_data != 0]
+        if nonzero_data.size == 0 and sampled_data.size > 0:
+            logger.warning(
+                "All finite values are 0, so keeping the zeros for bounds estimation "
+                "to avoid discarding the whole array."
+            )
+        elif nonzero_data.size > 0:
+            sampled_data = nonzero_data
     sampled_data = sampled_data[::sample_step]
 
     if sampled_data.size == 0:
@@ -137,16 +153,24 @@ def _resolve_display_bounds(
     vmin: float | None,
     vmax: float | None,
     v_percentile: float = 1.0,
+    exclude_zeros: bool = False,
 ) -> tuple[float, float]:
     """Fill in whichever of `vmin`/`vmax` was not given from the data itself.
 
     A caller is allowed to pin one bound and leave the other to the data, so
     the estimate has to run whenever *either* is missing and then replace only
-    the missing one.
+    the missing one. `exclude_zeros` is handed straight to `fast_bounds`, so
+    background zeros can be kept out of the estimate without also being masked
+    out of what is drawn.
     """
     if vmin is not None and vmax is not None:
         return vmin, vmax
-    new_vmin, new_vmax = fast_bounds(data, p_lower=v_percentile, p_upper=100 - v_percentile)
+    new_vmin, new_vmax = fast_bounds(
+        data,
+        p_lower=v_percentile,
+        p_upper=100 - v_percentile,
+        exclude_zeros=exclude_zeros,
+    )
     return (new_vmin if vmin is None else vmin, new_vmax if vmax is None else vmax)
 
 
@@ -240,7 +264,7 @@ def display_images(
     vmin: float | None = None,
     vmax: float | None = None,
     v_percentile: float = 1.0,
-    zeros_as_nan: bool = False,
+    zeros_as_nan: bool = True,
     zooms: tuple[float, float] | None = None,
     **kwargs,
 ) -> None:
@@ -283,7 +307,9 @@ def display_images(
         Percentile used to estimate `vmin`/`vmax` when not given, by
         default 1.0.
     zeros_as_nan : bool, optional
-        If True, treat zero values as NaN for display, by default False.
+        If True, zeros are treated as NaN: kept out of the `vmin`/`vmax`
+        estimate so the background cannot drag the scaling down, and rendered
+        transparent rather than as the colormap's low end. By default True.
     zooms : tuple[float, float], optional
         Physical (row, col) voxel edge lengths of the displayed slice, e.g.
         from `utils.nifti.get_display_zooms`. When given, panels are rendered
@@ -341,24 +367,13 @@ def display_images(
     else:
         raise ValueError("Input images must be either 3D or 4D.")
 
-    # Set 0 values in images to nan for better visualization and colorbar scaling
-    if vmin is None or vmax is None or zeros_as_nan:
-        logger.debug(
-            "Setting 0 values in images to NaN for better visualization and colorbar scaling."
-        )
-        zeros_nan_images = images.copy()
-        zeros_nan_images[zeros_nan_images == 0] = np.nan
-        # Check that now not all values are nan
-        if np.isnan(zeros_nan_images).all():
-            logger.warning(
-                "All values in images are 0, so setting zeros_as_nan to False "
-                "to avoid all values being NaN."
-            )
-            zeros_as_nan = False
-            zeros_nan_images = images
-        images = zeros_nan_images
-
-    vmin, vmax = _resolve_display_bounds(images, vmin, vmax, v_percentile)
+    # Nothing is masked here: `zeros_as_nan` is handed to the two places that
+    # actually act on it -- `fast_bounds` for the numbers, `_Layer` for the
+    # pixels -- so no copy of the volume is made and pinning `vmin`/`vmax` no
+    # longer drags the display mask along with it.
+    vmin, vmax = _resolve_display_bounds(
+        images, vmin, vmax, v_percentile, exclude_zeros=zeros_as_nan
+    )
 
     if vmin == vmax or vmin is None or vmax is None or np.isnan([vmin, vmax]).any():
         logger.debug(
@@ -401,6 +416,7 @@ def display_images(
         vmin=vmin,
         vmax=vmax,
         per_panel_bounds=colorbar_mode == "each",
+        zeros_as_nan=zeros_as_nan,
         pixel_aspect=None if zooms is None else zooms[1] / zooms[0],
     )
     ipy_display(
@@ -438,12 +454,16 @@ class _Layer(NamedTuple):
     `bounds` is either a single `(vmin, vmax)` used for every frame, or one
     pair per job when each frame autoscales to itself. `alpha` is matplotlib's
     `imshow(alpha=...)`: the base layer is opaque, layers above it blend.
+    `zeros_as_nan` renders this layer's exact zeros transparent. It is a
+    per-layer choice because an overlay wants its all-zero background to drop
+    out while the anatomical underneath keeps every voxel it has.
     """
 
     volume: npt.NDArray
     cmap: str
     bounds: tuple[float, float] | list[tuple[float, float]]
     alpha: float = 1.0
+    zeros_as_nan: bool = False
 
 
 def _stretch_to_pixel_aspect(array: npt.NDArray, pixel_aspect: float) -> npt.NDArray:
@@ -504,8 +524,9 @@ def _render_frames(
     as PNG but ~42 kB as WebP q92 (41 dB PSNR against the exact composite),
     which is what keeps a widget's payload manageable. Pass `lossless` for
     small hard-edged images, where the ringing shows and the payload argument
-    disappears. `keep_alpha` carries the colormap's "bad" pixels (NaN) through
-    as transparent instead of flattening them onto a baked-in background.
+    disappears. `keep_alpha` carries the colormap's "bad" pixels (NaN, so also
+    whatever a layer's `zeros_as_nan` masked out) through as transparent instead
+    of flattening them onto a baked-in background.
     `pixel_aspect`, when given, upscales one axis of the composite (see
     `_stretch_to_pixel_aspect`) so the frame's own dimensions already encode
     the physical voxel aspect ratio -- the browser then needs no separate
@@ -530,7 +551,12 @@ def _render_frames(
             if mappable is None:
                 bounds = layer.bounds[index]  # pyright: ignore[reportIndexIssue]
                 mappable = ScalarMappable(Normalize(*bounds), layer.cmap)
-            rgba = mappable.to_rgba(layer.volume[selector], bytes=True)
+            data = layer.volume[selector]
+            if layer.zeros_as_nan:
+                # Per frame, not per volume: a 2-D `where` on the slice about
+                # to be drawn costs less than a copy of the whole volume.
+                data = np.where(data == 0, np.nan, data)
+            rgba = mappable.to_rgba(data, bytes=True)
             if composite is None:
                 composite = rgba
                 continue
@@ -558,13 +584,18 @@ def _render_frames(
         return list(pool.map(render, range(len(jobs))))
 
 
-def _panel_bounds(panel: npt.NDArray) -> tuple[float, float]:
+def _panel_bounds(panel: npt.NDArray, zeros_as_nan: bool = False) -> tuple[float, float]:
     """Autoscale one panel the way `AxesImage.autoscale` did: to its own extent.
 
     Guards the two cases matplotlib's `Normalize` would otherwise have to
     absorb: an all-NaN panel (nothing to scale to) and a constant one (a zero
-    -width range maps every pixel to the colormap's low end).
+    -width range maps every pixel to the colormap's low end). `zeros_as_nan`
+    keeps a zero background out of that extent, matching what the layer will
+    then draw; an all-zero panel falls back to the zeros so the pair stays
+    finite.
     """
+    if zeros_as_nan and np.any(np.isfinite(panel) & (panel != 0)):
+        panel = np.where(panel == 0, np.nan, panel)
     if not np.isfinite(panel).any():
         return 0.0, 1.0
     return _widen_if_flat(float(np.nanmin(panel)), float(np.nanmax(panel)))
@@ -578,6 +609,7 @@ def _render_image_grid_frames(
     vmin: float | None,
     vmax: float | None,
     per_panel_bounds: bool,
+    zeros_as_nan: bool = False,
     pixel_aspect: float | None = None,
     quality: int = GRID_FRAME_QUALITY,
     max_workers: int = 8,
@@ -602,7 +634,8 @@ def _render_image_grid_frames(
     n_slices = images.shape[2]
     if per_panel_bounds:
         bounds = [
-            [_panel_bounds(images[:, :, s, p]) for p in range(num_images)] for s in range(n_slices)
+            [_panel_bounds(images[:, :, s, p], zeros_as_nan) for p in range(num_images)]
+            for s in range(n_slices)
         ]
     else:
         shared = _widen_if_flat(
@@ -612,7 +645,7 @@ def _render_image_grid_frames(
 
     jobs = [(s, p) for s in range(n_slices) for p in range(num_images)]
     rendered = _render_frames(
-        [_Layer(images, cmap, [bounds[s][p] for s, p in jobs])],
+        [_Layer(images, cmap, [bounds[s][p] for s, p in jobs], zeros_as_nan=zeros_as_nan)],
         jobs,
         quality=quality,
         lossless=images.shape[0] * images.shape[1] <= GRID_LOSSLESS_MAX_PIXELS,
@@ -716,6 +749,7 @@ def _render_overlay_raster_frames(
     vmin: float | None = None,
     vmax: float | None = None,
     v_percentile: float = 1.0,
+    zeros_as_nan: bool = True,
 ) -> tuple[list[list[bytes]], list[list[tuple[float, float]]], list[str]]:
     """Render `overlay_image_data_on_T1`'s panels straight to raster, one job per slice.
 
@@ -726,31 +760,49 @@ def _render_overlay_raster_frames(
     it: `np.where(mask, data, nan)` before the data layer is built. Panel
     bounds are computed the same way `_draw_single_axis_overlay` computes
     them, for visual parity between engines.
+
+    `zeros_as_nan` defaults to True and applies to the *data* layers only: an
+    overlay's zeros are background, and painting them with the colormap's low
+    end would hide the anatomical underneath. The T1 layer keeps its zeros --
+    they are the head's surroundings, and dropping them out would put the page
+    background inside the skull outline.
     """
     n_slices = t1_images.shape[2]
     jobs = [(s,) for s in range(n_slices)]
 
     anat_bounds = fast_bounds(t1_images, p_lower=1.0, p_upper=99.0)
     masked_data = np.where(mask, data_images, np.nan) if mask is not None else data_images
-    data_bounds = _resolve_display_bounds(masked_data, vmin, vmax, v_percentile)
+    data_bounds = _resolve_display_bounds(
+        masked_data, vmin, vmax, v_percentile, exclude_zeros=zeros_as_nan
+    )
 
     panels: list[tuple[str, list[_Layer], tuple[float, float]]] = []
     if not only_overlay:
         panels.append(("T1 Image", [_Layer(t1_images, "gray", anat_bounds)], anat_bounds))
-        panels.append(("Resampled Data", [_Layer(masked_data, cmap, data_bounds)], data_bounds))
+        panels.append(
+            (
+                "Resampled Data",
+                [_Layer(masked_data, cmap, data_bounds, zeros_as_nan=zeros_as_nan)],
+                data_bounds,
+            )
+        )
     panels.append(
         (
             "Overlay",
             [
                 _Layer(t1_images, "gray", anat_bounds),
-                _Layer(masked_data, cmap, data_bounds, alpha=alpha),
+                _Layer(masked_data, cmap, data_bounds, alpha=alpha, zeros_as_nan=zeros_as_nan),
             ],
             data_bounds,
         )
     )
 
+    # Same encoder rule as the `display_images` grid: without it a small
+    # panel here came out lossy while the identical array rendered losslessly
+    # there, and WebP's ringing on hard voxel edges made the two disagree.
+    lossless = t1_images.shape[0] * t1_images.shape[1] <= GRID_LOSSLESS_MAX_PIXELS
     rendered = [
-        _render_frames(layers, jobs, quality=GRID_FRAME_QUALITY, keep_alpha=True)
+        _render_frames(layers, jobs, quality=GRID_FRAME_QUALITY, lossless=lossless, keep_alpha=True)
         for _, layers, _ in panels
     ]
     frames = [[rendered[p][s] for p in range(len(panels))] for s in range(n_slices)]
@@ -911,7 +963,7 @@ def overlay_image_data_on_T1(
             "_render_frames); ignoring it. Pass engine='matplotlib' to draw a contour."
         )
 
-    raster_kwarg_names = {"cmap", "alpha", "vmin", "vmax", "v_percentile"}
+    raster_kwarg_names = {"cmap", "alpha", "vmin", "vmax", "v_percentile", "zeros_as_nan"}
     raster_kwargs = {k: v for k, v in kwargs.items() if k in raster_kwarg_names}
     ignored = {k: v for k, v in kwargs.items() if k not in raster_kwarg_names}
     if ignored:
@@ -949,7 +1001,13 @@ def _draw_overlay_slice(
     mask_kwargs: dict[str, Any] | None,
     kwargs: dict[str, Any],
 ) -> None:
-    """Draw one slice of the `overlay_image_data_on_T1` panels onto given axes."""
+    """Draw one slice of the `overlay_image_data_on_T1` panels onto given axes.
+
+    The data-only panel draws the data as a *base* layer, where
+    `_draw_single_axis_overlay`'s `zeros_as_nan` does not reach (it masks the
+    overlay layer). So the mask is applied here instead, keeping this panel
+    matching both the overlay panel beside it and the raster engine's.
+    """
     axes_idx = 0
     if not only_overlay:
         _draw_single_axis_overlay(
@@ -957,7 +1015,10 @@ def _draw_overlay_slice(
         )
         axes[axes_idx].set_title("T1 Image")
         axes_idx += 1
-        _draw_single_axis_overlay(data_images[:, :, slice_idx], ax=axes[axes_idx], **kwargs)
+        data_slice = data_images[:, :, slice_idx]
+        if kwargs.get("zeros_as_nan", True):
+            data_slice = np.where(data_slice == 0, np.nan, data_slice)
+        _draw_single_axis_overlay(data_slice, ax=axes[axes_idx], **kwargs)
         axes[axes_idx].set_title("Resampled Data")
         axes_idx += 1
 
@@ -1012,6 +1073,7 @@ def _draw_single_axis_overlay(
     cmap: str = DEFAULT_PARAMS["cmap"],
     alpha: float = 0.5,
     mask_kwargs: dict[str, Any] | None = None,
+    zeros_as_nan: bool = True,
     **kwargs,
 ) -> tuple[list[AxesImage], QuadContourSet | None]:
     """Draw one anatomical image, optionally with a data overlay/mask, onto `ax`.
@@ -1020,6 +1082,11 @@ def _draw_single_axis_overlay(
     `overlay_image_data_on_T1(..., ax=...)` dispatches straight here. Real
     matplotlib is unavoidable on this path: there is no client-side `Axes` for
     a raster widget to draw into.
+
+    `zeros_as_nan` masks the overlay's zeros so they render transparent and
+    scale is taken from real signal only -- the same default, and the same
+    layer-by-layer meaning, as the raster engine's `_Layer(zeros_as_nan=...)`,
+    so the two engines produce the same picture.
     """
     # Copy default image params and update with any provided kwargs
     remove_keys = ["vmin", "vmax", "v_percentile"]
@@ -1056,6 +1123,7 @@ def _draw_single_axis_overlay(
         kwargs.pop("vmin", None),
         kwargs.pop("vmax", None),
         kwargs.pop("v_percentile", 1.0),
+        exclude_zeros=zeros_as_nan,
     )
 
     logger.debug(f"Setting overlay vmin: {vmin:4g}, vmax: {vmax:4g}")
@@ -1072,6 +1140,8 @@ def _draw_single_axis_overlay(
         logger.trace(
             f"Applied mask to overlay image. Mask shape: {mask.shape}, mask dtype: {mask.dtype}"
         )
+    if zeros_as_nan:
+        overlay_image = np.where(overlay_image == 0, np.nan, overlay_image)
 
     im.append(
         ax.imshow(
@@ -1156,7 +1226,7 @@ def inspect_MRSI_spectra(
     initial_voxel = (nx // 2, ny // 2, n_mrsi_slices // 2)
 
     anat_vmin, anat_vmax = fast_bounds(t1_images)
-    mrsi_vmin, mrsi_vmax = fast_bounds(mrsi_images)
+    mrsi_vmin, mrsi_vmax = fast_bounds(mrsi_images, exclude_zeros=True)
     logger.debug(f"Anatomical image bounds for display: vmin={anat_vmin:4g}, vmax={anat_vmax:4g}")
     logger.debug(f"MRSI image bounds for display: vmin={mrsi_vmin:4g}, vmax={mrsi_vmax:4g}")
 
@@ -1169,7 +1239,7 @@ def inspect_MRSI_spectra(
     left_frames = _render_frames(
         [
             _Layer(t1_images, "gray", (anat_vmin, anat_vmax)),
-            _Layer(mrsi_images, "magma", (mrsi_vmin, mrsi_vmax), alpha=0.5),
+            _Layer(mrsi_images, "magma", (mrsi_vmin, mrsi_vmax), alpha=0.5, zeros_as_nan=True),
         ],
         [(s,) for s in range(n_anat_slices)],
         quality=MRSI_FRAME_QUALITY,
@@ -1549,11 +1619,14 @@ def overlay_voxel_on_T1(
     ax.imshow(t1_images[:, :, slice_idx], origin="upper", **image_kwargs)
     logger.trace(f"Sum of t1 image slice: {np.nansum(t1_images[:, :, slice_idx])}")
     if show_overlay:
-        mrsi_vmin, mrsi_vmax = fast_bounds(mrsi_images[:, :, slice_idx])
+        overlay_slice = mrsi_images[:, :, slice_idx]
+        mrsi_vmin, mrsi_vmax = fast_bounds(overlay_slice, exclude_zeros=True)
         overlay_kwargs = default_overlay_kwargs | (overlay_kwargs or {})
         overlay_kwargs.update({"vmin": mrsi_vmin, "vmax": mrsi_vmax})
+        # Zeros here are outside the MRSI FOV, not signal: masked so the
+        # anatomical shows through instead of a magma-black wash.
         ax.imshow(
-            mrsi_images[:, :, slice_idx],
+            np.where(overlay_slice == 0, np.nan, overlay_slice),
             origin="upper",
             **overlay_kwargs,
         )
