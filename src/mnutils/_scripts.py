@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -127,6 +128,20 @@ def docs_all() -> None:
 TEST_CHAPTERS = ("basics", "data-model", "plotting", "fitting", "nifti", "matlab")
 
 
+def _convert_to_notebook(md_file: Path, out_dir: Path) -> None:
+    subprocess.run(
+        [
+            "jupytext",
+            "--to",
+            "notebook",
+            "--output",
+            str(out_dir / f"{md_file.stem}.ipynb"),
+            str(md_file),
+        ],
+        check=True,
+    )
+
+
 def generate_test_notebooks() -> None:
     """Convert every executable page under TEST_CHAPTERS into a test notebook.
 
@@ -135,6 +150,11 @@ def generate_test_notebooks() -> None:
     chapter `index.md`, are skipped rather than failing with no kernel to
     start). Output goes under tests/autogen_notebooks/, which is gitignored --
     regenerate it before running pytest, never commit it.
+
+    Each page is its own `jupytext` subprocess (~0.3-0.5s of interpreter
+    startup apiece) with nothing shared between them, so they run in a thread
+    pool -- the GIL doesn't matter here since every thread spends its time
+    blocked in `subprocess.run`, not executing Python.
     """
     project_root = _find_project_root()
     docs_dir = project_root / "docs"
@@ -143,26 +163,21 @@ def generate_test_notebooks() -> None:
     if out_root.exists():
         shutil.rmtree(out_root)
 
+    jobs: list[tuple[Path, Path]] = []
     for chapter in TEST_CHAPTERS:
         chapter_dir = docs_dir / chapter
         if not chapter_dir.is_dir():
             continue
+        out_dir = out_root / chapter
         for md_file in sorted(chapter_dir.glob("*.md")):
-            if not _is_executable_page(md_file):
-                continue
-            out_dir = out_root / chapter
-            out_dir.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                [
-                    "jupytext",
-                    "--to",
-                    "notebook",
-                    "--output",
-                    str(out_dir / f"{md_file.stem}.ipynb"),
-                    str(md_file),
-                ],
-                check=True,
-            )
+            if _is_executable_page(md_file):
+                jobs.append((md_file, out_dir))
+
+    for out_dir in {out_dir for _, out_dir in jobs}:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    with ThreadPoolExecutor() as pool:
+        list(pool.map(lambda job: _convert_to_notebook(*job), jobs))
 
 
 def _is_executable_page(md_file: Path) -> bool:
