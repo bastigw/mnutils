@@ -64,6 +64,12 @@ _RESAMPLE_MODES = frozenset(
 # Single-letter anatomical axis codes, as nibabel's `orientations` uses them.
 _AXIS_CODES = frozenset("LRAPIS")
 
+# Which of the three anatomical axes each code belongs to, so a valid orientation uses each axis
+# exactly once -- nibabel's `axcodes2ornt` silently accepts a duplicate/opposing pair like
+# ("L", "L", "S") and produces a malformed ornt array instead of raising.
+_AXIS_PAIRS = {"L": 0, "R": 0, "A": 1, "P": 1, "I": 2, "S": 2}
+_AXIS_PAIRS_DESC = "LR, AP, IS"
+
 
 def _validate_bool(value: Any) -> bool:
     if not isinstance(value, bool):
@@ -168,6 +174,9 @@ def _validate_orientation(value: Any) -> tuple[str, str, str]:
         raise ValueError(
             f"expected three axis codes from {''.join(sorted(_AXIS_CODES))}, got {value!r}"
         )
+    axes = [_AXIS_PAIRS[code] for code in codes]
+    if len(set(axes)) != 3:
+        raise ValueError(f"expected one axis code from each of {_AXIS_PAIRS_DESC}, got {value!r}")
     return codes  # type: ignore[return-value]
 
 
@@ -225,7 +234,6 @@ def _validate_colors(value: Any) -> str | list[str]:
 _VALIDATORS: dict[str, Callable[[Any], Any]] = {
     # Image panels -- `plotting.images`
     "image.cmap": _validate_cmap,
-    "image.ticker_steps": _validate_ticker_steps,
     "image.ax.xlabel": _validate_str,
     "image.ax.ylabel": _validate_str,
     "image.ax.xticks": _validate_ticks,
@@ -261,7 +269,6 @@ _VALIDATORS: dict[str, Callable[[Any], Any]] = {
 
 _DEFAULTS: dict[str, Any] = {
     "image.cmap": "magma",
-    "image.ticker_steps": [1, 2, 4],
     "image.ax.xlabel": "",
     "image.ax.ylabel": "",
     "image.ax.xticks": [],
