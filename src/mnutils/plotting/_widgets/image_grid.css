@@ -28,9 +28,14 @@
      ratio" -- for a 5x20 frame that is four times --mnu-panel-min-h. Columns
      take the wider of that and --mnu-panel-min-w, so a row of wide frames wraps
      sooner rather than flattening into strips. */
+  /* A caller asking for panels smaller than the floor (rcParams' grid.* keys
+     are set per call by `display_images`) would otherwise get a floor taller
+     than the cap and a panel that overflows its own box. The units can be
+     anything CSS accepts, so this has to be resolved by CSS, not Python. */
+  --mnu-panel-min-h-eff: min(var(--mnu-panel-min-h), var(--mnu-panel-max-h));
   --mnu-panel-min-w-eff: max(
     var(--mnu-panel-min-w),
-    calc(var(--mnu-panel-min-h) * var(--mnu-aspect, 1))
+    calc(var(--mnu-panel-min-h-eff) * var(--mnu-aspect, 1))
   );
   --mnu-grid-w-cap: calc(
     var(--mnu-grid-cols, 1) * var(--mnu-panel-w-cap) +
@@ -107,7 +112,7 @@
 /* `auto-fit` + `minmax(--mnu-panel-min-w-eff, 1fr)`: as many columns as fit at
    a readable size, wrapping to a new row when they don't -- where "readable"
    is both floors above, whichever binds. The nominal column count
-   (`GRID_MAX_COLS`, five) is enforced from above by the widget's max-width
+   (`rcParams["grid.max_cols"]`, five by default) is enforced from above by the widget's max-width
    rather than by a fixed track list -- a fixed list is what cut the fourth
    panel off in a narrow editor pane, since grid columns never wrap.
    `min(..., 100%)` keeps the minimum itself from overflowing a pane narrower
@@ -150,7 +155,7 @@
   display: block;
   width: 100%;
   height: auto;
-  min-height: var(--mnu-panel-min-h);
+  min-height: var(--mnu-panel-min-h-eff);
   max-height: var(--mnu-panel-max-h);
   object-fit: contain;
   /* Set per image by the JS: `pixelated` whenever the frame is being scaled

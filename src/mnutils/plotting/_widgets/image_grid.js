@@ -63,6 +63,7 @@ function renderWidget(data, el) {
     colorbar_mode: colorbarMode,
     initial_index: initialIndex,
     slice_label: sliceLabel,
+    size_vars: sizeVars,
   } = data;
 
   // WebP with an alpha channel: values the colormap marks "bad" (NaN, and so
@@ -74,6 +75,12 @@ function renderWidget(data, el) {
 
   const viewer = document.createElement("div");
   viewer.className = "mnu-viewer mnutils-image-grid";
+  // Per-call sizing (mnutils.rcParams["grid.*"], or display_images' own
+  // panel_height/grid_max_height). The stylesheet's own values stay as the
+  // fallback, so a widget built without them renders identically.
+  for (const [name, value] of Object.entries(sizeVars || {})) {
+    viewer.style.setProperty(name, value);
+  }
 
   if (figTitle) {
     const heading = document.createElement("div");

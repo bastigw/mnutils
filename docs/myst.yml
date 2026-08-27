@@ -9,6 +9,8 @@ project:
       children:
         - file: basics/index.md
           title: Overview
+        - file: basics/configuration.md
+          title: Setting defaults with rcParams
         - file: basics/loading_data.md
           title: Loading a series and an exam
         - file: basics/hz_and_ppm.md
@@ -94,6 +96,8 @@ project:
       children:
         - file: api/index.md
           title: Overview
+        - file: api/rcparams.md
+          title: rcParams (configuration)
         - file: api/GEExam.ExamBase.md
           title: ExamBase
         - file: api/GEExam.DMIExam.md
@@ -128,7 +132,7 @@ project:
           title: Image plotting
         - file: api/plotting.spectra.md
           title: Spectra plotting
-        - file: api/plotting.md
+        - file: api/plotting.saving.md
           title: "Figure saving (plotting package)"
         - file: api/utils.spectra.md
           title: Spectra utilities

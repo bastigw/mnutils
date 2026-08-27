@@ -10,6 +10,11 @@ quartodoc:
     include_empty: true
 
   sections:
+    - title: Configuration
+      desc: Package-wide defaults, validated and overridable.
+      contents:
+        - rcparams
+
     - title: Data Model
       desc: Core classes representing a GE exam and its series.
       contents:

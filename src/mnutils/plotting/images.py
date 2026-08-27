@@ -23,6 +23,7 @@ from matplotlib.image import AxesImage
 from nibabel import affines, spatialimages
 
 from .. import GESeries, utils
+from ..rcparams import rcParams, resolve_rc, validate_css_length
 from ._widgets import ImageGridWidget, MRSIVoxelInspectorWidget, SliceViewerWidget
 
 # WebP quality for the MRSI inspector's anatomical frames. These are display
@@ -45,9 +46,6 @@ GRID_FRAME_QUALITY = 92
 # a 700-panel grid) to fix artifacts nobody can see at that scale.
 GRID_LOSSLESS_MAX_PIXELS = 64 * 64
 
-# Panels per row in a `display_images` grid, before it wraps to a new one.
-GRID_MAX_COLS = 5
-
 # float16 tops out at 65504, and raw spectra routinely exceed that, so the
 # buffer is divided by a scale factor before the cast and multiplied back in
 # the browser. 32000 leaves an octave of headroom under the limit.
@@ -56,23 +54,6 @@ _F16_TARGET_MAX = 32000.0
 # Warn past this uncompressed spectra size -- a big grid can otherwise silently
 # produce a notebook hundreds of MB wide.
 _SPECTRA_WARN_BYTES = 32 * 1024**2
-
-DEFAULT_IMAGE_AX_PARAMS = {
-    "xlabel": "",
-    "xticks": [],
-    "ylabel": "",
-    "yticks": [],
-}
-
-DEFAULT_PARAMS = {
-    "cmap": "magma",
-    "ticker_steps": [1, 2, 4],
-}
-
-DEFAULT_MASK_PARAMS = {
-    "colors": "green",
-    "linewidths": 3,
-}
 
 
 def fast_bounds(
@@ -256,7 +237,7 @@ def display_images(
     images: npt.NDArray | list,
     titles: list[str] | None = None,
     fig_title: str = "",
-    cmap: str = DEFAULT_PARAMS["cmap"],
+    cmap: str | None = None,
     imshow_kws: dict[str, Any] | None = None,
     colorbar: bool = False,
     colorbar_kws: dict[str, Any] | None = None,
@@ -266,6 +247,8 @@ def display_images(
     v_percentile: float = 1.0,
     zeros_as_nan: bool = True,
     zooms: tuple[float, float] | None = None,
+    panel_height: str | float | None = None,
+    grid_max_height: str | float | None = None,
     **kwargs,
 ) -> None:
     """Display a grid of 2D/3D/4D images, with a slice slider for 3D/4D input.
@@ -285,7 +268,7 @@ def display_images(
     fig_title : str, optional
         Overall figure title, by default "".
     cmap : str, optional
-        Colormap to use, by default the module's default colormap.
+        Colormap to use. Defaults to `rcParams["image.cmap"]`.
     imshow_kws : dict, optional
         Accepted and ignored: there is no `imshow` call left to forward them
         to. Kept so existing call sites keep working.
@@ -317,6 +300,15 @@ def display_images(
         pixel per voxel; the through-plane spacing is irrelevant since only
         one 2D slice is ever on screen at a time. Defaults to the pixel-count
         aspect ratio (square voxels) when omitted.
+    panel_height : str or float, optional
+        How tall a single panel may grow, as a CSS length (`"30rem"`,
+        `"400px"`) or a bare number read as rem. The compact default suits a
+        row of low-resolution panels; raise it to read a high-resolution
+        anatomical series. Defaults to `rcParams["grid.panel_height"]`.
+    grid_max_height : str or float, optional
+        How tall the panel box may grow before it scrolls, same units. Worth
+        raising alongside `panel_height` for a tall single-column view.
+        Defaults to `rcParams["grid.max_height"]`.
     **kwargs
         Accepted and ignored: axis parameters such as `aspect`, `xlabel` or
         `xticks` have no Axes to apply to. Kept so existing call sites keep
@@ -328,6 +320,7 @@ def display_images(
         The grid is displayed as a widget. For a single-slice input the
         widget simply has no slider.
     """
+    cmap = resolve_rc(cmap, "image.cmap")
     if titles is None:
         titles = []
 
@@ -354,9 +347,10 @@ def display_images(
         num_images = images.shape[3]
         # Nominal columns per row. The widget wraps to fewer when the pane is
         # too narrow for them, so this is the *most* a row will ever hold.
-        num_cols = min(GRID_MAX_COLS, num_images)
+        max_cols = rcParams["grid.max_cols"]
+        num_cols = min(max_cols, num_images)
         slice_idx = images.shape[2] // 2
-        num_rows = -(-num_images // GRID_MAX_COLS)
+        num_rows = -(-num_images // max_cols)
         logger.debug(f"Displaying {num_images} images in a {num_rows}x{num_cols} grid.")
         # Check that 3rd dimension is the same for all images
         for i in range(1, num_images):
@@ -419,6 +413,12 @@ def display_images(
         zeros_as_nan=zeros_as_nan,
         pixel_aspect=None if zooms is None else zooms[1] / zooms[0],
     )
+    size_vars = {
+        "--mnu-panel-max-h": validate_css_length(resolve_rc(panel_height, "grid.panel_height")),
+        "--mnu-grid-max-h": validate_css_length(resolve_rc(grid_max_height, "grid.max_height")),
+        "--mnu-panel-min-h": rcParams["grid.panel_min_height"],
+        "--mnu-panel-min-w": rcParams["grid.panel_min_width"],
+    }
     ipy_display(
         ImageGridWidget(
             frames=frames,
@@ -429,6 +429,7 @@ def display_images(
             fig_title=fig_title,
             colorbar_mode=colorbar_mode,
             initial_index=slice_idx,
+            size_vars=size_vars,
         )
     )
     return None
@@ -744,7 +745,7 @@ def _render_overlay_raster_frames(
     data_images: npt.NDArray,
     mask: npt.NDArray[np.bool_] | None,
     only_overlay: bool,
-    cmap: str = DEFAULT_PARAMS["cmap"],
+    cmap: str | None = None,
     alpha: float = 0.5,
     vmin: float | None = None,
     vmax: float | None = None,
@@ -767,6 +768,7 @@ def _render_overlay_raster_frames(
     they are the head's surroundings, and dropping them out would put the page
     background inside the skull outline.
     """
+    cmap = resolve_rc(cmap, "image.cmap")
     n_slices = t1_images.shape[2]
     jobs = [(s,) for s in range(n_slices)]
 
@@ -979,7 +981,7 @@ def overlay_image_data_on_T1(
         ImageGridWidget(
             frames=frames,
             bounds=bounds,
-            colormap_stops=_colormap_stops(raster_kwargs.get("cmap", DEFAULT_PARAMS["cmap"])),
+            colormap_stops=_colormap_stops(resolve_rc(raster_kwargs.get("cmap"), "image.cmap")),
             num_cols=len(titles),
             titles=titles,
             initial_index=slice_idx,
@@ -1070,7 +1072,7 @@ def _draw_single_axis_overlay(
     mask_contour: npt.NDArray[np.bool_] | bool | None = None,
     *,
     ax: Axes,
-    cmap: str = DEFAULT_PARAMS["cmap"],
+    cmap: str | None = None,
     alpha: float = 0.5,
     mask_kwargs: dict[str, Any] | None = None,
     zeros_as_nan: bool = True,
@@ -1088,13 +1090,14 @@ def _draw_single_axis_overlay(
     layer-by-layer meaning, as the raster engine's `_Layer(zeros_as_nan=...)`,
     so the two engines produce the same picture.
     """
+    cmap = resolve_rc(cmap, "image.cmap")
     # Copy default image params and update with any provided kwargs
     remove_keys = ["vmin", "vmax", "v_percentile"]
     # Adjust aspect ratio based on image shape
     aspect_ratio = base_image.shape[1] / base_image.shape[0]
     kwargs.setdefault("aspect", aspect_ratio)
     logger.trace(f"Setting image aspect ratio to {kwargs['aspect']:.2f}.")
-    image_params = DEFAULT_IMAGE_AX_PARAMS.copy()
+    image_params = rcParams.group("image.ax")
     image_params.update(kwargs)
     image_params = {k: v for k, v in image_params.items() if k not in remove_keys}
 
@@ -1161,7 +1164,7 @@ def _draw_single_axis_overlay(
 
     if mask_contour is not None:
         mask_contour = mask_contour.astype(np.bool_)
-        contour_kwargs = DEFAULT_MASK_PARAMS.copy()
+        contour_kwargs = rcParams.group("image.mask")
         if mask_kwargs is not None:
             contour_kwargs.update(mask_kwargs)
         logger.debug(f"Applying mask contour with parameters: {contour_kwargs}")
@@ -1609,7 +1612,7 @@ def overlay_voxel_on_T1(
     logger.debug(f"Displaying slice index: {slice_idx}")
 
     default_image_kwargs: dict[str, Any] = {"cmap": "gray"}
-    default_overlay_kwargs: dict[str, Any] = {"cmap": "magma", "alpha": 0.5}
+    default_overlay_kwargs: dict[str, Any] = {"cmap": rcParams["image.cmap"], "alpha": 0.5}
 
     # Update default kwargs with provided kwargs
     img_vmin, img_vmax = fast_bounds(t1_images[:, :, slice_idx])
