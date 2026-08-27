@@ -127,6 +127,7 @@ def mask_occupancy(
     target_shape: tuple[int, int, int] | None = None,
     labels: Sequence[int] | Mapping[int, str] | None = None,
     min_coverage: float = 0.9,
+    _force_general_path: bool = False,
 ) -> xr.Dataset:
     """Compute what fraction of each target voxel is covered by `mask`.
 
@@ -153,6 +154,10 @@ def mask_occupancy(
         Occupancy is set to NaN in target voxels whose `coverage` falls below this fraction,
         since an occupancy computed over a sliver of a voxel is not comparable to one
         computed over a whole voxel. Defaults to 0.9; pass 0.0 to disable the masking.
+    _force_general_path : bool, optional
+        Internal test hook: skip the axis-aligned fast path even when `mask` -> `target` is
+        diagonal, so both code paths can be checked against each other. Not part of the
+        public API.
 
     Returns
     -------
@@ -208,27 +213,38 @@ def mask_occupancy(
             "arguments if the two images were passed the wrong way round."
         )
 
-    n_target = int(np.prod(target_shape))
-    counts = np.zeros(n_target, dtype=np.float64)
-    sums = np.zeros((len(label_names), n_target), dtype=np.float64)
+    linear = tgt_from_mask[:3, :3]
+    off_diagonal = linear - np.diag(np.diag(linear))
+    axis_aligned = not _force_general_path and np.allclose(
+        off_diagonal, 0.0, atol=1e-9 * max(np.abs(linear).max(), 1.0)
+    )
 
-    for sl in _slabs(mask_shape):
-        flat, weights, values = _splat_slab(
-            mask_data[sl], sl, tgt_from_mask, mask_shape, target_shape
-        )
-        if flat.size == 0:
-            continue
-        counts += np.bincount(flat, weights=weights, minlength=n_target)
-        if label_values is None:
-            sums[0] += np.bincount(flat, weights=weights * values, minlength=n_target)
-        else:
-            for row, value in enumerate(label_values):
-                sums[row] += np.bincount(
-                    flat, weights=weights * (values == value), minlength=n_target
-                )
+    if axis_aligned:
+        counts, sums = _accumulate_separable(mask_data, tgt_from_mask, target_shape, label_values)
+    else:
+        n_target = int(np.prod(target_shape))
+        counts = np.zeros(n_target, dtype=np.float64)
+        sums = np.zeros((len(label_names), n_target), dtype=np.float64)
 
-    coverage = (counts / mask_voxels_per_target_voxel).reshape(target_shape)
-    occupancy = (sums / mask_voxels_per_target_voxel).reshape((len(label_names), *target_shape))
+        for sl in _slabs(mask_shape):
+            flat, weights, values = _splat_slab(
+                mask_data[sl], sl, tgt_from_mask, mask_shape, target_shape
+            )
+            if flat.size == 0:
+                continue
+            counts += np.bincount(flat, weights=weights, minlength=n_target)
+            if label_values is None:
+                sums[0] += np.bincount(flat, weights=weights * values, minlength=n_target)
+            else:
+                for row, value in enumerate(label_values):
+                    sums[row] += np.bincount(
+                        flat, weights=weights * (values == value), minlength=n_target
+                    )
+        counts = counts.reshape(target_shape)
+        sums = sums.reshape((len(label_names), *target_shape))
+
+    coverage = counts / mask_voxels_per_target_voxel
+    occupancy = sums / mask_voxels_per_target_voxel
 
     # Binning is a discrete approximation of a volume ratio, so a fully covered voxel can
     # land a hair above 1.0. Clip rather than let a fraction read 1.0002.
@@ -281,6 +297,75 @@ def target_halfwidths(tgt_from_mask: npt.NDArray[np.float64]) -> npt.NDArray[np.
     size ratio; the sum is what keeps it right when the grids are oblique.
     """
     return 0.5 * np.abs(tgt_from_mask[:3, :3]).sum(axis=1)
+
+
+def _axis_weight_matrix(
+    diag: float, offset: float, half: float, mask_len: int, target_len: int
+) -> npt.NDArray[np.float64]:
+    """Overlap weight of every mask index along one axis against every target bin it touches.
+
+    Valid only when `mask` -> `target` is diagonal, so target axis `a`'s coordinate depends on
+    mask index `a` alone: ``coord = diag * idx + offset``. Splitting each mask voxel's box
+    (`half`-wide) between at most two target bins per axis is then the same overlap formula
+    `_splat_slab` uses, just computed once per axis instead of once per mask voxel triple.
+    """
+    idx = np.arange(mask_len, dtype=np.float64)
+    coord = diag * idx + offset
+    lower, upper = coord - half, coord + half
+    first = np.floor(lower + 0.5)
+
+    weights = np.zeros((mask_len, target_len), dtype=np.float64)
+    for step in (0.0, 1.0):
+        n = first + step
+        overlap = np.minimum(upper, n + 0.5) - np.maximum(lower, n - 0.5)
+        w = np.clip(overlap, 0.0, None) / (2.0 * half)
+        valid = (w > 0.0) & (n >= 0) & (n < target_len)
+        rows = idx[valid].astype(np.intp)
+        cols = n[valid].astype(np.intp)
+        np.add.at(weights, (rows, cols), w[valid])
+    return weights
+
+
+def _accumulate_separable(
+    mask_data: npt.NDArray[Any],
+    tgt_from_mask: npt.NDArray[np.float64],
+    target_shape: tuple[int, int, int],
+    label_values: list[int] | None,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """Fast path for an axis-aligned `mask` -> `target` transform.
+
+    An outer/tensor product of three small per-axis weight matrices, instead of `_splat_slab`'s
+    general 8-way splat. A separable weight product over a diagonal transform *is* an outer
+    product -- not an approximation of `_splat_slab`, an exact reformulation of it (see the diary
+    entry for the measured agreement). Returns `(counts, sums)` already reshaped to
+    `target_shape` / `(n_labels, *target_shape)`, matching what the general path's `np.bincount`
+    accumulation produces after its own reshape.
+    """
+    mask_shape = mask_data.shape
+    half = target_halfwidths(tgt_from_mask)
+    weights = [
+        _axis_weight_matrix(
+            tgt_from_mask[a, a], tgt_from_mask[a, 3], half[a], mask_shape[a], target_shape[a]
+        )
+        for a in range(3)
+    ]
+
+    counts = np.einsum("i,j,k->ijk", *(w.sum(axis=0) for w in weights))
+
+    def contract(values: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        out = np.tensordot(values, weights[0], axes=([0], [0]))  # (mj, mk, ti)
+        out = np.tensordot(out, weights[1], axes=([0], [0]))  # (mk, ti, tj)
+        out = np.tensordot(out, weights[2], axes=([0], [0]))  # (ti, tj, tk)
+        return out
+
+    if label_values is None:
+        sums = contract(np.asarray(mask_data, dtype=np.float64))[None, ...]
+    else:
+        sums = np.stack(
+            [contract((mask_data == value).astype(np.float64)) for value in label_values]
+        )
+
+    return counts, sums
 
 
 def _splat_slab(
