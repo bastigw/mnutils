@@ -18,6 +18,7 @@ import hashlib
 import os
 import shutil
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -400,11 +401,18 @@ _DATASETS: dict[str, tuple[Callable[[Path], None], str]] = {
 
 _CACHE_DIR_NAME = "mnutils_fake_exam_cache"
 
-#: How long an mkdir-lock can sit unclaimed before a builder crash (not just a slow build) is
-#: assumed and another process reclaims it. Every builder in `_DATASETS` finishes in single-digit
-#: seconds, so this only ever fires on an abandoned lock.
+#: How long an mkdir-lock can sit untouched before a builder crash (not just a slow build) is
+#: assumed and another process reclaims it. A heartbeat thread refreshes the lock's mtime while
+#: its builder runs, so this only ever fires on a lock abandoned by a crashed/killed process.
 _LOCK_STALE_SECONDS = 300
+_LOCK_HEARTBEAT_SECONDS = _LOCK_STALE_SECONDS / 4
 _LOCK_POLL_SECONDS = 0.05
+
+#: How long an orphaned sibling cache dir (a stale source hash, left by an edited builder or a
+#: different checkout) sits untouched before `_fake_exam_cache_root` prunes it. Long enough that a
+#: concurrent process building under that hash -- e.g. a different worktree on the same machine --
+#: finishes well before this fires.
+_CACHE_DIR_STALE_SECONDS = 6 * 60 * 60
 
 
 @functools.cache
@@ -417,13 +425,28 @@ def _sources_hash() -> str:
 
 
 def _fake_exam_cache_root() -> Path:
-    """The machine-wide cache directory for the current builder sources, pruning stale hashes."""
+    """The machine-wide cache directory for the current builder sources, pruning stale hashes.
+
+    A sibling hash directory is only pruned once it's both old (`_CACHE_DIR_STALE_SECONDS` since
+    its last write -- a build under a live, still-in-use hash keeps refreshing its mtime) and free
+    of any in-progress `.lock`, so a concurrent build under a *different* source hash (e.g. another
+    worktree/branch on the same machine) is never deleted out from under itself.
+    """
     parent = Path(tempfile.gettempdir()) / _CACHE_DIR_NAME
     root = parent / _sources_hash()
     root.mkdir(parents=True, exist_ok=True)
+    now = time.time()
     for stale in parent.iterdir():
-        if stale != root:
-            shutil.rmtree(stale, ignore_errors=True)
+        if stale == root:
+            continue
+        try:
+            if any(p.name.endswith(".lock") for p in stale.iterdir()):
+                continue  # another process is actively building under this hash
+            if now - stale.stat().st_mtime <= _CACHE_DIR_STALE_SECONDS:
+                continue
+        except FileNotFoundError:
+            continue  # removed concurrently by whoever owns it
+        shutil.rmtree(stale, ignore_errors=True)
     return root
 
 
@@ -470,6 +493,11 @@ def build_fake_exam(dataset: str) -> Path:
         else:
             break
 
+    stop_heartbeat = threading.Event()
+    heartbeat = threading.Thread(
+        target=_heartbeat_lock, args=(lock_dir, stop_heartbeat), daemon=True
+    )
+    heartbeat.start()
     try:
         if final_path.exists():  # another process built it while we waited for the lock
             return final_path
@@ -481,5 +509,16 @@ def build_fake_exam(dataset: str) -> Path:
         builder(tmp_path)
         os.replace(tmp_path, final_path)
     finally:
+        stop_heartbeat.set()
+        heartbeat.join()
         shutil.rmtree(lock_dir, ignore_errors=True)
     return final_path
+
+
+def _heartbeat_lock(lock_dir: Path, stop: threading.Event) -> None:
+    """Refresh `lock_dir`'s mtime so a slow (not crashed) build never looks stale."""
+    while not stop.wait(_LOCK_HEARTBEAT_SECONDS):
+        try:
+            os.utime(lock_dir, None)
+        except FileNotFoundError:
+            return
