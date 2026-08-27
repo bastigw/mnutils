@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import PIL.Image
-from IPython.display import display as ipy_display
 from loguru import logger
 from matplotlib import colormaps, patches
 from matplotlib.axes import Axes
@@ -419,6 +418,8 @@ def display_images(
         zeros_as_nan=zeros_as_nan,
         pixel_aspect=None if zooms is None else zooms[1] / zooms[0],
     )
+    from IPython.display import display as ipy_display
+
     ipy_display(
         ImageGridWidget(
             frames=frames,
@@ -944,6 +945,8 @@ def overlay_image_data_on_T1(
         )
         n_slices = t1_images.shape[2]
         if n_slices > 1:
+            from IPython.display import display as ipy_display
+
             frames = _render_overlay_frames(
                 t1_images, data_images, list(range(n_slices)), **overlay_kwargs
             )
@@ -975,6 +978,8 @@ def overlay_image_data_on_T1(
     frames, bounds, titles = _render_overlay_raster_frames(
         t1_images, data_images, mask, only_overlay, **raster_kwargs
     )
+    from IPython.display import display as ipy_display
+
     ipy_display(
         ImageGridWidget(
             frames=frames,
@@ -1275,6 +1280,8 @@ def inspect_MRSI_spectra(
         spectrum_label = "Real Spectrum"
 
     logger.debug("Ready to display")
+
+    from IPython.display import display as ipy_display
 
     ipy_display(
         MRSIVoxelInspectorWidget(
