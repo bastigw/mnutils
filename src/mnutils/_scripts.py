@@ -125,7 +125,10 @@ def docs_all() -> None:
 # chapter, mirrored into tests/autogen_notebooks/<chapter>/. Keep in sync with
 # GENRES in .claude/skills/docs-page/check_docs.py -- that file decides which
 # house rules a chapter's pages are held to, this one decides which get run.
-TEST_CHAPTERS = ("basics", "data-model", "plotting", "fitting", "nifti", "matlab")
+# `matlab` is deliberately excluded: its pages need a live MATLAB install and
+# a matching `matlabengine` version (see CLAUDE.md's Gotchas), which no CI or
+# contributor machine can be assumed to have -- it isn't run by default.
+TEST_CHAPTERS = ("basics", "data-model", "plotting", "fitting", "nifti")
 
 
 def _convert_to_notebook(md_file: Path, out_dir: Path) -> None:

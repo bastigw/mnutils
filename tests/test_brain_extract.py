@@ -23,6 +23,7 @@ def dataset_folder():
     return build_fake_exam("brain_extraction_exam")
 
 
+@pytest.mark.skip(reason="Dataset not available in remote. Need to refactor!")
 def test_hevo23_bet(dataset_folder):
     """Test that extract_brain produces the expected skull-stripped nifti output file."""
     data_folder = dataset_folder / "data"

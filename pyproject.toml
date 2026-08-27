@@ -81,7 +81,8 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--capture=no --nbmake -n auto"
+# See conftest.py for further details
+addopts = "--nbmake -n auto -v --durations=0"
 testpaths = ["tests"]
 
 # [tool.uv]

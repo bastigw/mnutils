@@ -18,6 +18,7 @@ def dataset_folder():
     return build_fake_exam("brain_mrs_mrsi_exam")
 
 
+@pytest.mark.skip(reason="Matlabengine not supported anymore")
 def test_load_raw_fids_creates_correct_files(dataset_folder):
     """Test that load_raw_fids returns correctly-shaped complex FID arrays from the h5 cache."""
     data_folder = os.path.join(dataset_folder, "data")
