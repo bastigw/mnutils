@@ -8,6 +8,11 @@ reachable without knowing the internal module layout::
     exam = mnutils.DMIExam("/data/exam")
     mnutils.plotting.images.display_images(exam.anatomical[0].data)
 
+Package-wide defaults live in `mnutils.rcParams`, which works like
+matplotlib's::
+
+    mnutils.rcParams["image.cmap"] = "viridis"
+
 `mnutils.matlab` is deliberately *not* imported here: it needs the optional
 `matlabengine` dependency, so import it explicitly when you need it.
 """
@@ -24,6 +29,7 @@ from .GESeries import (
     NiiBase,
     RawMRISeries,
 )
+from .rcparams import RcParams, rc_context, rc_presets, rcdefaults, rcParams, rcParamsDefault
 
 try:
     __version__ = version("mnutils")
@@ -50,5 +56,12 @@ __all__ = [
     "MRSISeries",
     "MRSSeries",
     "MRSWashinSeries",
+    # configuration
+    "RcParams",
+    "rcParams",
+    "rcParamsDefault",
+    "rc_context",
+    "rc_presets",
+    "rcdefaults",
     "__version__",
 ]
