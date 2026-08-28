@@ -19,8 +19,19 @@
      ratio (--mnu-aspect is set per grid by the JS once the first frame has
      loaded), times the nominal column count, plus gaps and padding. This cap
      is what stops a wide window stretching four 64x64 frames across the whole
-     screen -- the columns below would otherwise share out every pixel going. */
-  --mnu-panel-w-cap: calc(var(--mnu-panel-max-h) * var(--mnu-aspect, 1));
+     screen -- the columns below would otherwise share out every pixel going.
+
+     Clamped up to the column floor below, because for a tall frame the height
+     cap alone lands *under* it (17rem * 0.38 < 9rem for an axial view of a
+     sagittal CUBE): the widget would then cap itself narrower than the columns
+     it asks for, and `auto-fit` would drop one and wrap a three-panel overlay
+     onto two rows. No custom-property cycle -- --mnu-panel-min-w-eff does not
+     reference this one -- and custom properties resolve at computed-value
+     time, so referring to it before its declaration is fine. */
+  --mnu-panel-w-cap: max(
+    calc(var(--mnu-panel-max-h) * var(--mnu-aspect, 1)),
+    var(--mnu-panel-min-w-eff)
+  );
 
   /* The floor is the same trade read from the other end. A panel is as tall as
      its width and aspect ratio make it, so "never shorter than

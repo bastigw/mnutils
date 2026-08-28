@@ -442,12 +442,7 @@ def display_images(
     )
     from IPython.display import display as ipy_display
 
-    size_vars = {
-        "--mnu-panel-max-h": validate_css_length(resolve_rc(panel_height, "grid.panel_height")),
-        "--mnu-grid-max-h": validate_css_length(resolve_rc(grid_max_height, "grid.max_height")),
-        "--mnu-panel-min-h": rcParams["grid.panel_min_height"],
-        "--mnu-panel-min-w": rcParams["grid.panel_min_width"],
-    }
+    size_vars = _grid_size_vars(panel_height, grid_max_height)
     ipy_display(
         ImageGridWidget(
             frames=frames,
@@ -462,6 +457,25 @@ def display_images(
         )
     )
     return None
+
+
+def _grid_size_vars(
+    panel_height: str | float | None = None,
+    grid_max_height: str | float | None = None,
+) -> dict[str, str]:
+    """Resolve the `grid.*` rcParams into `ImageGridWidget` CSS variables.
+
+    Every path that displays an `ImageGridWidget` goes through here, so the
+    documented knobs (`grid.panel_height` and friends, per call or via
+    `rc_context`) mean the same thing for a plain image grid and for an
+    overlay.
+    """
+    return {
+        "--mnu-panel-max-h": validate_css_length(resolve_rc(panel_height, "grid.panel_height")),
+        "--mnu-grid-max-h": validate_css_length(resolve_rc(grid_max_height, "grid.max_height")),
+        "--mnu-panel-min-h": rcParams["grid.panel_min_height"],
+        "--mnu-panel-min-w": rcParams["grid.panel_min_width"],
+    }
 
 
 def _colormap_stops(cmap: str, num_stops: int = 64) -> list[str]:
@@ -918,6 +932,8 @@ def overlay_image_data_on_T1(
         T1/data/overlay widget. Implies the matplotlib engine.
     **kwargs
         Additional keyword arguments forwarded to the resolved rendering path.
+        The raster engine also takes `panel_height` and `grid_max_height`,
+        which size the widget exactly as they do in `display_images`.
 
     Returns
     -------
@@ -997,8 +1013,12 @@ def overlay_image_data_on_T1(
         )
 
     raster_kwarg_names = {"cmap", "alpha", "vmin", "vmax", "v_percentile", "zeros_as_nan"}
+    # Sizing is the widget's, not the renderer's: same names `display_images`
+    # takes, resolved against the same `grid.*` rcParams.
+    size_kwarg_names = {"panel_height", "grid_max_height"}
     raster_kwargs = {k: v for k, v in kwargs.items() if k in raster_kwarg_names}
-    ignored = {k: v for k, v in kwargs.items() if k not in raster_kwarg_names}
+    size_kwargs = {k: v for k, v in kwargs.items() if k in size_kwarg_names}
+    ignored = {k: v for k, v in kwargs.items() if k not in raster_kwarg_names | size_kwarg_names}
     if ignored:
         logger.debug(
             f"Ignoring matplotlib-only arguments {sorted(ignored)} on the raster engine: "
@@ -1018,6 +1038,7 @@ def overlay_image_data_on_T1(
             num_cols=len(titles),
             titles=titles,
             initial_index=slice_idx,
+            size_vars=_grid_size_vars(**size_kwargs),
         )
     )
     return None
