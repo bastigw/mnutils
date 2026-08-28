@@ -372,6 +372,24 @@ assert mrsi.create_MRSI_affine().shape == (4, 4)
 assert voxel_spectrum.dims == ("chemical_shift",)
 ```
 
+(data-model-geseries-grid-wrap)=
+
+### A bounded `panel_height` keeps a three-panel overlay on one row
+
+`overlay_nifti_data_on_T1` lays out three panels -- T1, data, overlay -- in a CSS grid whose
+per-panel width cap is derived from `panel_height` times the frame's aspect ratio. Bound that
+height down far enough and the cap used to fall *under* the grid's fixed column floor
+(`grid.panel_min_width`, 9rem by default): the widget then constrained itself narrower than its
+own three columns needed, and `auto-fit` dropped one onto a second row. `t1`'s axial frame (aspect
+≈0.73) only needs `panel_height` bounded below ~12rem to hit that:
+
+```{code-cell} ipython3
+overlay_nifti_data_on_T1(t1.nii, mrsi.nii, panel_height="10rem")
+```
+
+All three panels stay on one row -- the width cap is now clamped up to the column floor instead of
+falling below it (`--mnu-panel-w-cap` in `image_grid.css`).
+
 :::{seealso}
 Which subclass a given series folder resolves to is decided by [`ExamBase`](#basics-loading-data),
 not by you calling one of these constructors directly in normal use — see
