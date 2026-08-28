@@ -336,6 +336,20 @@ print("zeros counted: ", fast_bounds(mostly_zero))
 print("zeros excluded:", fast_bounds(mostly_zero, exclude_zeros=True))
 ```
 
+Percentiles are the wrong summary for a segmentation, though. Clipping the tails of a continuous
+image is what protects it from a handful of hot voxels, but a label map has no tails to clip — on
+a mask that is mostly background, the 1st *and* 99th percentile are both `0`, and the whole
+colormap collapses onto the background with the labels invisible above it. So `fast_bounds` reads
+an array holding at most `max_discrete_levels` distinct whole numbers as a label map and takes its
+exact range instead:
+
+```{code-cell} ipython3
+labels = np.zeros((20, 20))
+labels[8:12, 8:12] = rng.integers(1, 5, (4, 4))  # four ROIs in a sea of background
+
+print("labels:", fast_bounds(labels))  # (0, 4), not (0, 0)
+```
+
 The pixels come from the renderer, one layer at a time — which is what makes it work for the
 overlays too. `overlay_image_data_on_T1`, `overlay_nifti_data_on_T1`, `inspect_MRSI_spectra` and
 `overlay_voxel_on_T1` mask the *data* layer's zeros by default and leave the anatomical beneath

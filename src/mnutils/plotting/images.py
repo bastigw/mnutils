@@ -57,23 +57,27 @@ _SPECTRA_WARN_BYTES = 32 * 1024**2
 
 def fast_bounds(
     data: npt.NDArray,
-    max_target_samples: int = 50000,
+    max_target_samples: int = 20000,
     p_lower: float = 1.0,
     p_upper: float = 99.0,
     exclude_zeros: bool = False,
+    max_discrete_levels: int = 16,
 ) -> tuple[float, float]:
     """Quickly estimate lower/upper display bounds by sampling a subset of the data.
 
-    Samples a subset of the input data and calculates the specified
-    percentiles to estimate bounds suitable for visualization.
+    The sample is drawn *before* the data is filtered, so the cost scales with
+    `max_target_samples` rather than with the size of `data`. Continuous data is
+    then summarised by percentiles; discrete data -- a label map or a binary
+    mask -- by its exact min/max, since percentiles collapse onto a single level
+    once the background outweighs the labels.
 
     Parameters
     ----------
     data : ndarray
         The input data array from which to estimate the bounds.
     max_target_samples : int, optional
-        The maximum number of samples to use for estimating bounds. Defaults
-        to 50000.
+        The number of voxels drawn for the estimate. Defaults to 20000, which
+        keeps the percentile standard error well below display resolution.
     p_lower : float, optional
         The lower percentile to calculate. Defaults to 1.0 (the 1st
         percentile).
@@ -84,48 +88,72 @@ def fast_bounds(
         If True, drop exact zeros before taking the percentiles. Background
         voxels are usually exactly 0 and would otherwise dominate the lower
         percentile and flatten the contrast of the anatomy itself. Ignored
-        when the data is all zeros -- a warning is logged and the zeros are
+        when the sample is all zeros -- a warning is logged and the zeros are
         kept so the bounds stay finite. Defaults to False.
+    max_discrete_levels : int, optional
+        Arrays whose sample holds at most this many distinct integer-valued
+        levels are read as label maps and bounded by min/max instead of by
+        percentiles. Defaults to 16.
 
     Returns
     -------
     tuple[float, float]
-        The estimated lower and upper bounds for visualization.
+        The estimated lower and upper bounds for visualization, always with
+        `upper > lower`.
     """
-    # Sample the data by taking every nth element based on the sample_step
-    sample_step = max(1, data.size // max_target_samples)
-    logger.trace(
-        f"Sampling data with step size {sample_step} to estimate bounds "
-        f"from a total of {data.size} elements."
-    )
-    # First filter out nan values and then sample the data to ensure we are
-    # sampling valid values for bounds estimation
-    sampled_data = data[np.isfinite(data)]
-    if exclude_zeros:
-        nonzero_data = sampled_data[sampled_data != 0]
-        if nonzero_data.size == 0 and sampled_data.size > 0:
-            logger.warning(
-                "All finite values are 0, so keeping the zeros for bounds estimation "
-                "to avoid discarding the whole array."
-            )
-        elif nonzero_data.size > 0:
-            sampled_data = nonzero_data
-    sampled_data = sampled_data[::sample_step]
+    flat = np.asarray(data).reshape(-1)
 
+    # Draw the sample *before* filtering. `flat[np.isfinite(flat)]` walks the
+    # whole array and allocates a copy of every finite voxel, which is what
+    # dominated the runtime here -- a full volume cost most of a second to
+    # bound, nearly all of it spent building arrays the percentile then threw
+    # away. Sampling with replacement rather than `choice(..., replace=False)`
+    # avoids materialising a permutation of the index space for no gain.
+    if flat.size > max_target_samples:
+        rng = np.random.default_rng(0)
+        sampled_data = flat[rng.integers(0, flat.size, max_target_samples)]
+    else:
+        sampled_data = flat
+
+    sampled_data = sampled_data[np.isfinite(sampled_data)]
     if sampled_data.size == 0:
-        logger.warning("Sampled data contains only NaN values. Returning (0, 0) as bounds.")
+        logger.warning("No finite values were sampled. Returning (0, 1) as bounds.")
         return 0.0, 1.0
 
-    # Calculate the lower and upper percentiles of the sampled data
-    lower_bound, upper_bound = np.percentile(sampled_data, [p_lower, p_upper])
+    if exclude_zeros:
+        nonzero_data = sampled_data[sampled_data != 0]
+        if nonzero_data.size == 0:
+            logger.warning(
+                "All sampled finite values are 0, so keeping the zeros for bounds "
+                "estimation to avoid discarding the whole sample."
+            )
+        else:
+            sampled_data = nonzero_data
+
+    # A label map or a mask has no meaningful tails to clip: on a segmentation
+    # that is 99% background, p1 and p99 are both 0 and the entire colormap
+    # collapses onto the background. Its actual range is the useful one.
+    levels = np.unique(sampled_data)
+    is_discrete = levels.size <= max_discrete_levels and bool(np.all(levels == np.round(levels)))
+    if is_discrete:
+        lower_bound, upper_bound = float(levels[0]), float(levels[-1])
+    else:
+        lower_bound, upper_bound = (
+            float(bound) for bound in np.percentile(sampled_data, [p_lower, p_upper])
+        )
     logger.trace(
-        f"Sampled {sampled_data.size} elements for bounds estimation "
-        f"after excluding NaN values."
-        f"\nEstimated bounds: lower={lower_bound:2.2e}, upper={upper_bound:2.2e} "
-        f"using percentiles {p_lower} and {p_upper}."
+        f"Bounds from {sampled_data.size} of {flat.size} elements via "
+        f"{'min/max (discrete)' if is_discrete else f'percentiles {p_lower}/{p_upper}'}"
+        f": lower={lower_bound:2.2e}, upper={upper_bound:2.2e}."
     )
 
-    return lower_bound, upper_bound
+    # The range can still come out empty -- a constant array, or a mask whose
+    # foreground was too sparse to survive the sample. `nanmin`/`nanmax` stream
+    # the array in a single pass without allocating a copy, so paying for them
+    # on this rare path is cheap.
+    if not upper_bound > lower_bound:
+        lower_bound, upper_bound = float(np.nanmin(flat)), float(np.nanmax(flat))
+    return _widen_if_flat(lower_bound, upper_bound)
 
 
 def _resolve_display_bounds(
