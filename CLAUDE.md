@@ -61,7 +61,7 @@ Package manager is `uv` — never use pip. Add deps with `uv add <pkg>`; sync wi
   `uv run test-mnutils-gen`, then runs pytest). Regenerate notebooks only:
   `uv run test-mnutils-gen`. There are no `tests/*.py` files — MNUtils's tests **are** its docs
   pages: any executable page under `docs/basics/`, `data-model/`, `plotting/`, `fitting/`,
-  `nifti/`, `matlab/` (i.e. carrying a jupytext kernelspec) is converted to a notebook under
+  `nifti/` (i.e. carrying a jupytext kernelspec) is converted to a notebook under
   `tests/autogen_notebooks/<chapter>/` (gitignored) and run via nbmake. Single page:
   `uv run pytest tests/autogen_notebooks/<chapter>/<name>.ipynb` after a `test-mnutils-gen`.
 - Lint: `uv run ruff check .` (`--fix` to auto-fix). Format: `uv run ruff format .`.

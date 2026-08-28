@@ -8,7 +8,6 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-import pyAMARES
 import xarray as xr
 import xmris  # noqa: F401, necessary for xarray accessor to work
 from loguru import logger
@@ -701,6 +700,8 @@ class MRSISeries(RawMRISeries):
     @cached_property
     def SNR_map(self) -> xr.DataArray:
         """The per-voxel SNR, computed from the FIDs via pyAMARES.fidSNR."""
+        import pyAMARES
+
         return xr.apply_ufunc(
             pyAMARES.fidSNR, self.fids, input_core_dims=[["time"]], vectorize=True
         )

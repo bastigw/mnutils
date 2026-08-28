@@ -77,10 +77,12 @@ dev = [
     "griffe<0.40.0",            # Explicit pin to fix quartodoc parsing bug
     "jupyter-server>=2.17.0",   # Required for rendering docs
     "jupytext>=1.19.1",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.pytest.ini_options]
-addopts = "--capture=no --nbmake"
+# See conftest.py for further details
+addopts = "--nbmake -n auto -v --durations=0"
 testpaths = ["tests"]
 
 # [tool.uv]

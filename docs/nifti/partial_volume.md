@@ -666,6 +666,29 @@ assert oblique_volume > volume_in * 0.90, "an in-plane rotation should not lose 
 
 :::
 
+:::{dropdown} Does the axis-aligned fast path agree with the general path?
+`mask_occupancy` takes a separable shortcut whenever `mask` -> `target` is diagonal -- which every
+fixture above is, so `pv_auto` already went through it. `_force_general_path` is a private test
+hook that reruns the same call through `_splat_slab` instead, so the two can be compared directly
+rather than trusted on the strength of an offline prototype.
+
+```{code-cell} ipython3
+pv_auto_general = mask_occupancy(tissue_seg, target, min_coverage=0.0, _force_general_path=True)
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TEST: the separable fast path is an exact reformulation of the general splat, not an
+# approximation of it -- occupancy and coverage must agree to floating-point precision.
+np.testing.assert_allclose(
+    pv_auto.occupancy.values, pv_auto_general.occupancy.values, atol=1e-6, equal_nan=True
+)
+np.testing.assert_allclose(pv_auto.coverage.values, pv_auto_general.coverage.values, atol=1e-6)
+```
+
+:::
+
 (nifti-partial-volume-look)=
 ## Looking at it
 

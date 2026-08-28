@@ -18,8 +18,9 @@ def dataset_folder():
     return build_fake_exam("brain_mrs_mrsi_exam")
 
 
+@pytest.mark.skip(reason="Matlabengine not supported anymore")
 def test_load_raw_fids_creates_correct_files(dataset_folder):
-    """Test that load_raw_fids returns correctly-shaped complex FID arrays and writes an h5 file."""
+    """Test that load_raw_fids returns correctly-shaped complex FID arrays from the h5 cache."""
     data_folder = os.path.join(dataset_folder, "data")
     # Series 6/7 (MRS_unloc/MRS_washin) have real, `.mat`-derived FIDs shaped
     # (averages, npts); the rest are random-noise fixtures shaped (npts, ntime).
@@ -38,5 +39,6 @@ def test_load_raw_fids_creates_correct_files(dataset_folder):
         if series in (6, 7):  # MRS_unloc/MRS_washin -- real simulated data, not repeated noise
             assert not np.allclose(data[0], data[1])
         assert os.path.isfile(fid_h5_file)
-        # Clean up created file
-        os.remove(fid_h5_file)
+        # `fid_h5_file` is part of the fixture `dataset_folder` built (and, since
+        # `build_fake_exam`'s cache is now machine-wide, shared with every other test and
+        # notebook that also asked for this dataset) -- not a byproduct of this test to remove.

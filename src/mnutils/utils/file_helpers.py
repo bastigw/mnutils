@@ -5,8 +5,6 @@ from pathlib import Path
 
 import h5py
 import pandas as pd
-from IPython.core.getipython import get_ipython
-from IPython.display import display
 from loguru import logger
 
 _DEFAULT_DICOM_FOLDER_PATTERN = r"(?:Series)?(\d{1,5})_"
@@ -603,6 +601,8 @@ def get_exam_overview(data_folder: str | Path, print_overview: bool = True) -> p
                     return ["background-color: lightblue"] * len(row)
                 return [""] * len(row)
 
+            from IPython.display import display
+
             styled_df = overview_df.style.apply(highlight_rows, axis=1)
             display(styled_df)
             # Print info about the color coding
@@ -618,6 +618,8 @@ def get_exam_overview(data_folder: str | Path, print_overview: bool = True) -> p
 def is_running_in_jupyter() -> bool:
     """Check if the code is being run within an IPython kernel (Jupyter Notebook or Console)."""
     try:
+        from IPython.core.getipython import get_ipython
+
         # Check if the function exists
         shell = get_ipython().__class__.__name__
 
