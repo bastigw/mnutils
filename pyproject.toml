@@ -46,7 +46,7 @@ Repository = "https://github.com/bastigw/mnutils"
 Issues = "https://github.com/bastigw/mnutils/issues"
 
 [project.optional-dependencies]
-2025a = ["matlabengine==25.1.*"]
+2025a = ["matlabengine>=25.1,<26.3"]
 bet = ["hd-bet>=2.0.1", "torch>=2.10.0"]
 
 [project.scripts]
