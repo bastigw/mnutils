@@ -3,13 +3,13 @@
 
 <span style="color: gray; font-size: 0.9em;">Last edited: 2026-10-16</span>
 
-MNUtils only ever reads NIfTI. DICOM is involved in just two places, and both cause trouble.
-First, `MRISeries` quietly runs dcm2niix the first time a series is loaded and writes the result
-into the raw data folder. That makes `dcm2niiw` a core dependency of a package that never reads a
-DICOM byte. Second, `GEExam` decides what each series *is* from its DICOM folder name:
-`get_dicom_folder`'s `(?:Series)?(\d{1,5})_` pattern for the ID, and substrings like `mrs_washin`,
-`mrsi_pseudo` or `localizer` for the type. If someone renames a folder, or an export tool spells it
-differently, that series is silently skipped or loaded as the wrong class.
+MNUtils only ever reads NIfTI, yet DICOM used to leak in at two points, and both caused trouble.
+First, `MRISeries` quietly ran dcm2niix the first time a series was loaded and wrote the result
+into the raw data folder, which made `dcm2niiw` a core dependency of a package that never read a
+DICOM byte. Second, `GEExam` decided what each series *was* from its DICOM folder name: a
+`(?:Series)?(\d{1,5})_` pattern for the ID, and substrings like `mrs_washin`, `mrsi_pseudo` or
+`localizer` for the type. Rename a folder, or export with a tool that spells it differently, and
+that series was silently skipped or loaded as the wrong class.
 
 :::{important}
 MNUtils drops DICOM support entirely: it expects NIfTI files (converted beforehand, outside the
@@ -20,27 +20,30 @@ from folder names.
 (diary-nifti-only-shape)=
 ## Where a series' identity comes from
 
-| Question | Today | After |
+| Question | Before | Now |
 |---|---|---|
-| Which image series exist? | DICOM folders matching `NNN_…` | every `*.nii*` under the data folder that has a JSON sidecar |
+| Which image series exist? | DICOM folders matching `NNN_…` | every `*.nii*` under the data folder that has a same-named JSON sidecar with a `SeriesNumber` |
 | Series ID of an image | number parsed from the folder name | sidecar `SeriesNumber` |
-| Skip localizers, prescans | folder-name substring | sidecar `SeriesDescription` (same skip list) |
-| MRS, washin or MRSI? | DICOM folder-name substring | sidecar `SeriesDescription` if the series has an image, else `.mat` `h.series.se_desc`; matched case-insensitively with spaces read as underscores |
-| No NIfTI found | runs dcm2niix and writes into the data folder | `FileNotFoundError` that names the dcm2niix command to run |
+| Skip localizers, FGRE | folder-name substring | sidecar `SeriesDescription` (same skip list) |
+| MRS, washin or MRSI? | folder-name substring | sidecar `SeriesDescription` if the series has an image, else the `.mat` header's `h.series.se_desc` |
+| Which `.mat` is the raw archive? | first glob hit | the plain `ScanArchive_*.mat`, else the shortest suffix; a warning names the pick |
+| No NIfTI found | ran dcm2niix, wrote into the data folder | `FileNotFoundError` that names the dcm2niix command |
 
 ```{mermaid}
 flowchart LR
-  N["<span style='font-family:monospace'>*.nii.gz + .json</span>"] -->|"SeriesNumber,<br>SeriesDescription"| I["exam index<br>(series ID → files, type)"]
-  M["<span style='font-family:monospace'>Exam/SeriesN/ScanArchive*.mat</span>"] -->|"<span style='font-family:monospace'>h.series.se_desc</span><br>(fallback)"| I
-  I --> G["GEExam picks<br>MRISeries / MRSSeries / MRSISeries …"]
+  N["<span style='font-family:monospace'>*.nii.gz + .json</span>"] -->|"SeriesNumber,<br>SeriesDescription"| I["exam overview<br>(series ID → description)"]
+  M["<span style='font-family:monospace'>Exam/SeriesN/ScanArchive*.mat</span>"] -->|"<span style='font-family:monospace'>h.series.se_desc</span><br>(only if no sidecar)"| I
+  I --> G["ExamBase picks<br>MRISeries / MRSSeries / MRSISeries …"]
 ```
 
-The two sources are merged by series ID, so an MRSI series still finds its own pseudo-image
-NIfTI. Folder names become free-form labels that nothing reads. The public call sites stay the
-same:
+The two sources are merged by series ID, so an MRSI series still finds its own pseudo-image NIfTI.
+Descriptions are lower-cased with spaces read as underscores (`MRS washin` → `mrs_washin`) before
+the type rules run, in `GEExam._create_series_dict`: `mrs_washin`, then `mrsi`, then `mrs_`;
+`bs_prescan` is skipped, and an exam series with no description at all is assumed to be MRS. Folder
+names are now free-form labels that nothing reads. The public call sites stay the same:
 
 ```python
-exam = GEExam(BASE_FOLDER)  # index built from sidecars + .mat headers
+exam = ExamBase(BASE_FOLDER)  # overview built from sidecars + .mat headers
 t1 = MRISeries(DATA_FOLDER, 2)  # resolved by SeriesNumber, not by "002_..."
 mask = NiiBase("anywhere/brain.nii.gz")  # a bare NIfTI path never needed an exam
 ```
@@ -48,11 +51,36 @@ mask = NiiBase("anywhere/brain.nii.gz")  # a bare NIfTI path never needed an exa
 :::{warning}
 This is a breaking change. A data folder that holds only DICOMs stops loading. Convert it once
 with `dcm2niix -b y -z y -f %s_%d -o <series folder> <series folder>` before upgrading, and
-archive the DICOMs (they are the only lossless copy). The `get_dicom_folder` and
-`get_all_dicom_series_ids` names, the `convert_dicoms=` argument and the "Has DICOM" overview
-column all go away, without deprecation aliases. It ships as a minor version bump, flagged in the
-CHANGELOG.
+archive the DICOMs (they are the only lossless copy). `get_dicom_folder`,
+`get_all_dicom_series_ids` and the `convert_dicoms=` argument are deleted, without deprecation
+aliases, and the overview's `Has DICOM` / `Folder Name` columns become `Has NIfTI` /
+`Description`. It is flagged in the CHANGELOG and ships as a minor bump.
 :::
+
+(diary-nifti-only-real-data)=
+## What the real exams said
+
+The first draft of this entry rested on five assumptions about GE exports. They were checked
+against four real datasets (a phantom and three subject sessions, about 30 sidecars and 25 `.mat`
+headers) before any code was written, and two of them broke:
+
+- **`se_desc` is not the pseudo-image name for MRSI.** The draft planned to read the series type
+  from the `.mat` header and keep the existing `mrsi_pseudo` rule. For MRS and washin the header
+  does match the sidecar (`MRS unloc`, `MRS washin`), but for MRSI it holds the *sequence* name
+  (`MRSI 3D 2 NEX`, `2H bssfp16`); the `MRSI pseudo:S700;…` text exists only in the NIfTI sidecar.
+  So the sidecar decides when a series has an image and `se_desc` is the fallback, and the rule
+  matches `mrsi` rather than `mrsi_pseudo`.
+- **"The sidecar without a dcm2niix suffix" does not pick the main image.** NIST series 12 only has
+  `…_e6.json`, and FGRE has three numbered sidecars. A NIfTI counts when it has a sidecar of its
+  own, which also drops the derived `_bet`, `_resampled_*` and `.OLD` files without special cases;
+  among several, the lowest file name wins and a warning names it.
+
+The other three held: sidecars always carry `SeriesNumber` and `SeriesDescription` and agree with
+the folder number; raw archives next to derived ones (`…_csi.mat`, `…_snr_map.mat`) are resolved by
+suffix length; and a series with a `.mat` but no NIfTI (NIST series 4) still loads, as MRS or MRSI
+without an image. Series with only a raw `.h5` have nothing to type them by (`Header.xml` carries
+the exam and series numbers but no description), so they are not in the overview; they stay
+loadable by explicit series ID.
 
 :::{dropdown} Why not keep conversion as an explicit `convert_exam()` inside MNUtils?
 That would stop loading from writing into data folders, but MNUtils would still own a DICOM
@@ -67,39 +95,12 @@ is a loud, fixable error (re-run dcm2niix with `-b y`). A misnamed folder is a s
 doesn't appear.
 :::
 
-:::{note} Checked against the real test exams
-Every point below was run against the exams in `tests/datasets/` (NIST phantom, HeVo-18, LG_D19,
-TestDownSampling).
+(diary-nifti-only-fixtures)=
+## The fake exams moved with it
 
-- **Sidecars carry the identity.** All 30 sidecars have `SeriesNumber` and `SeriesDescription`, and
-  `SeriesNumber` equals the folder number every time, including `Series0002_…` and `;`-separated
-  folder names.
-- **`se_desc` is not the pseudo-image name for MRSI.** For MRS and washin it equals the sidecar
-  description (`MRS unloc`, `MRS washin`). For MRSI it is the *sequence* name (`MRSI 3D 2 NEX`,
-  `2H bssfp16`, …); the `MRSI pseudo:S700;…` text exists only in the NIfTI sidecar. So the type comes
-  from the sidecar when the series has an image, and from `se_desc` otherwise. Either source is
-  lower-cased with spaces read as underscores before the existing `mrs_washin` / `mrsi_pseudo` /
-  `mrs_` rules run.
-- **Main image = the NIfTI that has a sidecar.** "Sidecar without a dcm2niix suffix" fails: NIST
-  series 12 only has `…_e6.json`. Derived files (`_bet`, `_bet_bet`, `*_resampled_lowres*`, `.OLD`)
-  have no sidecar and fall out. With several sidecars (FGRE `i00001/06/11`), take the lowest suffix.
-- **Series with a `.mat` but no NIfTI still load** (NIST series 4), as MRS/MRSI without an image.
-- **The raw archive is the `.mat` with the shortest suffix after `ScanArchive_<id>`.** The plain
-  `ScanArchive_<id>.mat` wins; when only suffixed ones exist (NIST series 13: `_csi.mat`,
-  `_snr_map.mat`), the shorter suffix wins (`_csi`). Any choice among several candidates logs a
-  warning naming the file picked.
-- **Series with only an `.h5` are not indexed.** Their `Header.xml` has exam and series numbers but
-  no description, so they cannot be typed. They stay loadable by explicit series ID.
-:::
-
-:::{important} Scope: the whole package moves in this change
-The DICOM names do not survive as deprecated shims. This change also:
-
-- reworks `mnutils.testing.synthetic` so the fake exams ship sidecars (`SeriesNumber`,
-  `SeriesDescription`) and `se_desc` values shaped like the real ones above, instead of folder
-  names that `get_dicom_folder` parses;
-- rewrites every caller of `get_dicom_folder`, `get_all_dicom_series_ids` and `convert_dicoms=`
-  (`file_helpers.py`, `images.py`, `GEExam.py`, `GESeries.py`) onto the sidecar/`.mat` index, and
-  deletes those functions and the dcm2niix call;
-- rewrites `docs/basics/file_discovery.md`, the only docs page that depends on folder parsing.
-:::
+`mnutils.testing.build_fake_exam` used to fabricate folders that `get_dicom_folder` parsed. It now
+writes a sidecar next to every NIfTI and `se_desc` values shaped like the real ones (`MRS unloc`,
+`MRS washin`, `MRSI 3D 2 NEX`, with the `MRSI pseudo:…` text on the pseudo-image's sidecar). Series
+13 of the brain exam became an MRS `.mat` with no NIfTI so the docs keep one example of raw data
+without an image, and `docs/basics/file_discovery.md`, the only docs page that depended on folder
+parsing, was rewritten around `get_niftis_from_series` and `get_all_nifti_series_ids`.

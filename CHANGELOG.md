@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `get_dicom_folder`, `get_all_dicom_series_ids`, the `convert_dicoms=` arguments, the implicit
   dcm2niix run in `MRISeries`, and the `dcm2niiw` dependency. A missing NIfTI raises a
-  `FileNotFoundError` naming the dcm2niix command.
+  `FileNotFoundError` naming the dcm2niix command (`MRISeries` logs it as a warning and loads
+  without an image).
 
 ## [1.2.3] - 2026-08-26
 

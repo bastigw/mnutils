@@ -76,8 +76,8 @@ consistently across the toolbox, so plotting code never re-derives it.
 
 `MRISeries` is what you get for a series that has a NIfTI but no raw scanner exam data — typically
 an anatomical scan. It finds the NIfTI through the `SeriesNumber` in its JSON sidecar, whatever the
-folder is called. MNUtils never converts DICOMs: run `dcm2niix -b y` first, or a missing series
-raises a `FileNotFoundError` that spells out the command.
+folder is called. MNUtils never converts DICOMs: run `dcm2niix -b y` first, or the series logs a
+warning that spells out the command and loads without a NIfTI.
 
 :::{note}
 The anatomical volumes in these fake exams are cropped from real scans of the same subject —
