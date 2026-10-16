@@ -16,6 +16,11 @@ from .utils import file_helpers
 ANATOMICAL_SERIES_TO_SKIP = ["FGRE", "localizer", "GE_HOS", "localiser"]
 
 
+def _normalise_description(description: object) -> str:
+    """Lower-case, spaces as underscores: ``MRS washin`` -> ``mrs_washin``."""
+    return description.strip().lower().replace(" ", "_") if isinstance(description, str) else ""
+
+
 class ExamBase:
     """Base class for a GE exam, loading series metadata and providing series access."""
 
@@ -69,60 +74,45 @@ class ExamBase:
         """Iterate over loaded series as (series ID, series object) pairs."""
         yield from self.all.items()
 
+    def _ids_with_description(self, fragment: str) -> npt.NDArray[np.int_]:
+        """Series IDs whose normalised description contains `fragment` (also normalised)."""
+        normalised = self.exam_overview["Description"].map(_normalise_description)
+        mask = normalised.str.contains(_normalise_description(fragment), regex=False)
+        return self.exam_overview[mask].index.to_numpy().astype(int)
+
     def _create_series_dict(self) -> dict[int, type[GESeries.MRISeries]]:
+        """Pick a series class per series from its description, never from a folder name."""
         series_class_dict = {}
         for series_num in self.series:
-            folder_name = self.exam_overview.at[series_num, "Folder Name"]
+            raw_description = self.exam_overview.at[series_num, "Description"]
+            description = _normalise_description(raw_description)
             has_exam = self.exam_overview.at[series_num, "Has Exam"]
-            has_dicom = self.exam_overview.at[series_num, "Has DICOM"]
 
-            if has_exam and not has_dicom:
-                logger.debug(
-                    f"Series {series_num} does not have DICOM. Assuming it is an MRS series."
-                )
-                self.exam_overview.at[series_num, "Folder Name"] = "ASSUMING MRS"
-                series_class_dict[series_num] = GESeries.MRSSeries
-                continue
-
-            # Make sure folder name is a string
-            if isinstance(folder_name, str) and has_dicom:
-                folder_name = folder_name.strip().lower()
-            else:
-                logger.warning(
-                    f"Folder name for series {series_num} is not a string: {folder_name}. Skipping."
-                )
-                continue
-
-            if not has_exam and not has_dicom:
-                logger.debug(f"Series {series_num} does not have exam or DICOM data. Skipping")
-                continue
-
-            if has_dicom and not has_exam:
-                logger.trace(f"Series {series_num} does not have raw data.")
-                # Based on the folder name determine if it is anatomical data we want to load
-                if any(skip_name.lower() in folder_name for skip_name in ANATOMICAL_SERIES_TO_SKIP):
+            if not has_exam:
+                if any(skip_name.lower() in description for skip_name in ANATOMICAL_SERIES_TO_SKIP):
                     logger.debug(f"Series {series_num} is anatomical data to skip.")
                     continue
                 series_class_dict[series_num] = GESeries.MRISeries
                 continue
 
-            if has_exam and has_dicom:
-                logger.trace(
-                    f"Series {series_num} has both exam and DICOM data. Checking folder name."
+            if not description:
+                logger.debug(
+                    f"Series {series_num} has no series description. Assuming it is an MRS series."
                 )
-                if "mrs_washin" in folder_name:
-                    series_class_dict[series_num] = GESeries.MRSWashinSeries
-                elif "mrsi_pseudo" in folder_name:
-                    series_class_dict[series_num] = GESeries.MRSISeries
-                elif "mrs_" in folder_name:
-                    series_class_dict[series_num] = GESeries.MRSSeries
-                elif "bs_prescan" in folder_name:
-                    continue  # Skip the bs_prescan series
-                else:
-                    logger.warning(
-                        f"Series {series_num} with folder name '{folder_name}' does not "
-                        f"match any known series types. Skipping."
-                    )
+                series_class_dict[series_num] = GESeries.MRSSeries
+            elif "mrs_washin" in description:
+                series_class_dict[series_num] = GESeries.MRSWashinSeries
+            elif "mrsi" in description:
+                series_class_dict[series_num] = GESeries.MRSISeries
+            elif "mrs_" in description:
+                series_class_dict[series_num] = GESeries.MRSSeries
+            elif "bs_prescan" in description:
+                continue  # Skip the bs_prescan series
+            else:
+                logger.warning(
+                    f"Series {series_num} with description '{raw_description}' does not "
+                    f"match any known series types. Skipping."
+                )
 
         return series_class_dict
 
@@ -190,33 +180,22 @@ class DMIExam(ExamBase):
                 identifier = ANATOMICAL_series.strip().lower()
             else:
                 identifier = "t1_bravo"
-            self.ANATOMICAL_series = (
-                self.exam_overview[
-                    self.exam_overview["Folder Name"].str.contains(identifier, na=False, case=False)
-                ]
-                .index.to_numpy()
-                .astype(int)[0]
-            )
+            self.ANATOMICAL_series = self._ids_with_description(identifier)[0]
 
-        self.MRS_series = (
-            self.exam_overview[
-                self.exam_overview["Folder Name"].str.contains("MRS_unloc", na=False)
-            ]
-            .index.to_numpy()
-            .astype(int)
+        self.MRS_series = self._ids_with_description("MRS_unloc")
+        # By default append all series without a NIfTI (raw data only)
+        no_nifti_series = (
+            self.exam_overview[~self.exam_overview["Has NIfTI"]].index.to_numpy().astype(int)
         )
-        # By default append all series where Has Dicom in the exam overview table is False
-        no_DICOM_series = (
-            self.exam_overview[~self.exam_overview["Has DICOM"]].index.to_numpy().astype(int)
-        )
-        self.MRS_series = np.union1d(self.MRS_series, no_DICOM_series)
+        self.MRS_series = np.union1d(self.MRS_series, no_nifti_series)
 
-        self.MRSI_series = (
-            self.exam_overview[
-                self.exam_overview["Folder Name"].str.contains("MRSI_pseudo", na=False)
-            ]
-            .index.to_numpy()
-            .astype(int)
+        self.MRSI_series = np.array(
+            [
+                series_id
+                for series_id, series_class in self.series_dict.items()
+                if issubclass(series_class, GESeries.MRSISeries)
+            ],
+            dtype=int,
         )
 
         self.anatomical: GESeries.MRISeries
@@ -253,9 +232,9 @@ class DMIExam(ExamBase):
                     logger.warning(
                         f"Multiple anatomical datasets detected. "
                         f"Previous: Series ID {self.anatomical.SERIES_ID}, "
-                        f"Name '{self.exam_overview.at[self.anatomical.SERIES_ID, 'Folder Name']}'."
+                        f"Name '{self.exam_overview.at[self.anatomical.SERIES_ID, 'Description']}'."
                         f" New: Series ID {series_obj.SERIES_ID}, "
-                        f"Name '{self.exam_overview.at[series_obj.SERIES_ID, 'Folder Name']}'."
+                        f"Name '{self.exam_overview.at[series_obj.SERIES_ID, 'Description']}'."
                     )
                 self.anatomical = series_obj
 
@@ -333,13 +312,7 @@ class DMIinjExam(DMIExam):
     ) -> None:
         super().__init__(BASE_FOLDER, DATA_FOLDER, OUTPUT_FOLDER, ANATOMICAL_series)
 
-        self.WASHIN_series = (
-            self.exam_overview[
-                self.exam_overview["Folder Name"].str.contains("MRS_washin", na=False)
-            ]
-            .index.to_numpy()
-            .astype(int)[0]
-        )
+        self.WASHIN_series = self._ids_with_description("MRS_washin")[0]
 
         # Define pre and post series based on wash-in series
         self.pre_MRS_series, self.post_MRS_series = self._split_series(

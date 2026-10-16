@@ -28,7 +28,7 @@ def test_hevo23_bet(dataset_folder):
     """Test that extract_brain produces the expected skull-stripped nifti output file."""
     data_folder = dataset_folder / "data"
     series = 2
-    nifti_data = file_helpers.get_niftis_from_series(data_folder, series, convert_dicoms=True)
+    nifti_data = file_helpers.get_niftis_from_series(data_folder, series)
     logger.info(f"Extracting brain from {nifti_data}")
     bet_file = images.extract_brain(nifti_data, save_mask=True, device="cpu")
     # Check if the output file exists

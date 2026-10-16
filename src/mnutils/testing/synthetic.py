@@ -15,6 +15,7 @@ used here -- a CC BY-NC 4.0 T1 template.
 
 import functools
 import hashlib
+import json
 import os
 import shutil
 import tempfile
@@ -95,6 +96,19 @@ _CARRIER_PPM = 4.68  # matches GESeries.RawMRISeries.carrier_ppm for nucleus in 
 
 def _rng(*salt: object) -> np.random.Generator:
     return np.random.default_rng(abs(hash((_RNG_SEED, *salt))) % (2**32))
+
+
+def _write_sidecar(nii_path: Path, series_id: int, description: str) -> None:
+    """Write the dcm2niix-style JSON sidecar MNUtils identifies a series from.
+
+    MNUtils never reads folder names, so ``SeriesNumber`` and ``SeriesDescription`` here are the
+    only thing that makes ``nii_path`` series ``series_id``.
+    """
+    name = nii_path.name.removesuffix(".gz").removesuffix(".nii")
+    sidecar = nii_path.with_name(f"{name}.json")
+    sidecar.write_text(
+        json.dumps({"SeriesNumber": series_id, "SeriesDescription": description}, indent=2)
+    )
 
 
 def _write_own_nii(path: Path, data: np.ndarray, affine: np.ndarray) -> None:
@@ -225,11 +239,15 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
     grid = (16, 16, 16)
 
     # The real T1 template, cropped to the head -- see _spectra._TEMPLATE_ATTRIBUTION.
-    _spectra.write_template_t1(data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz")
+    t1_path = data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz"
+    _spectra.write_template_t1(t1_path)
+    _write_sidecar(t1_path, 2, "3D Ax T1 BRAVO")
     # Same subject, real 2D-acquired PD scan at its native anisotropic voxel size -- the fixture
     # docs/data-model/geseries.md uses to show display_images' zooms aspect correction actually
     # doing something, which the (isotropic) T1 above can't demonstrate.
-    _spectra.write_template_pd(data / "004_2D_Ax_PD" / "4_2D_Ax_PD.nii.gz")
+    pd_path = data / "004_2D_Ax_PD" / "4_2D_Ax_PD.nii.gz"
+    _spectra.write_template_pd(pd_path)
+    _write_sidecar(pd_path, 4, "2D Ax PD")
 
     # Series 8's intensity map seeds create_MRSI_affine's reference voxel size *and* the
     # per-grid-cell simulate_grid scaling below -- real brain signal in, brain-shaped spectra out.
@@ -238,7 +256,10 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
     # voxel size -- derive fov_mm from that same affine so the two agree (a mismatched hardcoded
     # value here inflates the MRSI grid relative to the real brain extent it's drawn over).
     fov_mm = own_affine[0, 0] * grid[0]
-    (data / "014_localizer").mkdir(parents=True, exist_ok=True)  # DICOM-only gap filler
+    # A NIfTI-only series with no raw data that GEExam skips: a scanner localizer.
+    localizer_path = data / "014_localizer" / "14_localizer.nii.gz"
+    _write_own_nii(localizer_path, np.zeros((4, 4, 4)), np.eye(4))
+    _write_sidecar(localizer_path, 14, "Axial localizer")
 
     _write_mrs_mat(
         exam / "Series6" / "ScanArchive_Series6.mat",
@@ -247,7 +268,7 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
         npts=2048,
         seed=6,
         protocol="MRS_unloc",
-        description="006_MRS_unloc",
+        description="MRS unloc",
         exam_number=1801,
     )
 
@@ -263,7 +284,7 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
         npts=2048,
         seed=7,
         protocol="MRS_washin",
-        description="007_MRS_washin",
+        description="MRS washin",
         exam_number=1801,
         sctime=300_000_000.0,
     )
@@ -276,7 +297,7 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
         seed=8000,
         intensity_map=intensity_map,
         protocol="MRSI_pseudo",
-        description="008_MRSI_pseudo_S64_X10_Y10_Z10_T1_C1",
+        description="MRSI 3D 2 NEX",
         exam_number=1801,
     )
     # Series 8's own NIfTI (create_MRSI_nii/create_MRSI_affine's seed) is the scanner's own
@@ -288,21 +309,34 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
             pseudo_native8, (_PSEUDO_IMAGE_MATRIX, _PSEUDO_IMAGE_MATRIX, pseudo_native8.shape[2])
         )
     )
+    pseudo_path8 = data / "008_MRSI_pseudo_S64_X10_Y10_Z10_T1_C1" / "8_MRSI_pseudo.nii.gz"
     _write_own_nii(
-        data / "008_MRSI_pseudo_S64_X10_Y10_Z10_T1_C1" / "8_MRSI_pseudo.nii.gz",
+        pseudo_path8,
         pseudo_interp8,
         _spectra.rescale_affine_xy(own_affine, grid[0], _PSEUDO_IMAGE_MATRIX),
     )
+    # The sidecar names the *pseudo image* (what the console prints), the .mat names the sequence.
+    _write_sidecar(pseudo_path8, 8, "MRSI pseudo:S64;X10;Y10;Z10,T1,C1")
 
     for series_id, npts in ((9, 700), (11, 700), (12, 1678)):
         _write_raw_fid_files(exam / f"Series{series_id}", series_id, npts=npts)
 
-    (exam / "Series13").mkdir(parents=True, exist_ok=True)  # exam data, no DICOM
+    # Exam data with no NIfTI at all: still indexed, from its .mat's own series description.
+    _write_mrs_mat(
+        exam / "Series13" / "ScanArchive_Series13.mat",
+        series_id=13,
+        averages=8,
+        npts=2048,
+        seed=13,
+        protocol="MRS_unloc",
+        description="MRS unloc final",
+        exam_number=1801,
+    )
 
     # Segmentations of the same T1, for partial-volume pages. They live in `derived/`, a
-    # sibling of `data/`, deliberately: `get_dicom_folder` anchors on `(?:Series)?(\d{1,5})_`
-    # and `get_nifti_file` takes the *first* glob hit, so a mask dropped beside the T1 would
-    # be a candidate for `MRISeries(data, 2)` itself.
+    # sibling of `data/`, deliberately: they carry no sidecar so the series index would
+    # skip them anyway, but `get_nifti_file` takes the *first* glob hit, so a mask dropped beside
+    # the T1 would be a candidate for plain NIfTI lookups in that folder.
     brain, seg, t1_affine = _spectra.template_tissue_masks()
     derived = root / "derived"
     derived.mkdir(parents=True, exist_ok=True)
@@ -312,8 +346,9 @@ def _build_brain_mrs_mrsi_exam(root: Path) -> None:
 
 def _build_brain_extraction_exam(root: Path) -> None:
     data = root / "data"
-    (data / "Series0010_BS_prescan").mkdir(parents=True, exist_ok=True)  # new-style naming
-    _spectra.write_template_t1(data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO_BODY.nii.gz")
+    t1_path = data / "Series0002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO_BODY.nii.gz"
+    _spectra.write_template_t1(t1_path)
+    _write_sidecar(t1_path, 2, "3D Ax T1 BRAVO")
 
 
 def _build_mrsi_missing_series_exam(root: Path) -> None:
@@ -325,11 +360,10 @@ def _build_mrsi_missing_series_exam(root: Path) -> None:
         fov_mm=300.0,
         seed=7700,
         protocol="MRSI_pseudo",
-        description="007_MRSI_pseudo",
+        description="MRSI 3D Rolf fidall2",
         exam_number=4873,
     )
     (exam / "Series5").mkdir(parents=True, exist_ok=True)  # no .mat -- FileNotFoundError case
-    (root / "010_axial_localizer").mkdir(parents=True, exist_ok=True)  # old-style naming
 
 
 def _build_nist_phantom_exam(root: Path) -> None:
@@ -344,13 +378,15 @@ def _build_nist_phantom_exam(root: Path) -> None:
     # MRSI signal at all, only a T1-visible presence.
     anatomy_rings = signal_rings + _spectra.ANATOMY_ONLY_SPHERE_RINGS
 
+    t1_path = data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz"
     _spectra.sphere_phantom_image(
-        data / "002_3D_Ax_T1_BRAVO" / "2_3D_Ax_T1_BRAVO.nii.gz",
+        t1_path,
         shape=(128, 128, 100),
         voxel_mm=1,
         rings=anatomy_rings,
         seed=2,
     )
+    _write_sidecar(t1_path, 2, "3D Ax T1 BRAVO")
 
     intensity_map, voxel_xy = _spectra.sphere_grid_intensity(
         grid, fov_mm=fov_mm, z_extent_mm=z_extent_mm, rings=signal_rings
@@ -365,7 +401,7 @@ def _build_nist_phantom_exam(root: Path) -> None:
         seed=5500,
         intensity_map=intensity_map * 500,
         protocol="MRSI_pseudo",
-        description="005_MRSI_pseudo_S64_X12_Y12_Z3_T1_C1",
+        description="MRSI 3D Rolf fidall2",
         exam_number=408,
     )
     # Series 5's own NIfTI: same scanner-pseudo-image relationship as the brain exam above.
@@ -375,11 +411,13 @@ def _build_nist_phantom_exam(root: Path) -> None:
             pseudo_native5, (_PSEUDO_IMAGE_MATRIX, _PSEUDO_IMAGE_MATRIX, pseudo_native5.shape[2])
         )
     )
+    pseudo_path5 = data / "005_MRSI_pseudo_S64_X12_Y12_Z3_T1_C1" / "5_MRSI_pseudo.nii.gz"
     _write_own_nii(
-        data / "005_MRSI_pseudo_S64_X12_Y12_Z3_T1_C1" / "5_MRSI_pseudo.nii.gz",
+        pseudo_path5,
         pseudo_interp5,
         _spectra.rescale_affine_xy(own_affine, grid[0], _PSEUDO_IMAGE_MATRIX),
     )
+    _write_sidecar(pseudo_path5, 5, "MRSI pseudo:S64;X12;Y12;Z3,T1,C1")
 
 
 def _write_legacy_mat(path: Path) -> None:

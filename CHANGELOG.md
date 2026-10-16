@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- MNUtils reads NIfTI only. Series are identified from the files, never from folder names: images by
+  the `SeriesNumber`/`SeriesDescription` in their dcm2niix JSON sidecar, raw data by the `.mat`
+  header's `se_desc`. Convert DICOMs once beforehand with
+  `dcm2niix -b y -z y -f %s_%d -o <series folder> <series folder>`.
+- `ExamBase.exam_overview` has `Has NIfTI` and `Description` columns instead of `Has DICOM` and
+  `Folder Name`; series types are matched case-insensitively with spaces read as underscores.
+- When a series folder holds several `ScanArchive*.mat` files, the plain archive wins, else the one
+  with the shortest suffix, and a warning names the pick. Several NIfTI + sidecar pairs per series
+  resolve to the lowest file name, with a warning.
+- `mnutils.testing.build_fake_exam` writes sidecars and realistic `se_desc` values.
+
+### Added
+
+- `file_helpers.index_nifti_series`, `get_all_nifti_series_ids` and `get_mat_archives`.
+
+### Removed
+
+- `get_dicom_folder`, `get_all_dicom_series_ids`, the `convert_dicoms=` arguments, the implicit
+  dcm2niix run in `MRISeries`, and the `dcm2niiw` dependency. A missing NIfTI raises a
+  `FileNotFoundError` naming the dcm2niix command.
+
 ## [1.2.3] - 2026-08-26
 
 ### Added

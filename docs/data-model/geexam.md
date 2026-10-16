@@ -37,7 +37,7 @@ DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam") / "data"
 (data-model-geexam-split)=
 ## Splitting series around an injection
 
-`DMIinjExam` finds a wash-in series (folder name containing `MRS_washin`) and uses its series ID
+`DMIinjExam` finds a wash-in series (description containing `MRS washin`) and uses its series ID
 as a reference point: every other MRS/MRSI series sorts into "pre" (the single one immediately
 before it) or "post" (all series after it, in order). This is `_split_series` — a pure function
 of a series-ID array and a reference ID, easiest to see without loading any real data.

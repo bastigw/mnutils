@@ -12,18 +12,25 @@ kernelspec:
 (basics-file-discovery)=
 # Finding files in a data folder
 
-`ExamBase` and `GESeries` never hardcode a path to a series's DICOM folder or `.mat` file — a GE
-export names folders differently across scanner software versions (`010_axial_localizer` vs.
-`Series0010_BS_prescan`), so every load goes through the same handful of discovery functions in
-`utils.file_helpers`. Reaching for them directly is useful any time you want one file without
-loading a whole series object.
+`ExamBase` and `GESeries` never hardcode a path to a series's NIfTI or `.mat` file — export tools
+name folders differently (`002_3D_Ax_T1_BRAVO` vs. `Series0002_3D_Ax_T1_BRAVO`) and people rename
+them, so folder names are free-form labels that nothing reads. A NIfTI is found by the
+`SeriesNumber` in its dcm2niix JSON sidecar, and every load goes through the same handful of
+discovery functions in `utils.file_helpers`. Reaching for them directly is useful any time you want
+one file without loading a whole series object.
+
+:::{note}
+MNUtils reads NIfTI only. Convert DICOMs once, outside the package, with
+`dcm2niix -b y -z y -f %s_%d -o <series folder> <series folder>` — `-b y` writes the sidecar the
+series are identified from.
+:::
 
 | Function | What it does here |
 |---|---|
 | [`get_exam_folder()`](#mnutils.utils.file_helpers.get_exam_folder) | finds the folder containing raw scanner exam data |
 | [`get_mat_data_from_series()`](#mnutils.utils.file_helpers.get_mat_data_from_series) | finds a series's reconstructed `.mat` file |
-| [`get_dicom_folder()`](#mnutils.utils.file_helpers.get_dicom_folder) | finds a series's DICOM folder, across naming conventions |
-| [`get_all_dicom_series_ids()`](#mnutils.utils.file_helpers.get_all_dicom_series_ids) | lists every series ID with a DICOM folder, and any gaps |
+| [`get_niftis_from_series()`](#mnutils.utils.file_helpers.get_niftis_from_series) | finds a series's NIfTI by its sidecar's `SeriesNumber`, wherever it sits |
+| [`get_all_nifti_series_ids()`](#mnutils.utils.file_helpers.get_all_nifti_series_ids) | lists every series ID with a NIfTI, and any gaps |
 | [`move_files_with_glob()`](#mnutils.utils.file_helpers.move_files_with_glob) | archives matching files into an `old/` subfolder, timestamped |
 
 ```{code-cell} ipython3
@@ -47,7 +54,7 @@ lg_folder = build_fake_exam("mrsi_missing_series_exam")
 ## The exam folder and a series's `.mat` file
 
 `get_exam_folder` looks for the one subfolder with "Exam" in its name — that's where raw scanner
-exam data (`.mat` reconstructions) lives, separate from the DICOM export next to it.
+exam data (`.mat` reconstructions) lives, separate from the NIfTIs next to it.
 
 ```{code-cell} ipython3
 exam_folder = fh.get_exam_folder(lg_folder)
@@ -81,34 +88,40 @@ with pytest.raises(FileNotFoundError, match="No .mat files found"):
     fh.get_mat_data_from_series(lg_folder, 5)
 ```
 
-(basics-file-discovery-dicom)=
-## DICOM folders, across naming conventions
+Several `ScanArchive*.mat` files can sit in one series folder: the raw archive plus files derived
+from it (`..._csi.mat`, `..._snr_map.mat`). The plain archive wins; when only derived files exist,
+the one with the shortest suffix does, and a warning names the pick.
 
-Older exports name a series folder `NNN_<description>`; newer ones use `SeriesNNNN_<description>`.
-`get_dicom_folder` matches either, so callers never branch on which convention a dataset uses.
+(basics-file-discovery-nifti)=
+## NIfTI files, whatever their folder is called
+
+A NIfTI counts when it has a JSON sidecar of the same name with a `SeriesNumber`, so the folder
+layout is irrelevant: `002_3D_Ax_T1_BRAVO` and `Series0002_3D_Ax_T1_BRAVO` resolve identically.
+Derived files without a sidecar (`_bet`, `_resampled`) are never picked, and if a series has
+several sidecar pairs (echoes, dynamics) the lowest file name is used, with a warning.
 
 ```{code-cell} ipython3
-old_style = fh.get_dicom_folder(lg_folder, 10)
-new_style = fh.get_dicom_folder(build_fake_exam("brain_extraction_exam") / "data", 10)
-print(old_style.name)
-print(new_style.name)
+old_style = fh.get_niftis_from_series(build_fake_exam("brain_mrs_mrsi_exam") / "data", 2)
+new_style = fh.get_niftis_from_series(build_fake_exam("brain_extraction_exam") / "data", 2)
+print(old_style.parent.name)
+print(new_style.parent.name)
 ```
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
-# STRICT TESTS: get_dicom_folder across naming conventions
-assert old_style.name.startswith("010")
-assert "BS_prescan" in new_style.name
-with pytest.raises(ValueError, match="No DICOM folder matching"):
-    fh.get_dicom_folder(lg_folder, 99)
+# STRICT TESTS: get_niftis_from_series across folder naming
+assert old_style.parent.name.startswith("002_")
+assert new_style.parent.name.startswith("Series0002_")
+with pytest.raises(FileNotFoundError, match="dcm2niix"):
+    fh.get_niftis_from_series(build_fake_exam("brain_mrs_mrsi_exam") / "data", 99)
 ```
 
 (basics-file-discovery-series-ids)=
-## Which series IDs actually have DICOM data
+## Which series IDs actually have a NIfTI
 
-`get_all_dicom_series_ids` returns `(found, missing)` — every series ID with a DICOM folder, and
-any integers skipped in that range (a genuinely missing/corrupt series, not just "series ID 1
+`get_all_nifti_series_ids` returns `(found, missing)` — every series ID with a NIfTI, and any
+integers skipped in that range (a genuinely missing/corrupt series, not just "series ID 1
 doesn't exist because numbering starts at 1"). `ExamBase` uses this internally to build its
 overview.
 
@@ -118,15 +131,15 @@ absent. Everything from 100 up — reformats, resaves, late additions like `500`
 is sparse by design, and neither gets flagged nor stretches the checked range.
 
 ```{code-cell} ipython3
-found, missing = fh.get_all_dicom_series_ids(build_fake_exam("brain_mrs_mrsi_exam") / "data")
+found, missing = fh.get_all_nifti_series_ids(build_fake_exam("brain_mrs_mrsi_exam") / "data")
 print(f"{len(found)} series found, gaps at {missing}")
 ```
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
-# STRICT TESTS: get_all_dicom_series_ids
-# Series 13 has raw exam data but no DICOM in this dataset (see docs/data-model/geseries.md) --
+# STRICT TESTS: get_all_nifti_series_ids
+# Series 13 has raw exam data but no NIfTI in this dataset (see docs/data-model/geseries.md) --
 # it shows up as a gap here, exactly what ExamBase's classification depends on.
 assert 13 in missing
 assert 13 not in found
@@ -139,11 +152,12 @@ import tempfile
 
 
 def missing_for(series_ids):
-    """Report the gaps for an exam folder holding exactly these series IDs."""
+    """Report the gaps for a data folder holding NIfTIs for exactly these series IDs."""
     with tempfile.TemporaryDirectory() as tmp:
         for series_id in series_ids:
-            (Path(tmp) / f"{series_id:03d}_series").mkdir()
-        return fh.get_all_dicom_series_ids(tmp)[1]
+            (Path(tmp) / f"s{series_id}.nii.gz").touch()
+            (Path(tmp) / f"s{series_id}.json").write_text(f'{{"SeriesNumber": {series_id}}}')
+        return fh.get_all_nifti_series_ids(tmp)[1]
 
 
 # Sparse IDs neither get flagged nor stretch the range up to 99.
@@ -193,6 +207,6 @@ with tempfile.TemporaryDirectory() as tmp:
 
 :::{seealso}
 [Loading a series and an exam](#basics-loading-data) is where `ExamBase` puts these functions to
-use — `get_exam_overview` (called on init) is built from `get_all_dicom_series_ids` and
+use — `get_exam_overview` (called on init) is built from `index_nifti_series` and
 `get_all_exam_series_ids` together.
 :::

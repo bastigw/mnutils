@@ -22,7 +22,7 @@ for a folder so you don't have to guess it yourself.
 | Class                                                  | What it adds                                                         |
 | ------------------------------------------------------ | -------------------------------------------------------------------- |
 | [`NiiBase`](#mnutils.GESeries.NiiBase)                 | wraps a NIfTI image: affine, `images()`, `display()`, brain masking  |
-| [`MRISeries`](#mnutils.GESeries.MRISeries)             | + converts a DICOM series to NIfTI (anatomical scans)                |
+| [`MRISeries`](#mnutils.GESeries.MRISeries)             | + finds its NIfTI by sidecar `SeriesNumber` (anatomical scans)       |
 | [`RawMRISeries`](#mnutils.GESeries.RawMRISeries)       | + the raw `.mat` reconstruction, FIDs, and scanner header properties |
 | [`MRSSeries`](#mnutils.GESeries.MRSSeries)             | + single-voxel spectrum, `averages × chemical_shift`                 |
 | [`MRSWashinSeries`](#mnutils.GESeries.MRSWashinSeries) | + grouped, time-resolved fitting for a wash-in acquisition           |
@@ -31,7 +31,7 @@ for a folder so you don't have to guess it yourself.
 ```{mermaid}
 %%{init: {'flowchart': {'htmlLabels': false}}}%%
 flowchart TD
-    N["NiiBase<br>(NIfTI wrapper)"] --> M["MRISeries<br>(+ DICOM-to-NIfTI)"]
+    N["NiiBase<br>(NIfTI wrapper)"] --> M["MRISeries<br>(+ NIfTI lookup by SeriesNumber)"]
     M --> R["RawMRISeries<br>(+ raw .mat, FIDs, header)"]
     R --> S["MRSSeries<br>(+ single-voxel spectrum)"]
     R --> I["MRSISeries<br>(+ spectroscopic-imaging grid)"]
@@ -67,16 +67,17 @@ DATA_FOLDER = DATASETS / "data"
 
 ## `NiiBase` — a NIfTI image, oriented and displayable
 
-Every series that has DICOM data ends up with a `NiiBase` (or subclass) wrapping the converted
-NIfTI: `nii`, `affine`, and helpers like `images()`/`display()` that apply a display orientation
+Every series that has a NIfTI ends up with a `NiiBase` (or subclass) wrapping it: `nii`, `affine`, and helpers like `images()`/`display()` that apply a display orientation
 consistently across the toolbox, so plotting code never re-derives it.
 
 (data-model-geseries-mriseries)=
 
-## `MRISeries` — DICOM series, converted automatically
+## `MRISeries` — a NIfTI series, found by its sidecar
 
-`MRISeries` is what you get for a series that has DICOM but no raw scanner exam data — typically
-an anatomical scan. It converts the DICOMs to NIfTI on init if no NIfTI exists yet.
+`MRISeries` is what you get for a series that has a NIfTI but no raw scanner exam data — typically
+an anatomical scan. It finds the NIfTI through the `SeriesNumber` in its JSON sidecar, whatever the
+folder is called. MNUtils never converts DICOMs: run `dcm2niix -b y` first, or a missing series
+raises a `FileNotFoundError` that spells out the command.
 
 :::{note}
 The anatomical volumes in these fake exams are cropped from real scans of the same subject —
@@ -234,7 +235,7 @@ if t1_patient is not None:
 
 ## `MRSSeries` — a single-voxel spectrum over time
 
-A series with both raw exam data and DICOM (or no DICOM at all, for a pure spectroscopy
+A series with both raw exam data and a NIfTI (or no NIfTI at all, for a pure spectroscopy
 acquisition) loads as one of the `RawMRISeries` subclasses instead. `MRSSeries` holds a
 single-voxel spectrum with an `averages` dimension — one spectrum per repetition, not yet
 combined.

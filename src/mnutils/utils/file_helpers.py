@@ -1,5 +1,7 @@
+import json
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -7,7 +9,15 @@ import h5py
 import pandas as pd
 from loguru import logger
 
-_DEFAULT_DICOM_FOLDER_PATTERN = r"(?:Series)?(\d{1,5})_"
+_NIFTI_SUFFIXES = (".nii.gz", ".nii")
+
+#: Shown whenever a series has no NIfTI + JSON sidecar pair: MNUtils reads NIfTI only, so the
+#: conversion happens outside the package.
+DCM2NIIX_HINT = (
+    "MNUtils reads NIfTI only. Convert the DICOMs once with "
+    "`dcm2niix -b y -z y -f %s_%d -o <series folder> <series folder>` "
+    "(`-b y` writes the JSON sidecar MNUtils identifies the series from)."
+)
 
 
 def _relative_to_cwd(path: str | Path) -> Path:
@@ -34,34 +44,103 @@ def _relative_to_cwd(path: str | Path) -> Path:
         return path
 
 
-def get_all_dicom_series_ids(data_folder: str | Path) -> tuple[list[int], list[int]]:
-    """Retrieve all DICOM series IDs from a specified folder.
+@dataclass(frozen=True)
+class NiftiSeries:
+    """One series' main NIfTI, identified from its JSON sidecar rather than any folder name."""
 
-    Scans the given folder for subdirectories whose names match the pattern
-    "0XX", where "XX" is a one- or two-digit number. Not including series
-    with three digits.
+    series_id: int
+    nii_path: Path
+    description: str | None
+
+
+def _companion_nifti(sidecar: Path) -> Path | None:
+    """The NIfTI sharing a sidecar's name, or None if the sidecar is orphaned."""
+    for suffix in _NIFTI_SUFFIXES:
+        candidate = sidecar.with_name(sidecar.stem + suffix)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _read_sidecar_identity(sidecar: Path) -> tuple[int, str | None] | None:
+    """Read ``(SeriesNumber, SeriesDescription)`` from a dcm2niix sidecar, or None if absent."""
+    try:
+        content = json.loads(sidecar.read_text())
+        series_id = int(content["SeriesNumber"])
+    except (OSError, ValueError, KeyError, TypeError):
+        logger.trace(f"Ignoring JSON without a usable SeriesNumber: {sidecar}")
+        return None
+    description = content.get("SeriesDescription")
+    return series_id, description if isinstance(description, str) else None
+
+
+def index_nifti_series(data_folder: str | Path) -> dict[int, NiftiSeries]:
+    """Index every NIfTI series under a data folder by the ``SeriesNumber`` in its sidecar.
+
+    A NIfTI counts when it has a JSON sidecar of the same name carrying ``SeriesNumber``, so
+    derived files without one (``_bet``, ``*_resampled_*``) are never picked. When a series has
+    several such pairs (echoes, dynamics), the one with the shortest, then lowest, file name wins
+    and a warning names it.
 
     Parameters
     ----------
     data_folder : str or Path
-        The path to the folder containing the DICOM series in folders.
+        The folder holding the converted series, searched recursively.
+
+    Returns
+    -------
+    dict[int, NiftiSeries]
+        The main NIfTI of each series, sorted by series ID.
+
+    Raises
+    ------
+    ValueError
+        If `data_folder` does not exist.
+    """
+    data_folder = Path(data_folder)
+    if not data_folder.is_dir():
+        raise ValueError(f"The base folder does not exist: '{data_folder}'")
+
+    candidates: dict[int, list[NiftiSeries]] = {}
+    for sidecar in sorted(data_folder.rglob("*.json")):
+        identity = _read_sidecar_identity(sidecar)
+        nii_path = _companion_nifti(sidecar)
+        if identity is None or nii_path is None:
+            continue
+        series_id, description = identity
+        candidates.setdefault(series_id, []).append(NiftiSeries(series_id, nii_path, description))
+
+    index: dict[int, NiftiSeries] = {}
+    for series_id, found in sorted(candidates.items()):
+        found.sort(key=lambda entry: (len(entry.nii_path.name), entry.nii_path.name))
+        if len(found) > 1:
+            logger.warning(
+                f"Series {series_id} has {len(found)} NIfTI + sidecar pairs; using "
+                f"'{found[0].nii_path.name}' in '{found[0].nii_path.parent}'."
+            )
+        index[series_id] = found[0]
+    return index
+
+
+def get_all_nifti_series_ids(data_folder: str | Path) -> tuple[list[int], list[int]]:
+    """Retrieve all series IDs that have a NIfTI + sidecar pair, and any gaps between them.
+
+    Parameters
+    ----------
+    data_folder : str or Path
+        The folder holding the converted series, searched recursively.
 
     Returns
     -------
     tuple[list[int], list[int]]
-        A sorted list of integers representing the DICOM series IDs, and a
-        list of missing series IDs, if any.
+        A sorted list of the series IDs, and a list of missing series IDs, if any.
     """
-    data_folder = Path(data_folder)
-    pattern = re.compile(_DEFAULT_DICOM_FOLDER_PATTERN)
-    series_numbers = []
-    for folder in data_folder.iterdir():
-        match = pattern.match(folder.name)
-        if match and folder.is_dir():
-            series_id = int(match.group(1))
-            series_numbers.append(series_id)
+    return _list_ids_and_gaps(index_nifti_series(data_folder))
 
-    series_numbers.sort()
+
+def _list_ids_and_gaps(index: dict[int, NiftiSeries]) -> tuple[list[int], list[int]]:
+    """The sorted series IDs of an index, and the gaps in their dense protocol range."""
+    series_numbers = list(index)
     logger.debug(f"Found series IDs: {series_numbers}")
 
     # Only flag gaps within the low, dense protocol-step range (series <= 99).
@@ -83,7 +162,9 @@ def get_all_exam_series_ids(exam_folder: str | Path) -> list[int]:
     """Retrieve all exam series IDs from a specified folder.
 
     Scans the given folder for subdirectories whose names match the pattern
-    "SeriesX" or "SeriesXX", where X represents a digit.
+    "SeriesN", where N is any number of digits, and that hold a ``ScanArchive*.mat``.
+    Series with only a raw ``.h5`` archive are left out: they carry no series description
+    to identify them by, but can still be loaded by explicit series ID.
 
     Parameters
     ----------
@@ -99,12 +180,9 @@ def get_all_exam_series_ids(exam_folder: str | Path) -> list[int]:
     series_folders = [
         folder
         for folder in exam_folder.iterdir()
-        if folder.is_dir() and re.match(r"Series\d{1,2}", folder.name)
+        if folder.is_dir() and re.fullmatch(r"Series\d+", folder.name) and get_mat_archives(folder)
     ]
-    series_numbers = [
-        int(re.search(r"\d{1,2}", folder.name).group())  # type: ignore
-        for folder in series_folders
-    ]
+    series_numbers = [int(folder.name.removeprefix("Series")) for folder in series_folders]
     series_numbers.sort()
     return series_numbers
 
@@ -141,6 +219,28 @@ def get_exam_folder(base_path: str | Path) -> Path:
     return exam_folders[0]
 
 
+def get_mat_archives(series_folder: str | Path) -> list[Path]:
+    """List a series folder's ``ScanArchive*.mat`` files, the raw archive first.
+
+    Files derived from the archive (``..._csi.mat``, ``..._snr_map.mat``) share its name plus a
+    suffix, so sorting by name length puts the plain archive first, and when only derived files
+    exist, the one with the shortest suffix.
+
+    Parameters
+    ----------
+    series_folder : str or Path
+        The ``SeriesN`` folder inside the exam folder.
+
+    Returns
+    -------
+    list[Path]
+        The matching files, best candidate first; empty if there are none.
+    """
+    return sorted(
+        Path(series_folder).glob("ScanArchive*.mat"), key=lambda path: (len(path.name), path.name)
+    )
+
+
 def get_mat_data_from_series(base_folder: str | Path, series: int) -> Path:
     """Find a specific .mat file within a designated series folder.
 
@@ -172,20 +272,19 @@ def get_mat_data_from_series(base_folder: str | Path, series: int) -> Path:
     exam_folder = get_exam_folder(base)
     series_folder = exam_folder / f"Series{series}"
 
-    mat_files = list(series_folder.glob("ScanArchive*.mat"))
+    mat_files = get_mat_archives(series_folder)
 
     if not mat_files:
         raise FileNotFoundError(
             f"No .mat files found in the Series folder.\nFolder path: '{series_folder}'"
         )
-    elif len(mat_files) == 1:
-        return mat_files[0]
-    else:
+    if len(mat_files) > 1:
         logger.warning(
-            "Multiple .mat files found in the Series folder. Selecting the first one.\n"
-            f"File '{mat_files[0].name}', Folder path: '{series_folder}'"
+            f"Multiple .mat files found in the Series folder. Selecting '{mat_files[0].name}' "
+            f"(shortest name; derived outputs carry a longer suffix).\n"
+            f"Folder path: '{series_folder}'"
         )
-        return mat_files[0]
+    return mat_files[0]
 
 
 def get_h5_data_from_series(
@@ -271,68 +370,6 @@ def get_latest_processing_file(output_folder: Path, series_id: int) -> Path:
     return latest_file
 
 
-def get_dicom_folder(base_folder: str | Path, series: int) -> Path:
-    """Find a specific DICOM folder within a designated series folder.
-
-    Parameters
-    ----------
-    base_folder : str or Path
-        The base directory.
-    series : int
-        The series number.
-
-    Returns
-    -------
-    Path
-        The Path object to the DICOM folder.
-
-    Raises
-    ------
-    ValueError
-        If `base_folder` does not exist, or no (or multiple) DICOM folders
-        match `series`.
-    KeyError
-        If `series` is not a positive integer.
-    """
-    base = Path(base_folder)
-    if not base.is_dir():
-        raise ValueError(f"The base folder does not exist: '{base_folder}'")
-    if not isinstance(series, int) or series <= 0:
-        raise KeyError("Series must be a positive integer.")
-
-    # Compile the regex pattern
-    pattern = re.compile(_DEFAULT_DICOM_FOLDER_PATTERN)
-
-    # Look for a folder that matches the series number using the regex pattern
-    dicom_folders = []
-    for item in base.iterdir():
-        if item.is_dir():
-            match = pattern.match(item.name)
-            if match and int(match.group(1)) == series:
-                dicom_folders.append(item)
-
-    if len(dicom_folders) == 0:
-        raise ValueError(
-            f"No DICOM folder matching the series number '{series}' found in '{base_folder}'. "
-            f"Ensure the folder name follows the pattern '{_DEFAULT_DICOM_FOLDER_PATTERN}'."
-        )
-    elif len(dicom_folders) > 1:
-        raise ValueError(
-            f"Multiple DICOM folders matching the series number '{series}' found "
-            f"in '{base_folder}'. Check for duplicate folders or naming inconsistencies."
-        )
-    else:
-        # For later processing its important that the folder name does not contain whitespaces
-        # Rename the folder to the same with all whitespaces replaced by underscores
-        dicom_folder = dicom_folders[0]
-        new_name = dicom_folder.name.replace(" ", "_")
-        if new_name != dicom_folder.name:
-            new_path = dicom_folder.parent / new_name
-            dicom_folder.rename(new_path)
-            dicom_folder = new_path
-        return dicom_folder
-
-
 def get_nifti_file(
     folder: Path,
     filter_out_keywords: list[str] | None = None,
@@ -390,52 +427,46 @@ def get_nifti_file(
     return selected_file
 
 
-def get_niftis_from_series(
-    base_folder: str | Path, series: int, convert_dicoms: bool = False, **kwargs
-) -> Path:
-    """Find a specific NIfTI file within a designated series folder.
+def get_niftis_from_series(base_folder: str | Path, series: int) -> Path:
+    """Find a series' main NIfTI under a data folder, by the sidecar's ``SeriesNumber``.
 
     Parameters
     ----------
     base_folder : str or Path
-        The base directory.
+        The data folder, searched recursively.
     series : int
         The series number.
-    convert_dicoms : bool, optional
-        If True, converts DICOM files to NIfTI format if no NIfTI files are
-        found. Defaults to False.
-    **kwargs
-        Additional keyword arguments passed to `get_nifti_data`.
 
     Returns
     -------
     Path
-        The Path object to the first found NIfTI file.
+        The Path object to the series' NIfTI.
 
     Raises
     ------
+    ValueError
+        If `base_folder` does not exist or `series` is not a positive integer.
     FileNotFoundError
-        If no NIfTI files are found in the series folder and `convert_dicoms`
-        is False (or conversion produced no NIfTI files).
+        If no NIfTI with a JSON sidecar carries this series number.
     """
-    series_folder = get_dicom_folder(base_folder, series)
-    return get_nifti_data(series_folder, convert_dicoms=convert_dicoms, **kwargs)
+    if not isinstance(series, int) or series <= 0:
+        raise ValueError("Series must be a positive integer.")
+    index = index_nifti_series(base_folder)
+    if series not in index:
+        raise FileNotFoundError(
+            f"No NIfTI with a JSON sidecar for series {series} found in '{base_folder}'. "
+            f"Series with a NIfTI: {list(index)}.\n{DCM2NIIX_HINT}"
+        )
+    return index[series].nii_path
 
 
-def get_nifti_data(folder: str | Path, convert_dicoms: bool = False, **kwargs) -> Path:
-    """
-    Retrieve NIfTI files from a folder, optionally converting DICOM files to NIfTI format.
-
-    This function searches for NIfTI files in the specified folder. If no NIfTI files are found
-    and convert_dicoms is True, it attempts to convert DICOM files in the folder to NIfTI format.
+def get_nifti_data(folder: str | Path, **kwargs) -> Path:
+    """Retrieve a NIfTI file from a folder.
 
     Parameters
     ----------
     folder : str | Path
-        The folder path to search for NIfTI files or containing DICOM files to convert.
-    convert_dicoms : bool, optional
-        If True, attempt to convert DICOM files to NIfTI format if no NIfTI files are found.
-        Default is False.
+        The folder path to search for NIfTI files.
     **kwargs
         Additional keyword arguments to pass to get_nifti_file().
 
@@ -447,54 +478,20 @@ def get_nifti_data(folder: str | Path, convert_dicoms: bool = False, **kwargs) -
     Raises
     ------
     FileNotFoundError
-        If no NIfTI files are found in the folder and either:
-        - convert_dicoms is False, or
-        - convert_dicoms is True but the conversion attempt did not produce any NIfTI files.
-
-    Notes
-    -----
-    - The function first attempts to find existing NIfTI files without conversion.
-    - If convert_dicoms is True and no NIfTI files are found, DICOM files are converted
-      using dcm2niiw with the filename format "%s_%d_%a".
-    - The dcm2niiw package must be installed to use the convert_dicoms functionality.
+        If no NIfTI files are found in the folder.
 
     Examples
     --------
-    >>> nifti_path = get_niftis('/path/to/series/folder')
-    >>> nifti_path = get_niftis('/path/to/dicom/folder', convert_dicoms=True)
-
-
+    >>> nifti_path = get_nifti_data('/path/to/series/folder')
     """
     folder = Path(folder)
 
     if nifti_file := get_nifti_file(folder, **kwargs):
         return nifti_file
 
-    if convert_dicoms:
-        # Check if dcm2niiw is available else return with error and recommend installing it
-        from dcm2niiw import dcm2nii
-
-        dcm2nii(
-            in_folder=folder,
-            out_folder=folder,
-            filename_format="%s_%d_%a",
-        )
-
-        if nifti_file := get_nifti_file(folder, **kwargs):
-            return nifti_file
-
-        raise FileNotFoundError(
-            "No NIfTI files found in the Series folder after conversion attempt.\n"
-            f"Folder path: '{folder}'"
-        )
-
-    error_msg = f"No NIfTI files found in the Series folder.\nFolder path: '{folder}'"
-    if not convert_dicoms:
-        error_msg += (
-            "\nYou may try running with `convert_dicoms=True` to convert DICOM files "
-            "to NIfTI format."
-        )
-    raise FileNotFoundError(error_msg)
+    raise FileNotFoundError(
+        f"No NIfTI files found in the folder.\nFolder path: '{folder}'\n{DCM2NIIX_HINT}"
+    )
 
 
 def print_hdf5_tree(hdf5_file: h5py.File | h5py.Group, prefix: str = "") -> str:
@@ -543,13 +540,30 @@ def print_hdf5_tree(hdf5_file: h5py.File | h5py.Group, prefix: str = "") -> str:
     return tree_string
 
 
+def _read_series_description(mat_path: Path) -> str | None:
+    """Read ``h.series.se_desc`` from a ``ScanArchive*.mat``, or None if unreadable."""
+    from .data_loaders import load_mat_file
+
+    try:
+        description = load_mat_file(mat_path)["h"]["series"]["se_desc"]
+    except Exception as error:  # a damaged archive must not take the whole overview down
+        logger.warning(f"Could not read the series description of '{mat_path}': {error}")
+        return None
+    return description if isinstance(description, str) else None
+
+
 def get_exam_overview(data_folder: str | Path, print_overview: bool = True) -> pd.DataFrame:
     """Build (and optionally print) an overview of all exam series in a data folder.
+
+    Series are found from the files, never from folder names: a NIfTI counts through the
+    ``SeriesNumber`` in its JSON sidecar, raw data through a ``ScanArchive*.mat`` in an
+    ``Exam*/SeriesN`` folder. A series' description is the sidecar's ``SeriesDescription`` when it
+    has a NIfTI, else the ``.mat`` header's ``se_desc``.
 
     Parameters
     ----------
     data_folder : str or Path
-        The path to the folder containing the DICOM series in folders.
+        The data folder holding the converted NIfTIs and the ``Exam*`` folder.
     print_overview : bool, optional
         Whether to print/display the overview. Defaults to True.
 
@@ -557,9 +571,10 @@ def get_exam_overview(data_folder: str | Path, print_overview: bool = True) -> p
     -------
     pandas.DataFrame
         A DataFrame containing the overview of all exam series, indexed by
-        series ID, with "Has Exam", "Has DICOM" and "Folder Name" columns.
+        series ID, with "Has Exam", "Has NIfTI" and "Description" columns.
     """
-    series_ids, missing = get_all_dicom_series_ids(data_folder)
+    nifti_index = index_nifti_series(data_folder)
+    _list_ids_and_gaps(nifti_index)  # logs gaps in the dense protocol range
     try:
         exam_folder = get_exam_folder(data_folder)
         exam_ids = get_all_exam_series_ids(exam_folder)
@@ -570,32 +585,33 @@ def get_exam_overview(data_folder: str | Path, print_overview: bool = True) -> p
 
     overview_data = []
 
-    all_ids = sorted(set(series_ids).union(exam_ids))
+    all_ids = sorted(set(nifti_index).union(exam_ids))
     for series_id in all_ids:
-        try:
-            dicom_folder = get_dicom_folder(data_folder, series_id)
-            folder_name = dicom_folder.name
-            has_dicom = True
-        except ValueError:
-            folder_name = None
-            has_dicom = False
+        nifti_series = nifti_index.get(series_id)
+        description = nifti_series.description if nifti_series else None
+        if description is None and exam_folder is not None and series_id in exam_ids:
+            description = _read_series_description(
+                get_mat_archives(exam_folder / f"Series{series_id}")[0]
+            )
 
         overview_data.append(
             {
                 "Series ID": series_id,
                 "Has Exam": series_id in exam_ids,
-                "Has DICOM": has_dicom,
-                "Folder Name": folder_name,
+                "Has NIfTI": nifti_series is not None,
+                "Description": description,
             }
         )
 
-    overview_df = pd.DataFrame(overview_data).set_index("Series ID")
+    overview_df = pd.DataFrame(
+        overview_data, columns=["Series ID", "Has Exam", "Has NIfTI", "Description"]
+    ).set_index("Series ID")
 
     if print_overview:
         if is_running_in_jupyter():
 
             def highlight_rows(row):
-                if not row["Has DICOM"]:
+                if not row["Has NIfTI"]:
                     return ["background-color: lightsalmon"] * len(row)
                 elif row["Has Exam"]:
                     return ["background-color: lightblue"] * len(row)
@@ -606,7 +622,7 @@ def get_exam_overview(data_folder: str | Path, print_overview: bool = True) -> p
             styled_df = overview_df.style.apply(highlight_rows, axis=1)
             display(styled_df)
             # Print info about the color coding
-            logger.debug("Color coding: blue = Has Exam Data, orange = Missing DICOM")
+            logger.debug("Color coding: blue = Has Exam Data, orange = Missing NIfTI")
             # Log exam path
             logger.debug(f"Exam folder path: {exam_folder}")
         else:
