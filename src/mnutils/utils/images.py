@@ -46,15 +46,15 @@ def extract_brain(
 ) -> Path | list[Path]:
     """Extract the brain from an image file using HD-BET.
 
-    This function processes NIfTI files or directories containing DICOM files to extract the
+    This function processes NIfTI files or directories containing a NIfTI to extract the
     brain region using the HD-BET (HD-Brain Extraction Tool). It supports optional test-time
     augmentation (TTA) and allows saving the brain mask and/or the brain-extracted image.
 
     Parameters
     ----------
     file : str | Path | list[str | Path]
-        The path(s) to the image file(s) or directories containing DICOM files to extract the
-        brain from. If a directory is provided, it will be converted to a NIfTI file first.
+        The path(s) to the image file(s) or directories containing a NIfTI to extract the
+        brain from. If a directory is provided, the NIfTI inside it is used.
     device : str, optional
         The device to use for processing. Default is "cuda".
     use_tta : bool, optional
@@ -83,8 +83,8 @@ def extract_brain(
     Notes
     -----
     - This function requires the HD-BET library and PyTorch to be installed.
-    - If the input is a directory containing DICOM files, it will be converted to a NIfTI file
-      before processing.
+    - If the input is a directory, the NIfTI inside it is processed. DICOMs are not read:
+      convert them with dcm2niix first.
     - The function checks for existing brain-extracted files in the output directory to avoid
       overwriting existing results.
     - The HD-BET model parameters will be downloaded automatically if not already available.
@@ -95,11 +95,11 @@ def extract_brain(
     >>> extract_brain("path/to/image.nii.gz")
     Extract the brain from multiple NIfTI files:
     >>> extract_brain(["path/to/image1.nii.gz", "path/to/image2.nii.gz"])
-    Extract the brain from a directory containing DICOM files:
-    >>> extract_brain("path/to/dicom_directory")
+    Extract the brain from the NIfTI inside a directory:
+    >>> extract_brain("path/to/series_directory")
 
     """
-    # If the the input is a folder containing dicoms first convert to nifti
+    # If the input is a folder, use the NIfTI inside it
     if isinstance(file, (str, Path)):
         single_file = True
         file = [Path(file)]
@@ -110,7 +110,7 @@ def extract_brain(
 
     for idx, input_path in enumerate(files):
         if os.path.isdir(input_path):
-            nifti_path = file_helpers.get_nifti_data(input_path, convert_dicoms=True)
+            nifti_path = file_helpers.get_nifti_data(input_path)
             # Replace the original path with the new nifti path
             files[idx] = nifti_path
 

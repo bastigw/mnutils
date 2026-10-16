@@ -282,7 +282,7 @@ class NiiBase:
 
 
 class MRISeries(NiiBase):
-    """A reconstructed MRI series, loaded as a NIfTI from a scan's DATA_FOLDER."""
+    """A reconstructed MRI series, loaded as a NIfTI (found by its sidecar's SeriesNumber)."""
 
     def __init__(
         self,
@@ -294,9 +294,7 @@ class MRISeries(NiiBase):
         self.OUTPUT_FOLDER = (DATA_FOLDER / ".." / "output").resolve()
         self.SERIES_ID = SERIES_ID
         try:
-            nii_path: Path = file_helpers.get_niftis_from_series(
-                self.DATA_FOLDER, self.SERIES_ID, convert_dicoms=True
-            )
+            nii_path: Path = file_helpers.get_niftis_from_series(self.DATA_FOLDER, self.SERIES_ID)
             super().__init__(nii_path, orientation)
         except (ValueError, FileNotFoundError) as e:
             logger.warning(

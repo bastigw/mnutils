@@ -18,7 +18,7 @@ scanners.
 ## Features
 
 - **Data loading** — read GE raw/reconstructed data via `GEExam`/`GESeries`.
-- **NIfTI/DICOM conversion** — convert scanner output to NIfTI.
+- **NIfTI handling** — read dcm2niix-converted scanner output (NIfTI + JSON sidecar); DICOMs are not read.
 - **Plotting** — spectral and slice plotting utilities.
 - **Spectral fitting** — AMARES fitting delegated to [`xmris`](https://github.com/andrewendlinger/xmris)
   (`xmris[fitting]`, which wraps pyAMARES).

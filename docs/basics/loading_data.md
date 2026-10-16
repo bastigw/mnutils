@@ -13,10 +13,11 @@ kernelspec:
 
 # Loading a series and an exam
 
-A GE exam folder is a pile of numbered series folders — DICOM here, a raw `.mat` recon there,
-sometimes both, sometimes neither. Loading one by hand means knowing in advance whether series 6
+A GE exam is a pile of series — a NIfTI here, a raw `.mat` recon there, sometimes both, sometimes
+neither — and the folders holding them can be named anything. Loading one by hand means knowing in advance whether series 6
 is an anatomical scan or a spectrum, and picking the matching `GESeries` subclass yourself. `GEExam`
-exists so you don't have to: point it at the exam's data folder and it works that out for you.
+exists so you don't have to: point it at the exam's data folder and it works that out from the
+files' own metadata (the JSON sidecar's `SeriesDescription`, or the `.mat` header's `se_desc`).
 
 | Function                                   | What it does here                                           |
 | ------------------------------------------ | ----------------------------------------------------------- |
@@ -46,8 +47,8 @@ DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam")
 ## 1. Point `ExamBase` at the exam
 
 `BASE_FOLDER` is the exam's top-level folder; `ExamBase` looks for a `data/` subfolder inside it
-by default (override with `DATA_FOLDER=` if your layout differs). On init it reads every series
-folder's DICOM/exam-data presence and prints an overview — useful on its own when you've
+by default (override with `DATA_FOLDER=` if your layout differs). On init it indexes every series'
+NIfTI and raw-data presence and prints an overview — useful on its own when you've
 forgotten what's in a dataset.
 
 ```{code-cell} ipython3
@@ -55,8 +56,8 @@ exam = ExamBase(DATA_FOLDER)
 ```
 
 That overview is also available as a DataFrame, and `series_dict` shows the classification
-`ExamBase` settled on _before_ loading anything — nothing here has touched a `.mat` file or
-DICOM pixel data yet.
+`ExamBase` settled on _before_ loading anything — nothing here has touched a NIfTI's pixel data
+yet.
 
 ```{code-cell} ipython3
 exam.exam_overview.head()
