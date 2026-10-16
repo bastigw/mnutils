@@ -1,4 +1,5 @@
 import getpass
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -8,8 +9,43 @@ from loguru import logger
 
 from . import file_helpers
 
+#: The ``h`` header fields (``"struct/field"`` paths) MNUtils reads from a ``ScanArchive*.mat``.
+#: ``RawMRISeries`` header properties read 26 of these; ``spectral_width`` is the one extra field
+#: ``pyAMARES.fileio.readfidall.header2par_v73`` needs. A v7.3 header holds ~1600 HDF5 datasets and
+#: reading them all costs ~0.45 s per file, so ``read_mat_header`` only touches these. A new header
+#: property must be listed here (``tests/test_data_loaders.py`` enforces it).
+HEADER_FIELDS: tuple[str, ...] = (
+    "rdb_hdr/data_collect_type",
+    "rdb_hdr/run_int",
+    "rdb_hdr/scan_date",
+    "rdb_hdr/scan_time",
+    "rdb_hdr/nframes",
+    "rdb_hdr/user0",
+    "rdb_hdr/user3",
+    "rdb_hdr/user14",
+    "rdb_hdr/user25",
+    "rdb_hdr/ps_mps_freq",
+    "rdb_hdr/ps_mps_r1",
+    "rdb_hdr/ps_mps_r2",
+    "rdb_hdr/ps_mps_tg",
+    "rdb_hdr/te",
+    "rdb_hdr/fov",
+    "rdb_hdr/recon",
+    "rdb_hdr/spectral_width",
+    "image/specnuc",
+    "image/mr_flip",
+    "image/nex",
+    "image/tr",
+    "image/slthick",
+    "image/sctime",
+    "series/prtcl",
+    "series/se_desc",
+    "exam/ex_no",
+    "mrconfig/fieldStrength",
+)
 
-def load_mat_file(file_path: Path | str) -> dict:
+
+def load_mat_file(file_path: Path | str, variable_names: Sequence[str] | None = None) -> dict:
     """Load a .mat file and return its contents as a dictionary.
 
     Transparently falls back from `scipy.io.loadmat` (plain v5/v7 files) to
@@ -19,6 +55,9 @@ def load_mat_file(file_path: Path | str) -> dict:
     ----------
     file_path : Path or str
         Path to the .mat file.
+    variable_names : sequence of str, optional
+        Top-level variables to load; everything else is skipped. Defaults to all of them. On a
+        v7.3 file this matters: the scanner header ``h`` alone is ~1600 HDF5 datasets.
 
     Returns
     -------
@@ -44,12 +83,16 @@ def load_mat_file(file_path: Path | str) -> dict:
 
     try:
         # Try loading with scipy.io.loadmat first
-        return _loadmat(file_path)
+        return _loadmat(file_path, variable_names)
     except (NotImplementedError, ValueError):
         # If it fails, try loading with mat73 (for v7.3 .mat files)
         try:
             import mat73
 
+            if variable_names is not None:
+                # Not `mat73.loadmat(only_include=...)`: it matches by substring, so asking for
+                # everything but ``h`` still loads ``h`` whenever a variable is named ``hz``.
+                return _unpack_v73(file_path, variable_names)
             return mat73.loadmat(file_path)
         except ImportError as e:
             raise RuntimeError(
@@ -63,6 +106,115 @@ def load_mat_file(file_path: Path | str) -> dict:
     except (OSError, TypeError) as e:
         logger.error(f"Failed to load .mat file with scipy: {e}.")
         raise RuntimeError(f"Unexpected error loading .mat file with scipy: {e}")
+
+
+def list_mat_variables(file_path: Path | str) -> list[str]:
+    """List a .mat file's top-level variable names without loading any of them.
+
+    Parameters
+    ----------
+    file_path : Path or str
+        Path to the .mat file (v5/v7 or v7.3).
+
+    Returns
+    -------
+    list of str
+        The variable names (MATLAB's internal ``#refs#``/``#subsystem#`` groups excluded).
+    """
+    if h5py.is_hdf5(file_path):
+        with h5py.File(file_path, "r") as hf:
+            return [name for name in hf if name not in ("#refs#", "#subsystem#")]
+    import scipy.io
+
+    return [name for name, _shape, _class in scipy.io.whosmat(file_path)]
+
+
+def read_mat_header(file_path: Path | str, fields: Sequence[str] = HEADER_FIELDS) -> dict:
+    """Read selected fields of a ``ScanArchive*.mat``'s ``h`` header, without loading the rest.
+
+    Returns the same nested dict as ``load_mat_file(file_path)["h"]``, pruned to ``fields``.
+    On a v7.3 file only those datasets are opened (~6 ms instead of ~450 ms); on a plain v5/v7
+    file ``h`` is loaded alone and pruned. Fields missing from the file are left out.
+
+    Parameters
+    ----------
+    file_path : Path or str
+        Path to the .mat file.
+    fields : sequence of str, optional
+        ``"struct/field"`` paths below ``h``. Defaults to `HEADER_FIELDS`.
+
+    Returns
+    -------
+    dict
+        Nested dict (``{"series": {"se_desc": ...}}``); empty if the file has no ``h``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If `file_path` does not exist or is not a file.
+    ValueError
+        If `file_path` does not have a `.mat` extension.
+    """
+    file_path = Path(file_path)
+    if not file_path.is_file():
+        raise FileNotFoundError(
+            f"The specified path does not exist or is not a file: '{file_path}'"
+        )
+    if file_path.suffix.lower() != ".mat":
+        raise ValueError(f"The file does not have a .mat extension: '{file_path}'")
+
+    if not h5py.is_hdf5(file_path):
+        full = load_mat_file(file_path, variable_names=["h"]).get("h", {})
+        header: dict = {}
+        for field in fields:
+            value = full
+            try:
+                for key in field.split("/"):
+                    value = value[key]
+            except (KeyError, TypeError):
+                continue
+            _set_nested(header, field, value)
+        return header
+
+    # Reuse mat73's converter per dataset so values match `load_mat_file` exactly (char arrays
+    # become str, 1x1 doubles scalars, ...), but skip its walk over every dataset in the group.
+    from mat73 import HDF5Decoder
+
+    decoder = HDF5Decoder(verbose=False)
+    header = {}
+    with h5py.File(file_path, "r") as hf:
+        if "h" not in hf:
+            return header
+        if "#refs#" in hf:
+            decoder.refs = hf["#refs#"]
+        group = hf["h"]
+        for field in fields:
+            if field in group:
+                _set_nested(header, field, decoder.unpack_mat(group[field]))
+    return header
+
+
+def _unpack_v73(file_path: Path, names: Sequence[str]) -> dict:
+    """Decode the named top-level variables of a v7.3 file with mat73's converter.
+
+    Names the file lacks are skipped. Unlike ``mat73.loadmat(only_include=...)`` the selection is
+    exact, not a substring match.
+    """
+    from mat73 import HDF5Decoder
+
+    decoder = HDF5Decoder()
+    with h5py.File(file_path, "r") as hf:
+        if "#refs#" in hf:
+            decoder.refs = hf["#refs#"]
+        return {name: decoder.unpack_mat(hf[name]) for name in names if name in hf}
+
+
+def _set_nested(target: dict, path: str, value: object) -> None:
+    """Set ``target["a"]["b"] = value`` for ``path == "a/b"``, creating the inner dicts."""
+    *parents, leaf = path.split("/")
+    for key in parents:
+        target = target.setdefault(key, {})
+    target[leaf] = value
 
 
 def load_raw_fids(
@@ -158,7 +310,7 @@ def load_raw_fids(
     return data, output_h5_file
 
 
-def _loadmat(filename: str | Path) -> dict:
+def _loadmat(filename: str | Path, variable_names: Sequence[str] | None = None) -> dict:
     """
     Load a MATLAB .mat file and convert its contents into Python data structures.
 
@@ -169,6 +321,7 @@ def _loadmat(filename: str | Path) -> dict:
 
     Args:
         filename (str): The path to the .mat file to be loaded.
+        variable_names (sequence of str, optional): Only load these top-level variables.
 
     Returns
     -------
@@ -177,7 +330,12 @@ def _loadmat(filename: str | Path) -> dict:
     """
     import scipy.io
 
-    data = scipy.io.loadmat(filename, struct_as_record=False, squeeze_me=True)
+    data = scipy.io.loadmat(
+        filename,
+        struct_as_record=False,
+        squeeze_me=True,
+        variable_names=None if variable_names is None else list(variable_names),
+    )
     return _check_keys(data)
 
 

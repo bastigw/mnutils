@@ -542,10 +542,10 @@ def print_hdf5_tree(hdf5_file: h5py.File | h5py.Group, prefix: str = "") -> str:
 
 def _read_series_description(mat_path: Path) -> str | None:
     """Read ``h.series.se_desc`` from a ``ScanArchive*.mat``, or None if unreadable."""
-    from .data_loaders import load_mat_file
+    from .data_loaders import read_mat_header
 
     try:
-        description = load_mat_file(mat_path)["h"]["series"]["se_desc"]
+        description = read_mat_header(mat_path, fields=["series/se_desc"])["series"]["se_desc"]
     except Exception as error:  # a damaged archive must not take the whole overview down
         logger.warning(f"Could not read the series description of '{mat_path}': {error}")
         return None

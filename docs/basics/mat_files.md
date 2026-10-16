@@ -20,6 +20,7 @@ file formats depending on size and MATLAB version — plain (v5/v7, scipy-readab
 | Function | What it does here |
 |---|---|
 | [`load_mat_file()`](#mnutils.utils.data_loaders.load_mat_file) | loads either `.mat` format, returns a plain `dict` |
+| [`read_mat_header()`](#mnutils.utils.data_loaders.read_mat_header) | reads only the header fields MNUtils uses, fast on either format |
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
@@ -74,6 +75,38 @@ print("pyr" in legacy_data)
 assert isinstance(legacy_data, dict)
 assert "pyr" in legacy_data
 ```
+
+(basics-mat-files-header)=
+## Reading just the header
+
+Series identification and the `RawMRISeries` properties (`bandwidth`, `centre_frequency`, …) need a
+few dozen numbers from the scanner header `h`, not the whole file. That matters on v7.3: `h` alone
+is ~1600 tiny HDF5 datasets, and a full `load_mat_file` spends ~0.45 s per file opening them —
+about 9 s for an exam with 20 raw series, again for every object built from the same file.
+`read_mat_header` opens only the allowlisted fields (`HEADER_FIELDS`), ~20x faster, and returns
+the same nested dict you would get from `load_mat_file(path)["h"]`, pruned.
+
+```{code-cell} ipython3
+header = dl.read_mat_header(mat_path)
+print(header["series"]["se_desc"], "|", sorted(header))
+print(len(header["rdb_hdr"]), "of", len(dl.HEADER_FIELDS), "allowlisted fields are under rdb_hdr")
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: header-only read
+full_header = dl.load_mat_file(mat_path)["h"]
+assert header["series"]["se_desc"] == full_header["series"]["se_desc"]
+assert set(header) <= set(full_header)
+only_bb = dl.load_mat_file(mat_path, variable_names=["bb"])
+assert "bb" in only_bb and "h" not in only_bb
+```
+
+`RawMRISeries.header` is exactly this. Its `recon` dict (everything else in the file, `h` pruned to
+the same fields) loads on first access. To read a field that isn't allowlisted, pass
+`fields=[...]` here or use `load_mat_file` for the full header; a new `RawMRISeries` header
+property needs its field added to `HEADER_FIELDS`.
 
 (basics-mat-files-errors)=
 ## When the path isn't a real `.mat` file
