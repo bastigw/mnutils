@@ -40,9 +40,9 @@ NIfTI. Folder names become free-form labels that nothing reads. The public call 
 same:
 
 ```python
-exam = GEExam(BASE_FOLDER)          # index built from sidecars + .mat headers
-t1 = MRISeries(DATA_FOLDER, 2)      # resolved by SeriesNumber, not by "002_..."
-mask = NiiBase("anywhere/brain.nii.gz")   # a bare NIfTI path never needed an exam
+exam = GEExam(BASE_FOLDER)  # index built from sidecars + .mat headers
+t1 = MRISeries(DATA_FOLDER, 2)  # resolved by SeriesNumber, not by "002_..."
+mask = NiiBase("anywhere/brain.nii.gz")  # a bare NIfTI path never needed an exam
 ```
 
 :::{warning}
