@@ -268,6 +268,8 @@ assert mrs.nucleus == 2
 `avg_fid`/`avg_spec` collapse the `averages` dimension; see
 [Loading a series and an exam](#basics-loading-data) for a worked example.
 
+(data-model-geseries-no-mat)=
+
 ### A series without a `.mat` still loads
 
 Custom series often sit next to an exam whose `.mat` was never exported. Construction warns and
