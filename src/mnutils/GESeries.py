@@ -311,10 +311,30 @@ class RawMRISeries(MRISeries):
         self.mat_path: Path = file_helpers.get_mat_data_from_series(
             self.DATA_FOLDER, self.SERIES_ID
         )
-        self.recon: dict = data_loaders.load_mat_file(self.mat_path)
-        self.header: dict = self.recon.get("h", {})
-        self.bb = self.recon.get("bb", np.array([]))
-        self.bbabs = self.recon.get("bbabs", np.abs(self.bb))
+        # Only the header fields MNUtils reads: a v7.3 header is ~1600 HDF5 datasets (~0.45 s).
+        self.header: dict = data_loaders.read_mat_header(self.mat_path)
+
+    @cached_property
+    def recon(self) -> dict:
+        """Every top-level variable of the ``.mat`` file, with ``h`` pruned to `self.header`.
+
+        Loaded on first access, not at construction, so reading only the header stays cheap.
+        The full ``h`` (~1600 datasets on v7.3) is skipped; use ``load_mat_file`` for it.
+        """
+        names = [n for n in data_loaders.list_mat_variables(self.mat_path) if n != "h"]
+        recon = data_loaders.load_mat_file(self.mat_path, variable_names=names)
+        recon["h"] = self.header
+        return recon
+
+    @cached_property
+    def bb(self) -> np.ndarray:
+        """The reconstructed image, or an empty array if the file has none."""
+        return self.recon.get("bb", np.array([]))
+
+    @cached_property
+    def bbabs(self) -> np.ndarray:
+        """The magnitude image: ``bbabs`` from the file, else ``abs(bb)``."""
+        return self.recon.get("bbabs", np.abs(self.bb))
 
     @cached_property
     def fids(self) -> xr.DataArray:
