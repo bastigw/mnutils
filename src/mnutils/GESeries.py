@@ -304,15 +304,48 @@ class MRISeries(NiiBase):
 
 
 class RawMRISeries(MRISeries):
-    """An MRI series with the associated raw reconstructed .mat data loaded."""
+    """An MRI series with the associated raw reconstructed .mat data loaded.
 
-    def __init__(self, DATA_FOLDER: Path, SERIES_ID: int) -> None:
+    The ``.mat`` is optional at construction: if none is found, a warning is logged and
+    `mat_path` is ``None``. Using the data (`recon`, `bb`, header properties) then raises.
+    Check `has_mat` first when a series may lack one.
+    """
+
+    def __init__(
+        self, DATA_FOLDER: Path, SERIES_ID: int, mat_path: str | Path | None = None
+    ) -> None:
         super().__init__(DATA_FOLDER, SERIES_ID)
-        self.mat_path: Path = file_helpers.get_mat_data_from_series(
-            self.DATA_FOLDER, self.SERIES_ID
-        )
+        self.mat_path: Path | None
+        self.header: dict
+        if mat_path is not None:
+            self.mat_path = Path(mat_path)
+        else:
+            try:
+                self.mat_path = file_helpers.get_mat_data_from_series(
+                    self.DATA_FOLDER, self.SERIES_ID
+                )
+            except FileNotFoundError as e:
+                logger.warning(
+                    f"Could not find a .mat file for series {self.SERIES_ID}. "
+                    f"Proceeding without raw data.\nError: {e}"
+                )
+                self.mat_path = None
         # Only the header fields MNUtils reads: a v7.3 header is ~1600 HDF5 datasets (~0.45 s).
-        self.header: dict = data_loaders.read_mat_header(self.mat_path)
+        self.header = (
+            data_loaders.read_mat_header(self.mat_path) if self.mat_path is not None else {}
+        )
+
+    @property
+    def has_mat(self) -> bool:
+        """Whether this series has a ``.mat`` file to read raw data and header from."""
+        return self.mat_path is not None
+
+    def _require_mat(self) -> Path:
+        if self.mat_path is None:
+            raise FileNotFoundError(
+                f"Series {self.SERIES_ID} has no .mat file (looked in {self.DATA_FOLDER})."
+            )
+        return self.mat_path
 
     @cached_property
     def recon(self) -> dict:
@@ -321,8 +354,9 @@ class RawMRISeries(MRISeries):
         Loaded on first access, not at construction, so reading only the header stays cheap.
         The full ``h`` (~1600 datasets on v7.3) is skipped; use ``load_mat_file`` for it.
         """
-        names = [n for n in data_loaders.list_mat_variables(self.mat_path) if n != "h"]
-        recon = data_loaders.load_mat_file(self.mat_path, variable_names=names)
+        mat_path = self._require_mat()
+        names = [n for n in data_loaders.list_mat_variables(mat_path) if n != "h"]
+        recon = data_loaders.load_mat_file(mat_path, variable_names=names)
         recon["h"] = self.header
         return recon
 
@@ -614,8 +648,10 @@ class RawMRISeries(MRISeries):
     def _get_header_value(self, key_path: list[str]) -> None | str | np.double | npt.NDArray:
         """Traverse the header dictionary using a key path.
 
-        Raises AttributeError if the path is invalid.
+        Raises AttributeError if the path is invalid, FileNotFoundError if the series has no
+        ``.mat`` (and so no header).
         """
+        self._require_mat()
         value = self.header
         try:
             for key in key_path:
@@ -649,11 +685,13 @@ class MRSISeries(RawMRISeries):
     ) -> None:
         super().__init__(DATA_FOLDER, SERIES_ID)
         # Expect spec and header to be present
-        spec_data = self.recon.get("spec", np.ndarray([]))
+        spec_data = self.recon.get("spec", np.ndarray([])) if self.has_mat else np.empty(0)
         if not isinstance(spec_data, np.ndarray) or spec_data.size == 0:
-            logger.error(
-                "Expected 'spec' to be a non-empty numpy array. Not initializing object properly"
-            )
+            if self.has_mat:  # without a .mat the missing data was already warned about
+                logger.error(
+                    "Expected 'spec' to be a non-empty numpy array. "
+                    "Not initializing object properly"
+                )
         else:
             self.spec: xr.DataArray = xr.DataArray(
                 spec_data,
@@ -1283,11 +1321,13 @@ class MRSSeries(RawMRISeries):
 
     def __init__(self, DATA_FOLDER: Path, SERIES_ID: int) -> None:
         super().__init__(DATA_FOLDER, SERIES_ID)
-        spec_data = self.recon.get("spec", np.ndarray([]))
+        spec_data = self.recon.get("spec", np.ndarray([])) if self.has_mat else np.empty(0)
         if not isinstance(spec_data, np.ndarray) or spec_data.size == 0:
-            logger.error(
-                "Expected 'spec' to be a non-empty numpy array. Not initializing object properly"
-            )
+            if self.has_mat:  # without a .mat the missing data was already warned about
+                logger.error(
+                    "Expected 'spec' to be a non-empty numpy array. "
+                    "Not initializing object properly"
+                )
         else:
             # This assumes no zero filling was applied yet
             self.npts: int = spec_data.shape[1]
