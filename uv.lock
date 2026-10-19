@@ -1711,9 +1711,9 @@ dependencies = [
 
 [[package]]
 name = "matlabengine"
-version = "26.2.4"
+version = "26.2.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e4/a2/3bd28ebb8d94c6af19de1049c3645cb2b7b306951cc44e11b3727a19a807/matlabengine-26.2.4.tar.gz", hash = "sha256:0d8e2476a02d370a689f6de7ad79cfd1ea4392d6d5dbd2a9d8a97adc0c320475", size = 21160, upload-time = "2026-10-01T20:32:45.598Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/e7/0a80bab5ddf1f53baccda48b82045190d90edfd18321eaa0b455ac8a1d5c/matlabengine-26.2.5.tar.gz", hash = "sha256:21f1794b5977e979de031c66294eefc6e68c58706cb775c8a1037fc3bccdc58b", size = 21114, upload-time = "2026-10-08T14:38:38.983Z" }
 
 [[package]]
 name = "matplotlib"
