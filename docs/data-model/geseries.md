@@ -52,7 +52,14 @@ logger.remove()
 ```{code-cell} ipython3
 import numpy as np
 
-from mnutils.GESeries import MRISeries, MRSISeries, MRSSeries, MRSWashinSeries, NiiBase
+from mnutils.GESeries import (
+    MRISeries,
+    MRSISeries,
+    MRSSeries,
+    MRSWashinSeries,
+    NiiBase,
+    RawMRISeries,
+)
 from mnutils.plotting.spectra import plot_fid, plot_spectra
 from mnutils.testing import build_fake_exam
 from mnutils.utils.nifti import get_display_affine, get_display_zooms
@@ -260,6 +267,53 @@ assert mrs.nucleus == 2
 
 `avg_fid`/`avg_spec` collapse the `averages` dimension; see
 [Loading a series and an exam](#basics-loading-data) for a worked example.
+
+(data-model-geseries-no-mat)=
+
+### A series without a `.mat` still loads
+
+Custom series often sit next to an exam whose `.mat` was never exported. Construction warns and
+carries on, like a missing NIfTI; `has_mat` says whether there is raw data, and using the data
+raises a `FileNotFoundError` naming the series. `RawMRISeries` also takes a `mat_path` to point at a `.mat` kept
+somewhere unusual instead of auto-discovering it.
+
+```{code-cell} ipython3
+import shutil
+import tempfile
+from pathlib import Path
+
+from mnutils.utils.file_helpers import get_mat_data_from_series
+
+_tmp = Path(tempfile.mkdtemp())
+shutil.copytree(DATA_FOLDER, _tmp / "data")
+_mat = get_mat_data_from_series(_tmp / "data", 7)
+_kept = _tmp / "elsewhere.mat"
+shutil.move(_mat, _kept)
+
+no_mat = MRSSeries(_tmp / "data", 7)
+no_mat.has_mat
+```
+
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+# STRICT TESTS: missing .mat
+assert not no_mat.has_mat
+assert no_mat.mat_path is None
+assert no_mat.header == {}
+for access in (lambda: no_mat.recon, lambda: no_mat.bb, lambda: no_mat.nucleus):
+    try:
+        access()
+    except FileNotFoundError as error:
+        assert "Series 7 has no .mat file" in str(error)
+    else:
+        raise AssertionError("expected FileNotFoundError")
+
+override = RawMRISeries(_tmp / "data", 7, mat_path=_kept)
+assert override.has_mat and override.mat_path == _kept
+assert override.header
+shutil.rmtree(_tmp)
+```
 
 (data-model-geseries-washin)=
 
