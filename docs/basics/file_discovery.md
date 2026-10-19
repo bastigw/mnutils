@@ -97,8 +97,11 @@ the one with the shortest suffix does, and a warning names the pick.
 
 A NIfTI counts when it has a JSON sidecar of the same name with a `SeriesNumber`, so the folder
 layout is irrelevant: `002_3D_Ax_T1_BRAVO` and `Series0002_3D_Ax_T1_BRAVO` resolve identically.
-Derived files without a sidecar (`_bet`, `_resampled`) are never picked, and if a series has
-several sidecar pairs (echoes, dynamics) the lowest file name is used, with a warning.
+Derived files without a sidecar (`_bet`, `_resampled`) are never picked. If a series has several
+sidecar pairs, the sidecars say why: a `MAGNITUDE` image wins over derived maps (`FIELDMAPHZ`), and
+a localizer with one file per plane yields its axial file, both silently, with the others in
+`NiftiSeries.extras`. Only equivalent files (echoes, dynamics) warn, and the lowest file name is
+used. The folder is scanned once and the index cached until a NIfTI or JSON in it changes.
 
 ```{code-cell} ipython3
 old_style = fh.get_niftis_from_series(build_fake_exam("brain_mrs_mrsi_exam") / "data", 2)

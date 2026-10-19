@@ -46,11 +46,45 @@ def _relative_to_cwd(path: str | Path) -> Path:
 
 @dataclass(frozen=True)
 class NiftiSeries:
-    """One series' main NIfTI, identified from its JSON sidecar rather than any folder name."""
+    """One series' main NIfTI, identified from its JSON sidecar rather than any folder name.
+
+    Attributes
+    ----------
+    series_id : int
+        The ``SeriesNumber`` from the sidecar.
+    nii_path : Path
+        The main NIfTI of the series.
+    description : str or None
+        The sidecar's ``SeriesDescription``.
+    kind : str
+        How the series' files relate: ``"single"`` (one pair), ``"derived"`` (a magnitude image
+        plus derived maps such as ``FIELDMAPHZ``), ``"multiplane"`` (one file per slice
+        orientation, e.g. a localizer), or ``"ambiguous"`` (equivalent files such as echoes or
+        dynamics, of which the lowest name was taken).
+    extras : tuple[Path, ...]
+        The series' other NIfTIs, empty for ``"single"``.
+    """
 
     series_id: int
     nii_path: Path
     description: str | None
+    kind: str = "single"
+    extras: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """A NIfTI + sidecar pair before the main file of its series is chosen."""
+
+    series_id: int
+    nii_path: Path
+    description: str | None
+    image_type: str | None
+    orientation: tuple[float, ...] | None
+
+
+#: Per data folder: the fingerprint of its NIfTI/JSON files and the index built from them.
+_INDEX_CACHE: dict[Path, tuple[tuple, dict[int, NiftiSeries]]] = {}
 
 
 def _companion_nifti(sidecar: Path) -> Path | None:
@@ -62,8 +96,14 @@ def _companion_nifti(sidecar: Path) -> Path | None:
     return None
 
 
-def _read_sidecar_identity(sidecar: Path) -> tuple[int, str | None] | None:
-    """Read ``(SeriesNumber, SeriesDescription)`` from a dcm2niix sidecar, or None if absent."""
+def _read_sidecar_identity(
+    sidecar: Path,
+) -> tuple[int, str | None, str | None, tuple | None] | None:
+    """Read the identifying fields of a dcm2niix sidecar, or None if it has no ``SeriesNumber``.
+
+    Returns ``(SeriesNumber, SeriesDescription, image kind, slice orientation)``, where the image
+    kind is the last ``ImageType`` entry (``MAGNITUDE``, ``FIELDMAPHZ``, ...).
+    """
     try:
         content = json.loads(sidecar.read_text())
         series_id = int(content["SeriesNumber"])
@@ -71,7 +111,66 @@ def _read_sidecar_identity(sidecar: Path) -> tuple[int, str | None] | None:
         logger.trace(f"Ignoring JSON without a usable SeriesNumber: {sidecar}")
         return None
     description = content.get("SeriesDescription")
-    return series_id, description if isinstance(description, str) else None
+    image_type = content.get("ImageType")
+    image_kind = (
+        str(image_type[-1]).upper() if isinstance(image_type, list) and image_type else None
+    )
+    orientation = content.get("ImageOrientationPatientDICOM")
+    if not (isinstance(orientation, list) and len(orientation) == 6):
+        orientation = None
+    return (
+        series_id,
+        description if isinstance(description, str) else None,
+        image_kind,
+        tuple(float(v) for v in orientation) if orientation else None,
+    )
+
+
+def _slice_normal(orientation: tuple[float, ...]) -> tuple[float, float, float]:
+    """The slice normal: the cross product of the row and column direction cosines."""
+    r, c = orientation[:3], orientation[3:]
+    return (
+        r[1] * c[2] - r[2] * c[1],
+        r[2] * c[0] - r[0] * c[2],
+        r[0] * c[1] - r[1] * c[0],
+    )
+
+
+def _choose_main(found: list[_Candidate]) -> NiftiSeries:
+    """Pick a series' main NIfTI from its candidates, classifying how the others relate.
+
+    Files that differ in ``ImageType`` are a magnitude image plus derived maps (the magnitude is
+    main). Files that differ in slice orientation are one acquisition per plane (the most axial is
+    main). Anything else is equivalent files (echoes, dynamics): the shortest, then lowest, name.
+    """
+    found = sorted(found, key=lambda c: (len(c.nii_path.name), c.nii_path.name))
+    first = found[0]
+    if len(found) == 1:
+        return NiftiSeries(first.series_id, first.nii_path, first.description)
+
+    kind = "ambiguous"
+    primary = found
+    if any(c.image_type == "MAGNITUDE" for c in found):
+        magnitude = [c for c in found if c.image_type == "MAGNITUDE"]
+        if len(magnitude) < len(found):
+            primary, kind = magnitude, "derived"
+
+    orientations = [c.orientation for c in primary]
+    if len(primary) > 1 and None not in orientations and len(set(orientations)) == len(primary):
+        primary = sorted(primary, key=lambda c: -abs(_slice_normal(c.orientation)[2]))
+        kind = "multiplane" if kind == "ambiguous" else kind
+    main = primary[0]
+    extras = tuple(c.nii_path for c in found if c is not main)
+    return NiftiSeries(main.series_id, main.nii_path, main.description, kind, extras)
+
+
+def _folder_fingerprint(data_folder: Path) -> tuple:
+    """Path and mtime of every NIfTI and JSON under a folder; a change marks the cache stale."""
+    return tuple(
+        (str(path), path.stat().st_mtime_ns)
+        for path in sorted(data_folder.rglob("*"))
+        if path.name.endswith((".json", *_NIFTI_SUFFIXES)) and path.is_file()
+    )
 
 
 def index_nifti_series(data_folder: str | Path) -> dict[int, NiftiSeries]:
@@ -79,8 +178,12 @@ def index_nifti_series(data_folder: str | Path) -> dict[int, NiftiSeries]:
 
     A NIfTI counts when it has a JSON sidecar of the same name carrying ``SeriesNumber``, so
     derived files without one (``_bet``, ``*_resampled_*``) are never picked. When a series has
-    several such pairs (echoes, dynamics), the one with the shortest, then lowest, file name wins
-    and a warning names it.
+    several such pairs, ``ImageType`` and the slice orientation in the sidecars tell why: a
+    ``MAGNITUDE`` image beats derived maps (``FIELDMAPHZ``), and one file per plane (a localizer)
+    yields the most axial one -- both silently, with the rest in ``NiftiSeries.extras``. Only
+    equivalent files (echoes, dynamics) are a real ambiguity: the shortest, then lowest, file
+    name wins and a warning names it. The result is cached per folder until a NIfTI or JSON in it
+    changes, so loading many series scans the folder once.
 
     Parameters
     ----------
@@ -101,25 +204,34 @@ def index_nifti_series(data_folder: str | Path) -> dict[int, NiftiSeries]:
     if not data_folder.is_dir():
         raise ValueError(f"The base folder does not exist: '{data_folder}'")
 
-    candidates: dict[int, list[NiftiSeries]] = {}
+    resolved = data_folder.resolve()
+    fingerprint = _folder_fingerprint(resolved)
+    cached = _INDEX_CACHE.get(resolved)
+    if cached is not None and cached[0] == fingerprint:
+        return dict(cached[1])
+
+    candidates: dict[int, list[_Candidate]] = {}
     for sidecar in sorted(data_folder.rglob("*.json")):
         identity = _read_sidecar_identity(sidecar)
         nii_path = _companion_nifti(sidecar)
         if identity is None or nii_path is None:
             continue
-        series_id, description = identity
-        candidates.setdefault(series_id, []).append(NiftiSeries(series_id, nii_path, description))
+        series_id, description, image_type, orientation = identity
+        candidates.setdefault(series_id, []).append(
+            _Candidate(series_id, nii_path, description, image_type, orientation)
+        )
 
     index: dict[int, NiftiSeries] = {}
     for series_id, found in sorted(candidates.items()):
-        found.sort(key=lambda entry: (len(entry.nii_path.name), entry.nii_path.name))
-        if len(found) > 1:
+        series = _choose_main(found)
+        if series.kind == "ambiguous":
             logger.warning(
-                f"Series {series_id} has {len(found)} NIfTI + sidecar pairs; using "
-                f"'{found[0].nii_path.name}' in '{found[0].nii_path.parent}'."
+                f"Series {series_id} has {len(found)} equivalent NIfTI + sidecar pairs; using "
+                f"'{series.nii_path.name}' in '{series.nii_path.parent}'."
             )
-        index[series_id] = found[0]
-    return index
+        index[series_id] = series
+    _INDEX_CACHE[resolved] = (fingerprint, index)
+    return dict(index)
 
 
 def get_all_nifti_series_ids(data_folder: str | Path) -> tuple[list[int], list[int]]:

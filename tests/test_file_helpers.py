@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -41,15 +42,38 @@ def test_move_files_with_glob_survives_foreign_anchor(tmp_path, monkeypatch):
     assert moved == ["result_a.h5", "result_b.h5"]
 
 
-def _write_series(folder: Path, name: str, series_id: int, description: str) -> Path:
+def _write_series(
+    folder: Path,
+    name: str,
+    series_id: int,
+    description: str,
+    image_type: str | None = None,
+    orientation: list[float] | None = None,
+) -> Path:
     """A NIfTI + dcm2niix-style sidecar pair; the NIfTI content is irrelevant to discovery."""
     folder.mkdir(parents=True, exist_ok=True)
     nii = folder / f"{name}.nii.gz"
     nii.touch()
-    (folder / f"{name}.json").write_text(
-        f'{{"SeriesNumber": {series_id}, "SeriesDescription": "{description}"}}'
-    )
+    sidecar = {"SeriesNumber": series_id, "SeriesDescription": description}
+    if image_type is not None:
+        sidecar["ImageType"] = ["ORIGINAL", "PRIMARY", "OTHER", image_type]
+    if orientation is not None:
+        sidecar["ImageOrientationPatientDICOM"] = orientation
+    (folder / f"{name}.json").write_text(json.dumps(sidecar))
     return nii
+
+
+def _warnings_from(action) -> list[str]:
+    """The WARNING-level log messages emitted while `action` runs."""
+    from loguru import logger
+
+    messages: list[str] = []
+    handler = logger.add(messages.append, level="WARNING")
+    try:
+        action()
+    finally:
+        logger.remove(handler)
+    return messages
 
 
 def test_index_ignores_folder_names(tmp_path):
@@ -86,6 +110,52 @@ def test_index_picks_lowest_suffix_and_warns(tmp_path):
     finally:
         logger.remove(handler)
     assert any("FGRE_i00001" in message for message in messages)
+
+
+def test_magnitude_beats_derived_map_without_warning(tmp_path):
+    """A field map next to its magnitude image is expected, not an ambiguity."""
+    _write_series(tmp_path / "s3", "HOS_fieldmaphz", 3, "HOS", "FIELDMAPHZ")
+    magnitude = _write_series(tmp_path / "s3", "HOS", 3, "HOS", "MAGNITUDE")
+
+    messages = _warnings_from(lambda: file_helpers.index_nifti_series(tmp_path))
+    series = file_helpers.index_nifti_series(tmp_path)[3]
+
+    assert messages == []
+    assert series.nii_path == magnitude
+    assert series.kind == "derived"
+    assert [p.name for p in series.extras] == ["HOS_fieldmaphz.nii.gz"]
+
+
+def test_localizer_planes_pick_axial_without_warning(tmp_path):
+    """One file per slice orientation is a multi-plane series; the axial plane is main."""
+    sag = [0, 1, 0, 0, 0, -1]
+    ax = [1, 0, 0, 0, 1, 0]
+    cor = [1, 0, 0, 0, 0, -1]
+    _write_series(tmp_path / "s1", "loc_i00001", 1, "FGRE", "MAGNITUDE", sag)
+    axial = _write_series(tmp_path / "s1", "loc_i00006", 1, "FGRE", "MAGNITUDE", ax)
+    _write_series(tmp_path / "s1", "loc_i00011", 1, "FGRE", "MAGNITUDE", cor)
+
+    messages = _warnings_from(lambda: file_helpers.index_nifti_series(tmp_path))
+    series = file_helpers.index_nifti_series(tmp_path)[1]
+
+    assert messages == []
+    assert series.nii_path == axial
+    assert series.kind == "multiplane"
+    assert len(series.extras) == 2
+
+
+def test_index_is_cached_until_folder_changes(tmp_path):
+    """The folder is scanned once; a new series invalidates the cached index."""
+    _write_series(tmp_path / "s8", "a_i00001", 8, "X")
+    _write_series(tmp_path / "s8", "a_i00006", 8, "X")
+
+    first = _warnings_from(lambda: file_helpers.index_nifti_series(tmp_path))
+    again = _warnings_from(lambda: file_helpers.index_nifti_series(tmp_path))
+    assert len(first) == 1
+    assert again == []
+
+    _write_series(tmp_path / "s9", "b", 9, "Y")
+    assert list(file_helpers.index_nifti_series(tmp_path)) == [8, 9]
 
 
 def test_missing_series_error_names_the_dcm2niix_command(tmp_path):
