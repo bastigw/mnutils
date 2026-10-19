@@ -84,9 +84,9 @@ rather than auto-applying `ruff format .`.
 ## Gotchas
 
 - **MATLAB Engine version must match the local MATLAB install.** There is no way to pin one
-  version project-wide across contributors' machines — install the `matlabengine` release that
-  matches your MATLAB version (see README), not necessarily the one pinned under
-  `[project.optional-dependencies] 2025a`.
+  version project-wide across contributors' machines, so `matlabengine` is deliberately not in
+  `pyproject.toml` or `uv.lock` — install the release that matches your MATLAB version yourself
+  (see README).
 - **`xmris[fitting]` pulls in pyAMARES.** MNUtils never reimplements fitting logic — extend
   `src/mnutils/fitting/AMARES.py` as a thin wrapper, push algorithmic changes upstream to `xmris`.
 - **`hd-bet`/`torch` are optional** (`bet` extra) — brain extraction code must not be imported

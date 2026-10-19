@@ -1710,12 +1710,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "matlabengine"
-version = "26.2.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e4/a2/3bd28ebb8d94c6af19de1049c3645cb2b7b306951cc44e11b3727a19a807/matlabengine-26.2.4.tar.gz", hash = "sha256:0d8e2476a02d370a689f6de7ad79cfd1ea4392d6d5dbd2a9d8a97adc0c320475", size = 21160, upload-time = "2026-10-01T20:32:45.598Z" }
-
-[[package]]
 name = "matplotlib"
 version = "3.11.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1837,9 +1831,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-2025a = [
-    { name = "matlabengine" },
-]
 bet = [
     { name = "hd-bet" },
     { name = "torch" },
@@ -1867,7 +1858,6 @@ requires-dist = [
     { name = "ipython", specifier = ">=8.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mat73", git = "https://github.com/skjerns/mat7.3" },
-    { name = "matlabengine", marker = "extra == '2025a'", specifier = ">=25.1,<26.3" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "nibabel", specifier = ">=5.3.2" },
     { name = "nmrglue", specifier = ">=0.11" },
@@ -1878,7 +1868,7 @@ requires-dist = [
     { name = "xarray", specifier = ">=2025.6.1" },
     { name = "xmris", extras = ["fitting"], git = "https://github.com/andrewendlinger/xmris.git" },
 ]
-provides-extras = ["2025a", "bet"]
+provides-extras = ["bet"]
 
 [package.metadata.requires-dev]
 dev = [

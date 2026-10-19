@@ -38,7 +38,6 @@ Optional extras:
 
 ```bash
 uv add "mnutils[bet]"     # brain extraction (hd-bet, torch)
-uv add "mnutils[2025a]"   # MATLAB Engine pinned to MATLAB 2025a
 ```
 
 To track the development version instead:
@@ -47,10 +46,8 @@ To track the development version instead:
 uv add git+https://github.com/bastigw/mnutils.git
 ```
 
-`2025a` pins `matlabengine==25.1.*`. If your local MATLAB install is a different version, install
-the matching `matlabengine` release yourself instead (see [MATLAB Engine
-Dependency](#matlab-engine-dependency) below) — there's no way to pin one version project-wide
-across contributors' machines.
+The MATLAB Engine is not an extra: its version has to match your local MATLAB install, so you
+install it yourself (see [MATLAB Engine Dependency](#matlab-engine-dependency) below).
 
 ## Usage
 
