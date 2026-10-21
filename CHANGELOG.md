@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-10-21
+
 ### Changed (breaking)
 
 - MNUtils reads NIfTI only. Series are identified from the files, never from folder names: images by
@@ -22,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `RawMRISeries` loads without a `.mat` archive: it warns, sets `mat_path=None`, exposes
+  `has_mat`, and raises a `FileNotFoundError` when `.mat` data is used. `mat_path` is now a real
+  override ([#73](https://github.com/bastigw/mnutils/issues/73)).
 - `file_helpers.index_nifti_series`, `get_all_nifti_series_ids` and `get_mat_archives`.
 
 ### Removed
@@ -97,7 +102,8 @@ First release published to PyPI.
 - Plotting falls back to system sans-serif fonts when Arial is unavailable.
 - Packaged sdist/wheel no longer ships the local `.ruff_cache` lint cache.
 
-[Unreleased]: https://github.com/bastigw/mnutils/compare/v1.2.3...HEAD
+[Unreleased]: https://github.com/bastigw/mnutils/compare/v1.2.4...HEAD
+[1.2.4]: https://github.com/bastigw/mnutils/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/bastigw/mnutils/releases/tag/v1.2.3
 [1.2.2]: https://github.com/bastigw/mnutils/releases/tag/v1.2.2
 [1.2.1]: https://github.com/bastigw/mnutils/releases/tag/v1.2.1
