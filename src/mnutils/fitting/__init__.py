@@ -10,7 +10,7 @@ __all__ = ["AMARES"]
 
 def __getattr__(name: str):
     if name == "AMARES":
-        from . import AMARES
+        from importlib import import_module
 
-        return AMARES
+        return import_module(f"{__name__}.AMARES")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
