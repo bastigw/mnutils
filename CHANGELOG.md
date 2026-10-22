@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-10-22
+
+### Fixed
+
+- `mnutils.fitting.AMARES` no longer raises `RecursionError` on first access; the lazy import now
+  loads the submodule with `importlib.import_module`
+  ([#75](https://github.com/bastigw/mnutils/issues/75)).
+
 ## [1.2.4] - 2026-10-21
 
 ### Changed (breaking)
@@ -102,7 +110,8 @@ First release published to PyPI.
 - Plotting falls back to system sans-serif fonts when Arial is unavailable.
 - Packaged sdist/wheel no longer ships the local `.ruff_cache` lint cache.
 
-[Unreleased]: https://github.com/bastigw/mnutils/compare/v1.2.4...HEAD
+[Unreleased]: https://github.com/bastigw/mnutils/compare/v1.2.5...HEAD
+[1.2.5]: https://github.com/bastigw/mnutils/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/bastigw/mnutils/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/bastigw/mnutils/releases/tag/v1.2.3
 [1.2.2]: https://github.com/bastigw/mnutils/releases/tag/v1.2.2
