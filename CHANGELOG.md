@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Importing `mnutils.matlab` without `matlabengine` installed now raises an `ImportError` that says
+  the package is needed, that its version must match the local MATLAB install, and points at the
+  README, instead of a bare `No module named 'matlab'`
+  ([#20](https://github.com/bastigw/mnutils/issues/20)).
+
 ## [1.3.0] - 2026-11-03
 
 ### Changed (breaking)
