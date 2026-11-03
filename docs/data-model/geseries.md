@@ -339,7 +339,7 @@ washin.plot_washin(group_duration=60)
 # STRICT TESTS: MRSWashinSeries
 assert isinstance(washin, MRSSeries)
 assert washin.spec.dims == ("averages", "chemical_shift")
-assert washin.fit_results == []  # nothing fit yet
+assert washin.fit_results is None  # nothing fit yet
 ```
 
 (data-model-geseries-mrsiseries)=

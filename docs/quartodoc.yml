@@ -50,11 +50,6 @@ quartodoc:
         - utils.spectra
         - plotting.saving
 
-    - title: Fitting
-      desc: Spectral fitting, wrapping xmris/pyAMARES.
-      contents:
-        - fitting.AMARES
-
     - title: MATLAB Bridge
       desc: MATLAB Engine setup and invocation.
       contents:

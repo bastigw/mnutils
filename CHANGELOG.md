@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- `mnutils.fitting` (and `mnutils.fitting.AMARES`) is removed. Fitting goes through
+  [`xmris`](https://github.com/andrewendlinger/xmris) `fit_amares`; `MRSSeries.fit_average_fid`,
+  `MRSWashinSeries.fit_grouped_by_duration`, `MRSISeries.fit_single_voxel` and
+  `MRSISeries.fit_all_voxels` now take `prior_knowledge` (a mapping, DataFrame or CSV path) instead
+  of `init_params`/`fit_params`, and return the `xmris` `xr.Dataset`. `fit_all_voxels` stores it as
+  `fit_results` and no longer writes an HDF5 file or returns bad-fit ids; `goodness_of_fit_maps` now
+  holds `residual_rms` and `fit_status`. `filter_by_ppm` and the `extract_from_fit_results` /
+  `save_extracted_results` helpers are gone
+  ([#80](https://github.com/bastigw/mnutils/issues/80)).
+- Exams no longer print the series overview table on creation; pass `show_overview=True` to get it
+  back ([#83](https://github.com/bastigw/mnutils/issues/83)).
+
 ## [1.2.5] - 2026-10-22
 
 ### Fixed

@@ -1,48 +1,52 @@
 (diary-deprecate-amares-wrapper)=
 # Two AMARES front ends, one engine: delete ours
 
-<span style="color: gray; font-size: 0.9em;">Last edited: 2026-11-03</span>
+<span style="color: gray; font-size: 0.9em;">Last edited: 2026-11-03 · #80</span>
 
-`mnutils.fitting.AMARES` is ~830 lines wrapping pyAMARES. `xmris` now ships its own front end,
+`mnutils.fitting.AMARES` was ~830 lines wrapping pyAMARES. `xmris` ships its own front end,
 `xmris.fitting.fit_amares`, over the same engine — batch, parallel, domain-preserving, with a
-`fit_status` flag. So there are two sets of defaults (`method`, `num_workers`, `g_global`,
-`ppm_offset` all differ) and two result formats, and one of them is MNUtils-side upkeep for logic
-`CLAUDE.md` says belongs upstream. Keep both and they drift apart; the question is whether to
+`fit_status` flag. Two wrappers meant two sets of defaults (`method`, `num_workers`, `g_global`,
+`ppm_offset` all differed) and two result formats, and one of them was MNUtils-side upkeep for logic
+`CLAUDE.md` says belongs upstream. Keep both and they drift apart; the question was whether to
 soften the exit or just take it.
 
 :::{important}
-`GESeries` moves onto `xmris.fit_amares` and returns its `xr.Dataset`; `mnutils.fitting.AMARES` is
-deleted outright in the same change — no deprecation cycle, no shims.
+`GESeries` fits through `xmris.fit_amares` and returns its `xr.Dataset`; `mnutils.fitting` is deleted
+outright — no deprecation cycle, no shims.
 :::
 
 (diary-deprecate-amares-wrapper-shape)=
-## Shape: migrate the callers, then delete
+## Shape: the series hand over FIDs, xmris does the rest
 
-```{mermaid}
-flowchart LR
-    A["1. gap analysis<br>(AMARES.py vs xmris)"] --> B["2. upstream gaps<br>to xmris"]
-    B --> C["3. GESeries fits<br>via fit_amares"]
-    C --> D["4. delete AMARES.py<br>and its docs/tests"]
-```
+A series already carries `reference_frequency` and `carrier_ppm` on its FIDs, so the only thing a
+caller supplies is `prior_knowledge`. The rest of the old surface either has a direct xmris
+equivalent or went away with it.
 
-Anything xmris lacks (ppm filtering, the fit plot) is pushed upstream rather than carried here, so
-the gap analysis decides whether step 4 can happen in this change or waits on an xmris release.
-
-| Old (`fitting.AMARES`) | New |
+| Old (`fitting.AMARES`) | Now |
 |---|---|
-| `fit_single_fid`, `fit_multiple_fids` | `fit_amares` (single voxel = length-1 dim) |
-| `extract_from_fit_results`, `FitResults` | the returned `xr.Dataset` |
+| `fit_single_fid`, `fit_multiple_fids` | `fit_amares` via `fit_average_fid`, `fit_single_voxel`, `fit_all_voxels`, `fit_grouped_by_duration` |
+| `extract_from_fit_results`, `FitResults` | the returned `xr.Dataset` (`fit_results` on the series) |
 | `priorknowledge_to_multiindex` and inverse | `build_prior_knowledge` |
-| `save/load_extracted_results` (HDF5) | `to_netcdf` / `from_netcdf`; old HDF5 files are not readable |
-| `GESeries.snr` via `pyAMARES.fidSNR` | xmris SNR |
+| `save/load_extracted_results` (HDF5) | none; old HDF5 files are not readable. `save_processed_data` still writes the voxel maps |
+| `plot_amares_fitting`, table helpers | none; to come back upstream in xmris if wanted |
+| `filter_by_ppm`, `bad_fit_chisqr_threshold` | none |
 
 ```python
-# the call site we want: no mnutils.fitting import at all
-series = GESeries.load(...)
-ds = series.fit_all_voxels(prior_knowledge)     # an xr.Dataset
+mrsi = MRSISeries(DATA_FOLDER, 8)
+ds = mrsi.fit_all_voxels(prior_knowledge)  # an xr.Dataset on the full (i, j, k) grid
 ds["amplitude"].sel(metabolite="PCr")
-ds.where(ds.fit_status)                          # failed fits masked, not silently kept
+ds["fit_status"]  # 0 fitted, 1 no signal, 2 failed; unfitted voxels are NaN
 ```
+
+`fitted_metabolite_maps` and `goodness_of_fit_maps` survive as plain arrays derived from the
+Dataset, because plotting and `save_processed_data` read them. The goodness-of-fit maps are now
+`residual_rms` and `fit_status`, since xmris reports no chi-squared.
+
+:::{warning}
+`fit_all_voxels` defaults to `num_workers=-1`. xmris defaults to 1 (in-process), which took ~80 s
+for 100 voxels against ~8 s on a pool. A grid is where a pool pays, so the series overrides it;
+single-spectrum fits keep the xmris default.
+:::
 
 :::{dropdown} Why not keep our wrapper and just fix the defaults?
 It is the cheapest option, but it leaves two front ends to keep in step with every pyAMARES release,
@@ -51,13 +55,17 @@ which is the cost this change exists to remove.
 
 :::{dropdown} Why not a deprecation cycle first?
 It would protect users with scripts calling `fit_single_fid` or holding old HDF5 results. There are
-none: the maintainer is the only user, and will migrate their own scripts. A warning cycle would
-cost a release and keep the old code alive for nobody. New users never see the old API.
+none: the maintainer is the only user, and migrates their own scripts. A warning cycle would cost a
+release and keep the old code alive for nobody. New users never see the old API.
 :::
 
-:::{attention} Assumptions to verify
-- `fit_amares` reproduces our numbers on the same FID once the differing defaults are matched.
-- Every function in the table has an xmris equivalent, or the gap can be filled upstream.
-- `GESeries` voxel-result maps can be replaced by the Dataset without breaking `plotting`.
-- The removal is breaking, so the release is a minor bump at least; the version is undecided.
-:::
+(diary-deprecate-amares-wrapper-changed)=
+## What changed from the plan
+
+- The plan assumed the fitting docs page could not be an executed tutorial because fits needed a
+  MATLAB Engine. `fids` is now derived from the spectra, so `docs/fitting/index.md` runs on the
+  synthetic exam and is the test of the new path.
+- `SNR_map` still uses `pyAMARES.fidSNR`: xmris has no pre-fit SNR helper, so that one pyAMARES
+  import stays (lazily, inside the property).
+- Dividing an `xr.DataArray` by the normalisation factor drops its attributes, so the series
+  re-attach them before fitting; without `reference_frequency` xmris cannot find `mhz`.

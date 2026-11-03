@@ -7,13 +7,12 @@ from pathlib import Path
 import h5py
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 import xarray as xr
 import xmris  # noqa: F401, necessary for xarray accessor to work
 from loguru import logger
 from nibabel import nifti1, spatialimages
 
-from . import fitting, plotting
+from . import plotting
 from .utils import data_loaders, file_helpers, nifti, spectra
 
 
@@ -730,6 +729,7 @@ class MRSISeries(RawMRISeries):
 
         self.fitted_metabolite_maps: dict = {}
         self.goodness_of_fit_maps: dict = {}
+        self.fit_results: xr.Dataset | None = None
         if load_processed_data:
             self.load_processed_data()
 
@@ -849,59 +849,59 @@ class MRSISeries(RawMRISeries):
         x: int,
         y: int,
         slice: int,
-        init_params: dict,
-        fit_params: dict | None = None,
-    ):
-        """Fit the FID at voxel (x, y, slice) with AMARES."""
-        if fit_params is None:
-            fit_params = {}
+        prior_knowledge,
+        **fit_kwargs,
+    ) -> xr.Dataset:
+        """Fit the FID at voxel (x, y, slice) with AMARES (via ``xmris``).
+
+        Parameters
+        ----------
+        x, y, slice : int
+            Voxel indices.
+        prior_knowledge : Mapping | pandas.DataFrame | str | Path
+            Prior knowledge, forwarded to ``xmris`` ``fit_amares``.
+        **fit_kwargs
+            Further keyword arguments for ``fit_amares`` (``method``, ``g_global``, ...).
+
+        Returns
+        -------
+        xarray.Dataset
+            The ``fit_amares`` result for this voxel.
+        """
         fid = self.fids.sel(i=x, j=y, k=slice)
-
-        # Include series information in init_params
-        passed_init_params = {
-            "MHz": self.centre_frequency,
-            "sw": self.bandwidth,
-            "deadtime": self.deadtime,
-        }
-        passed_init_params.update(init_params)
-
-        fit_result = fitting.AMARES.fit_single_fid(
-            fid,
-            passed_init_params,
-            fit_params,
-        )
-        return fit_result
+        return fid.xmr.fit_amares(prior_knowledge, **fit_kwargs)
 
     def fit_all_voxels(
         self,
-        init_params: dict,
-        batch_fitting_params: dict | None = None,
-        bad_fit_chisqr_threshold: float = -1.0,
+        prior_knowledge,
+        snr_threshold: float = 1.5,
         testing_mode: bool = False,
-    ) -> npt.NDArray:
+        **fit_kwargs,
+    ) -> xr.Dataset:
         """Fit all voxels above the SNR threshold with AMARES and store the maps.
 
         Parameters
         ----------
-        init_params : dict
-            Initial fit parameters, merged with series-derived MHz/sw/deadtime.
-        batch_fitting_params : dict, optional
-            Forwarded to ``fitting.AMARES.fit_multiple_fids``.
-        bad_fit_chisqr_threshold : float, optional
-            Chi-squared threshold above which a fit is flagged as bad. Defaults to -1.0
-            (disabled).
+        prior_knowledge : Mapping | pandas.DataFrame | str | Path
+            Prior knowledge, forwarded to ``xmris`` ``fit_amares``.
+        snr_threshold : float, optional
+            Voxels with ``SNR_map`` below this are not fitted. Defaults to 1.5.
         testing_mode : bool, optional
             If True, limit fitting to the first 100 voxels above the SNR threshold.
+        **fit_kwargs
+            Further keyword arguments for ``fit_amares`` (``method``, ``g_global``, ...).
+            ``num_workers`` defaults to ``-1`` (every core) here, unlike ``xmris``'s
+            in-process default of 1, because a voxel grid is exactly where a pool pays off.
 
         Returns
         -------
-        numpy.ndarray
-            Flattened voxel indices of fits flagged as bad.
+        xarray.Dataset
+            The ``fit_amares`` result on the full ``(i, j, k)`` grid; voxels that were not
+            fitted are NaN. Also stored as ``fit_results`` and summarised in
+            ``fitted_metabolite_maps`` and ``goodness_of_fit_maps``.
         """
-        if batch_fitting_params is None:
-            batch_fitting_params = {}
-        SNR_mask = self.get_SNR_mask()
-        # If in testing mode, limit to first 100 voxels with SNR above threshold
+        grid = ("i", "j", "k")
+        SNR_mask = self.get_SNR_mask(snr_threshold)
         if testing_mode:
             flat_SNR_mask = SNR_mask.stack(voxel=SNR_mask.dims)
             indices = np.where(flat_SNR_mask)[0][:100]
@@ -909,69 +909,28 @@ class MRSISeries(RawMRISeries):
             SNR_mask[indices] = True
             SNR_mask = SNR_mask.unstack("voxel")
 
-        # Include series information in init_params
-        passed_init_params = {
-            "MHz": self.centre_frequency,
-            "sw": self.bandwidth,
-            "deadtime": self.deadtime,
-        }
-        passed_init_params.update(init_params)
-
-        results = fitting.AMARES.fit_multiple_fids(
-            self.fids.where(SNR_mask).stack(voxel=SNR_mask.dims).dropna("voxel"),
-            batch_fitting_params=batch_fitting_params,
-            init_params=passed_init_params,
+        fit_kwargs.setdefault("num_workers", -1)
+        stacked = self.fids.where(SNR_mask).stack(voxel=SNR_mask.dims).dropna("voxel")
+        # fit_amares stacks the non-time dims itself, so hand it a plain voxel dim
+        fitted = stacked.reset_index("voxel").xmr.fit_amares(prior_knowledge, **fit_kwargs)
+        results = (
+            fitted.set_index(voxel=list(grid))
+            .unstack("voxel")
+            .reindex(i=self.fids["i"], j=self.fids["j"], k=self.fids["k"])
         )
+        self.fit_results = results
 
-        # Extract results back into original shape
-        extracted_results = fitting.AMARES.extract_from_fit_results(
-            results, bad_fit_chisqr_threshold
+        amplitude = results["amplitude"]
+        for metabolite in amplitude["metabolite"].values:
+            self.fitted_metabolite_maps[str(metabolite)] = (
+                amplitude.sel(metabolite=metabolite).transpose(*grid).to_numpy()
+            )
+        residual_rms = np.sqrt((np.abs(results["residuals"]) ** 2).mean("time"))
+        self.goodness_of_fit_maps["residual_rms"] = residual_rms.transpose(*grid).to_numpy()
+        self.goodness_of_fit_maps["fit_status"] = (
+            results["fit_status"].transpose(*grid).astype(float).to_numpy()
         )
-
-        # Save extracted results into processing data folder with additional attributes
-        additional_attributes: dict[str, str | int] = {
-            "SERIES_ID": self.SERIES_ID,
-            "exam_number": self.exam_number,
-            "ACQUISITION_TIME": self.scan_datetime.isoformat(),
-            "SAVED_ON": datetime.now().isoformat(),
-        }
-        additional_datasets = {
-            "SNR_mask": SNR_mask.values,
-        }
-
-        fitting.AMARES.save_extracted_results(
-            self.OUTPUT_FOLDER
-            / "processing_data"
-            / "dev"
-            / f"Series{self.SERIES_ID:02d}_extracted_results.h5",
-            extracted_results,
-            additional_attributes,
-            additional_datasets=additional_datasets,
-            prepend_datetime=True,
-        )
-
-        combined_fit_results = extracted_results.combined_fit_results
-        fitted_metabolites_temp = np.full((*self.dims, combined_fit_results.columns.size), np.nan)
-        fitted_metabolites_temp[SNR_mask] = combined_fit_results.loc[
-            (slice(None), "amplitude", "value"), :
-        ].to_numpy()
-        for i, metabolite in enumerate(combined_fit_results.columns):
-            self.fitted_metabolite_maps[metabolite] = fitted_metabolites_temp[:, :, :, i]
-
-        goodness_of_fit = extracted_results.goodness_of_fit
-        gof_metrics_temp = np.full((*self.dims, goodness_of_fit.columns.size), np.nan)
-        gof_metrics_temp[SNR_mask] = goodness_of_fit.to_numpy()
-        for i, metric in enumerate(goodness_of_fit.columns):
-            self.goodness_of_fit_maps[metric] = gof_metrics_temp[:, :, :, i]
-
-        # The badfit_ids correspond to the flattened indices of the fitted voxels
-        # Create mapping from badfit_ids to original voxel flattened indices
-        if extracted_results.badfit_ids.size == 0:
-            original_badfit_ids = np.array([], dtype=int)
-        else:
-            original_badfit_ids = np.where(SNR_mask.flatten())[0][extracted_results.badfit_ids]
-
-        return original_badfit_ids
+        return results
 
     def save_processed_data(self, output_folder: Path | None = None) -> Path:
         """Save fitted maps, FIDs, and identifying attributes to an HDF5 file.
@@ -1515,15 +1474,27 @@ class MRSSeries(RawMRISeries):
 
     def fit_average_fid(
         self,
-        init_params: dict,
-        fit_params: dict | None = None,
+        prior_knowledge,
         normalisation_factor: np.complexfloating | None = None,
-        filter_by_ppm: tuple[float, float] | None = None,
-    ):
-        """Fit the averaged FID (avg_fid) with AMARES, normalizing it first."""
-        if fit_params is None:
-            fit_params = {}
-        # Normalize avg_fid
+        **fit_kwargs,
+    ) -> xr.Dataset:
+        """Fit the averaged FID (avg_fid) with AMARES (via ``xmris``), normalizing it first.
+
+        Parameters
+        ----------
+        prior_knowledge : Mapping | pandas.DataFrame | str | Path
+            Prior knowledge, forwarded to ``xmris`` ``fit_amares``.
+        normalisation_factor : complex, optional
+            Scaling shared across series so amplitudes are comparable. Defaults to the
+            maximum of the averaged FID, with a warning.
+        **fit_kwargs
+            Further keyword arguments for ``fit_amares``.
+
+        Returns
+        -------
+        xarray.Dataset
+            The ``fit_amares`` result.
+        """
         if normalisation_factor is None:
             scaling_factor = np.max(self.avg_fid) * self.number_of_excitations
             logger.warning(
@@ -1538,16 +1509,8 @@ class MRSSeries(RawMRISeries):
             f"Number of excitations: {self.number_of_excitations}"
         )
 
-        avg_fid = self.avg_fid / scaling_factor
-
-        fit_result = fitting.AMARES.fit_single_fid(
-            avg_fid,
-            init_params,
-            fit_params,
-            raw_header=self.header,
-            filter_by_ppm=filter_by_ppm,
-        )
-        return fit_result
+        avg_fid = (self.avg_fid / scaling_factor).assign_attrs(self.avg_fid.attrs)
+        return avg_fid.xmr.fit_amares(prior_knowledge, **fit_kwargs)
 
 
 class MRSWashinSeries(MRSSeries):
@@ -1555,19 +1518,7 @@ class MRSWashinSeries(MRSSeries):
 
     def __init__(self, DATA_FOLDER: Path, SERIES_ID: int) -> None:
         super().__init__(DATA_FOLDER, SERIES_ID)
-        self.fit_results: list = []
-
-    @property
-    def extracted_results(self):
-        """The fit results extracted into a FitResults, or an empty one if unfit."""
-        if not self.fit_results:
-            logger.info(
-                "No fit results present. Please run fit_grouped_by_duration() "
-                "first. Returning empty results."
-            )
-            return fitting.AMARES.FitResults(np.asarray([]), pd.DataFrame(), pd.DataFrame())
-        else:
-            return self.extract_from_fit_results()
+        self.fit_results: xr.Dataset | None = None
 
     def plot_washin(self, **kwargs):
         """Plot the duration-averaged spectra, one line per minute."""
@@ -1581,14 +1532,19 @@ class MRSWashinSeries(MRSSeries):
 
     def fit_grouped_by_duration(
         self,
-        init_params: dict,
-        fit_params: dict | None = None,
+        prior_knowledge,
         normalisation_factor: np.complexfloating | None = None,
         group_duration: int = 60,
-    ) -> list:
-        """Average FIDs by duration and fit each group's FID with AMARES."""
-        if fit_params is None:
-            fit_params = {}
+        **fit_kwargs,
+    ) -> xr.Dataset:
+        """Average FIDs by duration and fit all groups with AMARES (via ``xmris``).
+
+        Returns
+        -------
+        xarray.Dataset
+            The ``fit_amares`` result, with one entry per duration group along the group
+            dimension. Also stored as ``fit_results``.
+        """
         if normalisation_factor is None:
             logger.warning(
                 "No normalisation_factor provided. This can lead to different "
@@ -1610,33 +1566,6 @@ class MRSWashinSeries(MRSSeries):
             f"Number of excitations: {self.number_of_excitations}"
         )
 
-        fit_results = []
-        for idx in range(averaged_fids.shape[0]):
-            fid = averaged_fids[idx, :]
-            # Normalize fid
-            fid = fid / scaling_factor
-
-            fit_result = fitting.AMARES.fit_single_fid(
-                fid,
-                init_params,
-                fit_params,
-                raw_header=self.header,
-            )
-            fit_results.append(fit_result)
-
-        self.fit_results = fit_results
-        return fit_results
-
-    def extract_from_fit_results(
-        self, index_key: str = "group_id", index_values: list | None = None
-    ) -> fitting.AMARES.FitResults:
-        """Restructure self.fit_results into a combined FitResults."""
-        restructured_results = []
-        for res in self.fit_results:
-            data = (res.result_multiplets, res.out_obj)
-            restructured_results.append(data)
-
-        extracted_results = fitting.AMARES.extract_from_fit_results(
-            restructured_results, index_key=index_key, index_values=index_values
-        )
-        return extracted_results
+        scaled_fids = (averaged_fids / scaling_factor).assign_attrs(averaged_fids.attrs)
+        self.fit_results = scaled_fids.xmr.fit_amares(prior_knowledge, **fit_kwargs)
+        return self.fit_results

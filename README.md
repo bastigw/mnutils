@@ -80,8 +80,8 @@ already know a series's type, construct it directly (e.g. `MRSSeries(DATA_FOLDER
 the exam-level overview entirely.
 
 From there, spectral fitting is handled by [**xmris**](https://github.com/andrewendlinger/xmris)
-— MNUtils deliberately doesn't reimplement fitting, it wraps xmris's AMARES implementation
-(itself built on pyAMARES) so a series's spectrum can go straight into a fit:
+— MNUtils deliberately doesn't reimplement fitting, a series hands its FIDs straight to xmris's
+AMARES implementation (itself built on pyAMARES) and returns the xmris result:
 
 ```bash
 uv add "xmris[fitting]"
