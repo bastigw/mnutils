@@ -99,9 +99,10 @@ series. Need a raw `.mat` file's path directly instead of a loaded object?
 
 ## MATLAB Engine Dependency
 
-To use MNUtils, you need to install the MATLAB Engine for Python. The version of the MATLAB Engine
-you require depends on your local MATLAB version. Ensure you install the correct version that
-matches your MATLAB installation.
+Reading raw scanner archives goes through MATLAB, so those features need the MATLAB Engine for
+Python; everything else works without it, and the error you get when it is missing points back to
+this section. The version of the MATLAB Engine you require depends on your local MATLAB version.
+Ensure you install the correct version that matches your MATLAB installation.
 
 You can find the appropriate MATLAB Engine version for your setup here: [MATLAB Engine for
 Python](https://pypi.org/project/matlabengine/#history).

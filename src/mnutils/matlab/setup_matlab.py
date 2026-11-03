@@ -1,7 +1,18 @@
 import os
 
-import matlab.engine
 from loguru import logger
+
+try:
+    import matlab.engine
+except ImportError as e:
+    # matlabengine is deliberately not a package dependency: the right release is tied to the
+    # local MATLAB install. Say so, instead of a bare "No module named 'matlab'".
+    raise ImportError(
+        "MNUtils' MATLAB features need the `matlabengine` package, matching the version of your "
+        f"local MATLAB install, but `import matlab.engine` failed ({e}). Install it with "
+        '`uv add "matlabengine==<version>"` -- see the "MATLAB Engine Dependency" section of the '
+        "README for how to pick the version."
+    ) from e
 
 
 def connect_to_matlab() -> matlab.engine.MatlabEngine:
