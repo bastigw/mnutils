@@ -19,7 +19,7 @@ matplotlib's::
 
 from importlib.metadata import PackageNotFoundError, version
 
-from . import GEExam, GESeries, fitting, plotting, testing, utils
+from . import GEExam, GESeries, plotting, testing, utils
 from .GEExam import DMIExam, DMIinjExam, ExamBase, MS_DMIExam
 from .GESeries import (
     MRISeries,
@@ -40,7 +40,6 @@ __all__ = [
     # subpackages / modules
     "GEExam",
     "GESeries",
-    "fitting",
     "plotting",
     "testing",
     "utils",

@@ -33,7 +33,6 @@ SUBMODULES = [
     "mnutils.GESeries",
     "mnutils.plotting",
     "mnutils.utils",
-    "mnutils.fitting",
 ]
 
 

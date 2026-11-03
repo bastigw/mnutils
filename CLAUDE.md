@@ -87,8 +87,9 @@ rather than auto-applying `ruff format .`.
   version project-wide across contributors' machines, so `matlabengine` is deliberately not in
   `pyproject.toml` or `uv.lock` — install the release that matches your MATLAB version yourself
   (see README).
-- **`xmris[fitting]` pulls in pyAMARES.** MNUtils never reimplements fitting logic — extend
-  `src/mnutils/fitting/AMARES.py` as a thin wrapper, push algorithmic changes upstream to `xmris`.
+- **`xmris[fitting]` pulls in pyAMARES.** MNUtils never reimplements fitting logic — the series
+  classes call `xmris`'s `fit_amares` directly (there is no `mnutils.fitting` module); push
+  algorithmic changes upstream to `xmris`.
 - **`hd-bet`/`torch` are optional** (`bet` extra) — brain extraction code must not be imported
   eagerly at package import time, so a bare `uv sync` (no extras) stays usable.
 - **Notebook outputs are stripped via the `nbstripout` git filter**, declared in `.gitattributes`
