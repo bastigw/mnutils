@@ -48,14 +48,15 @@ DATA_FOLDER = build_fake_exam("brain_mrs_mrsi_exam")
 
 `BASE_FOLDER` is the exam's top-level folder; `ExamBase` looks for a `data/` subfolder inside it
 by default (override with `DATA_FOLDER=` if your layout differs). On init it indexes every series'
-NIfTI and raw-data presence and prints an overview — useful on its own when you've
-forgotten what's in a dataset.
+NIfTI and raw-data presence. The overview table stays quiet by default, so loading several
+exams doesn't flood your notebook; pass `show_overview=True` to print it on init — useful on its
+own when you've forgotten what's in a dataset.
 
 ```{code-cell} ipython3
-exam = ExamBase(DATA_FOLDER)
+exam = ExamBase(DATA_FOLDER, show_overview=True)
 ```
 
-That overview is also available as a DataFrame, and `series_dict` shows the classification
+The overview is always available as a DataFrame (`print(exam)` renders it as text), and `series_dict` shows the classification
 `ExamBase` settled on _before_ loading anything — nothing here has touched a NIfTI's pixel data
 yet.
 

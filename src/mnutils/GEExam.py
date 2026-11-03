@@ -29,6 +29,7 @@ class ExamBase:
         BASE_FOLDER: str | Path,
         DATA_FOLDER: str | Path | None = None,
         OUTPUT_FOLDER: str | Path | None = None,
+        show_overview: bool = False,
     ) -> None:
         self.BASE_FOLDER = Path(BASE_FOLDER)
         if DATA_FOLDER is None:
@@ -42,7 +43,9 @@ class ExamBase:
         else:
             self.OUTPUT_FOLDER = Path(OUTPUT_FOLDER)
 
-        self.exam_overview = file_helpers.get_exam_overview(self.DATA_FOLDER, print_overview=True)
+        self.exam_overview = file_helpers.get_exam_overview(
+            self.DATA_FOLDER, print_overview=show_overview
+        )
         self.series = self.exam_overview.index.tolist()
         self.series_dict = self._create_series_dict()
 
@@ -170,8 +173,9 @@ class DMIExam(ExamBase):
         DATA_FOLDER: str | Path | None = None,
         OUTPUT_FOLDER: str | Path | None = None,
         ANATOMICAL_series: str | int | None = None,
+        show_overview: bool = False,
     ) -> None:
-        super().__init__(BASE_FOLDER, DATA_FOLDER, OUTPUT_FOLDER)
+        super().__init__(BASE_FOLDER, DATA_FOLDER, OUTPUT_FOLDER, show_overview)
 
         if isinstance(ANATOMICAL_series, int):
             self.ANATOMICAL_series = ANATOMICAL_series
@@ -248,9 +252,10 @@ class MS_DMIExam(DMIExam):
         DATA_FOLDER: str | Path | None = None,
         OUTPUT_FOLDER: str | Path | None = None,
         ANATOMICAL_series: str | int | None = None,
+        show_overview: bool = False,
     ) -> None:
-        super().__init__(BASE_FOLDER, DATA_FOLDER, OUTPUT_FOLDER, ANATOMICAL_series)
-        logger.info("MS DMI Exam initialized.")
+        super().__init__(BASE_FOLDER, DATA_FOLDER, OUTPUT_FOLDER, ANATOMICAL_series, show_overview)
+        logger.debug("MS DMI Exam initialized.")
 
         self.MRSI: GESeries.MRSISeries
         self.pre_MRS: GESeries.MRSSeries
@@ -309,8 +314,9 @@ class DMIinjExam(DMIExam):
         DATA_FOLDER: str | Path | None = None,
         OUTPUT_FOLDER: str | Path | None = None,
         ANATOMICAL_series: str | int | None = None,
+        show_overview: bool = False,
     ) -> None:
-        super().__init__(BASE_FOLDER, DATA_FOLDER, OUTPUT_FOLDER, ANATOMICAL_series)
+        super().__init__(BASE_FOLDER, DATA_FOLDER, OUTPUT_FOLDER, ANATOMICAL_series, show_overview)
 
         self.WASHIN_series = self._ids_with_description("MRS_washin")[0]
 
@@ -322,7 +328,7 @@ class DMIinjExam(DMIExam):
             self.MRSI_series, self.WASHIN_series, "MRSI"
         )
 
-        logger.info("DMI Intravenous Injection Exam initialized.")
+        logger.debug("DMI Intravenous Injection Exam initialized.")
 
         self.washin: GESeries.MRSWashinSeries
         self.pre_MRS: GESeries.MRSSeries
